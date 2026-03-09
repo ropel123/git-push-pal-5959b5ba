@@ -10,9 +10,15 @@ const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
 
 function cleanBrackets(val: string | null): string | null {
   if (!val || typeof val !== "string") return val;
-  // Remove wrapping ["..."] from stringified arrays
-  const match = val.match(/^\["(.*)"\]$/s);
-  return match ? match[1] : val;
+  const trimmed = val.trim();
+  // Try to parse JSON arrays like '["value"]'
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.length > 0) return String(parsed[0]);
+    } catch { /* not JSON */ }
+  }
+  return val;
 }
 
 function extractField(notice: any, field: string): string | null {
