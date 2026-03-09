@@ -230,6 +230,39 @@ export type Database = {
         }
         Relationships: []
       }
+      scrape_logs: {
+        Row: {
+          errors: string | null
+          finished_at: string | null
+          id: string
+          items_found: number | null
+          items_inserted: number | null
+          source: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          errors?: string | null
+          finished_at?: string | null
+          id?: string
+          items_found?: number | null
+          items_inserted?: number | null
+          source: string
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          errors?: string | null
+          finished_at?: string | null
+          id?: string
+          items_found?: number | null
+          items_inserted?: number | null
+          source?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       tenders: {
         Row: {
           buyer_name: string | null
@@ -247,6 +280,7 @@ export type Database = {
           reference: string | null
           region: string | null
           source: string | null
+          source_url: string | null
           status: Database["public"]["Enums"]["tender_status"] | null
           title: string
           updated_at: string | null
@@ -267,6 +301,7 @@ export type Database = {
           reference?: string | null
           region?: string | null
           source?: string | null
+          source_url?: string | null
           status?: Database["public"]["Enums"]["tender_status"] | null
           title: string
           updated_at?: string | null
@@ -287,6 +322,7 @@ export type Database = {
           reference?: string | null
           region?: string | null
           source?: string | null
+          source_url?: string | null
           status?: Database["public"]["Enums"]["tender_status"] | null
           title?: string
           updated_at?: string | null
