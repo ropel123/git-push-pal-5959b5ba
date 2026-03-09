@@ -6,30 +6,32 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
+// TED API v3 - no auth required for search
+const TED_API_BASE = "https://ted.europa.eu/api/v3.0/notices/search";
 
 function normalizeTedToTender(notice: any) {
-  const publication = notice.publicationDate || notice.publication_date;
-  const deadline = notice.submissionDeadline || notice.deadline;
-  const buyer = notice.buyer || notice.organisation || {};
-  const cpvCodes = notice.cpvCodes || notice.cpv || [];
+  // TED search results have fields based on what we request
+  const content = notice.CONTENT || notice.content || {};
+  const pubNumber = notice["publication-number"] || notice.publicationNumber || notice.id || "";
+  const title = notice["notice-title"] || notice.title || content.title || "Sans titre";
+  const buyerName = notice["buyer-name"] || content.buyerName || null;
 
   return {
-    title: notice.title?.trim() || notice.titleText || "Sans titre",
-    reference: notice.noticeId || notice.tedNoticeId || notice.id,
+    title: Array.isArray(title) ? title[0] : title,
+    reference: pubNumber,
     source: "ted",
-    source_url: `https://ted.europa.eu/en/notice/-/${notice.noticeId || notice.id}`,
-    buyer_name: buyer.officialName || buyer.name || null,
-    buyer_siret: null, // TED doesn't use SIRET
-    object: notice.description || notice.shortDescription || null,
-    procedure_type: notice.procedureType || null,
+    source_url: `https://ted.europa.eu/en/notice/-/${pubNumber}`,
+    buyer_name: Array.isArray(buyerName) ? buyerName[0] : buyerName,
+    buyer_siret: null,
+    object: null,
+    procedure_type: notice["procedure-type"] || null,
     department: null,
-    region: notice.placeOfPerformance?.region || notice.nuts?.join(", ") || null,
-    publication_date: publication || null,
-    deadline: deadline || null,
-    estimated_amount: notice.estimatedValue?.amount || notice.totalValue?.amount || null,
-    cpv_codes: Array.isArray(cpvCodes) ? cpvCodes : [cpvCodes].filter(Boolean),
-    lots: notice.lots || [],
+    region: null,
+    publication_date: notice["publication-date"] || null,
+    deadline: notice["submission-deadline"] || null,
+    estimated_amount: null,
+    cpv_codes: [],
+    lots: [],
     status: "open" as const,
     updated_at: new Date().toISOString(),
   };
@@ -47,7 +49,7 @@ Deno.serve(async (req) => {
   const logId = crypto.randomUUID();
   let itemsFound = 0;
   let itemsInserted = 0;
-  let errors: string[] = [];
+  const errors: string[] = [];
 
   try {
     await supabase.from("scrape_logs").insert({
@@ -59,25 +61,27 @@ Deno.serve(async (req) => {
     // Search for French notices published in the last 24h
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = yesterday.toISOString().split("T")[0];
-    const today = new Date().toISOString().split("T")[0];
+    const dateStr = yesterday.toISOString().split("T")[0].replace(/-/g, "");
+    const today = new Date().toISOString().split("T")[0].replace(/-/g, "");
 
-    // TED API v3 search query - filter France + recent publications
+    // TED expert query: place of performance = France, recent publication
     const searchPayload = {
-      query: "country=FRA",
+      q: `place-of-performance = FRA AND publication-date >= ${dateStr} AND publication-date <= ${today}`,
       fields: [
-        "title", "noticeId", "publicationDate", "submissionDeadline",
-        "buyer", "description", "procedureType", "cpvCodes",
-        "estimatedValue", "placeOfPerformance", "lots", "nuts"
+        "publication-number",
+        "notice-title",
+        "buyer-name",
+        "publication-date",
+        "submission-deadline",
+        "procedure-type",
+        "notice-type",
       ],
-      pageSize: 100,
+      limit: 100,
       page: 1,
-      scope: "ALL",
-      publicationDateFrom: dateStr,
-      publicationDateTo: today,
+      paginationMode: "PAGE_NUMBER",
     };
 
-    console.log(`[scrape-ted] Searching TED for notices from ${dateStr} to ${today}`);
+    console.log(`[scrape-ted] Searching TED for FR notices from ${dateStr} to ${today}`);
 
     const response = await fetch(TED_API_BASE, {
       method: "POST",
@@ -90,25 +94,27 @@ Deno.serve(async (req) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`TED API returned ${response.status}: ${errorText}`);
+      throw new Error(`TED API returned ${response.status}: ${errorText.substring(0, 500)}`);
     }
 
     const data = await response.json();
-    const notices = data.notices || data.results || data.content || [];
+    const notices = data.notices || data.results || [];
 
     if (!Array.isArray(notices)) {
-      console.log("[scrape-ted] Response structure:", JSON.stringify(data).substring(0, 500));
+      console.log("[scrape-ted] Response keys:", Object.keys(data));
       throw new Error("Unexpected TED API response format");
     }
 
-    itemsFound = notices.length;
-    console.log(`[scrape-ted] Found ${itemsFound} notices`);
+    itemsFound = data.totalNoticeCount || notices.length;
+    console.log(`[scrape-ted] Found ${itemsFound} notices, processing ${notices.length}`);
 
     // Process in batches
     const batchSize = 20;
     for (let i = 0; i < notices.length; i += batchSize) {
       const batch = notices.slice(i, i + batchSize);
-      const tendersToUpsert = batch.map(normalizeTedToTender);
+      const tendersToUpsert = batch.map(normalizeTedToTender).filter((t: any) => t.reference);
+
+      if (tendersToUpsert.length === 0) continue;
 
       const { data: upserted, error } = await supabase
         .from("tenders")
@@ -126,45 +132,27 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Handle pagination if more results
-    const totalPages = data.totalPages || 1;
-    if (totalPages > 1) {
-      console.log(`[scrape-ted] Note: ${totalPages} pages available, only fetched page 1`);
-    }
-
-    await supabase
-      .from("scrape_logs")
-      .update({
-        finished_at: new Date().toISOString(),
-        items_found: itemsFound,
-        items_inserted: itemsInserted,
-        errors: errors.length > 0 ? errors.join("; ") : null,
-        status: errors.length > 0 ? "completed_with_errors" : "completed",
-      })
-      .eq("id", logId);
+    await supabase.from("scrape_logs").update({
+      finished_at: new Date().toISOString(),
+      items_found: itemsFound,
+      items_inserted: itemsInserted,
+      errors: errors.length > 0 ? errors.join("; ") : null,
+      status: errors.length > 0 ? "completed_with_errors" : "completed",
+    }).eq("id", logId);
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        items_found: itemsFound,
-        items_inserted: itemsInserted,
-        errors: errors.length,
-      }),
+      JSON.stringify({ success: true, items_found: itemsFound, items_inserted: itemsInserted, errors: errors.length }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("[scrape-ted] Fatal error:", err);
-
-    await supabase
-      .from("scrape_logs")
-      .update({
-        finished_at: new Date().toISOString(),
-        items_found: itemsFound,
-        items_inserted: itemsInserted,
-        errors: err.message,
-        status: "failed",
-      })
-      .eq("id", logId);
+    await supabase.from("scrape_logs").update({
+      finished_at: new Date().toISOString(),
+      items_found: itemsFound,
+      items_inserted: itemsInserted,
+      errors: err.message,
+      status: "failed",
+    }).eq("id", logId);
 
     return new Response(
       JSON.stringify({ success: false, error: err.message }),

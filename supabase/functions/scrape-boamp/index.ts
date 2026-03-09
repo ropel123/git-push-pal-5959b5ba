@@ -6,61 +6,29 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const BOAMP_API_BASE = "https://api.boamp.fr/avis";
+// BOAMP uses Opendatasoft API v2.1
+const BOAMP_API_BASE = "https://www.boamp.fr/api/explore/v2.1/catalog/datasets/boamp/records";
 
-interface BoampAvis {
-  id: string;
-  idweb: string;
-  dateparution: string;
-  datemiseenligne: string;
-  nomacheteur: string;
-  siretacheteur: string;
-  objet: string;
-  typeamarche: string;
-  typeprocedure: string;
-  departement: string;
-  region: string;
-  datelimitereponse: string;
-  montant: number | null;
-  urlavis: string;
-  reference: string;
-  cpv: string[];
-  lots: any[];
-  nature: string; // "INITIAL", "ATTRIBUTION", "RECTIFICATIF"
-}
-
-function normalizeBoampToTender(avis: any) {
+function normalizeBoampToTender(record: any) {
+  const r = record; // each record is a flat object from ODS API
   return {
-    title: avis.objet || avis.idweb || "Sans titre",
-    reference: avis.idweb || avis.id?.toString(),
+    title: r.objet || r.idweb || "Sans titre",
+    reference: r.idweb,
     source: "boamp",
-    source_url: avis.urlavis || `https://www.boamp.fr/avis/detail/${avis.idweb}`,
-    buyer_name: avis.nomacheteur || null,
-    buyer_siret: avis.siretacheteur || null,
-    object: avis.objet || null,
-    procedure_type: avis.typeprocedure || null,
-    department: avis.departement || null,
-    region: avis.region || null,
-    publication_date: avis.dateparution || avis.datemiseenligne || null,
-    deadline: avis.datelimitereponse || null,
-    estimated_amount: avis.montant || null,
-    cpv_codes: avis.cpv || [],
-    lots: avis.lots || [],
+    source_url: r.url_avis || `https://www.boamp.fr/pages/avis/?q=idweb:${r.idweb}`,
+    buyer_name: r.nomacheteur || null,
+    buyer_siret: null, // SIRET is nested in donnees JSON, not top-level
+    object: r.objet || null,
+    procedure_type: r.procedure_libelle || r.type_procedure || null,
+    department: Array.isArray(r.code_departement) ? r.code_departement[0] : r.code_departement || null,
+    region: null,
+    publication_date: r.dateparution || null,
+    deadline: r.datelimitereponse || null,
+    estimated_amount: null,
+    cpv_codes: r.descripteur_code || [],
+    lots: [],
     status: "open" as const,
     updated_at: new Date().toISOString(),
-  };
-}
-
-function normalizeBoampToAward(avis: any, tenderId: string) {
-  return {
-    tender_id: tenderId,
-    winner_name: avis.titulaire_nom || avis.attributaire || null,
-    winner_siren: avis.titulaire_siren || null,
-    awarded_amount: avis.montant_attribue || avis.montant || null,
-    award_date: avis.dateparution || null,
-    num_candidates: avis.nb_offres || null,
-    contract_duration: avis.duree_marche || null,
-    lots_awarded: avis.lots_attribues || [],
   };
 }
 
@@ -76,60 +44,68 @@ Deno.serve(async (req) => {
   const logId = crypto.randomUUID();
   let itemsFound = 0;
   let itemsInserted = 0;
-  let errors: string[] = [];
+  const errors: string[] = [];
 
   try {
-    // Insert log entry
     await supabase.from("scrape_logs").insert({
       id: logId,
       source: "boamp",
       status: "running",
     });
 
-    // Fetch last 24h of publications from BOAMP API
+    // Fetch notices published yesterday or today
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = yesterday.toISOString().split("T")[0]; // YYYY-MM-DD
+    const dateStr = yesterday.toISOString().split("T")[0];
 
-    // BOAMP API: search by date range
-    const url = `${BOAMP_API_BASE}?date_min=${dateStr}&page_size=100&sort=dateparution:desc`;
-    
-    console.log(`[scrape-boamp] Fetching from: ${url}`);
-    
-    const response = await fetch(url, {
-      headers: { Accept: "application/json" },
-    });
+    // ODS API: filter by dateparution, paginate with offset
+    let offset = 0;
+    const limit = 100;
+    let hasMore = true;
 
-    if (!response.ok) {
-      throw new Error(`BOAMP API returned ${response.status}: ${await response.text()}`);
-    }
+    while (hasMore) {
+      const params = new URLSearchParams({
+        where: `dateparution >= '${dateStr}'`,
+        order_by: "dateparution desc",
+        limit: limit.toString(),
+        offset: offset.toString(),
+      });
 
-    const data = await response.json();
-    const avisList = data.records || data.results || data || [];
-    
-    if (!Array.isArray(avisList)) {
-      console.log("[scrape-boamp] Response structure:", JSON.stringify(data).substring(0, 500));
-      throw new Error("Unexpected BOAMP API response format");
-    }
+      const url = `${BOAMP_API_BASE}?${params}`;
+      console.log(`[scrape-boamp] Fetching: ${url}`);
 
-    itemsFound = avisList.length;
-    console.log(`[scrape-boamp] Found ${itemsFound} notices`);
+      const response = await fetch(url, {
+        headers: { Accept: "application/json" },
+      });
 
-    // Process in batches of 20
-    const batchSize = 20;
-    for (let i = 0; i < avisList.length; i += batchSize) {
-      const batch = avisList.slice(i, i + batchSize);
-      
-      const tendersToUpsert = [];
-      const awardsToProcess = [];
+      if (!response.ok) {
+        throw new Error(`BOAMP API returned ${response.status}: ${await response.text()}`);
+      }
 
-      for (const avis of batch) {
-        const nature = (avis.nature || "").toUpperCase();
+      const data = await response.json();
+      const results = data.results || [];
+      const totalCount = data.total_count || 0;
 
-        if (nature === "ATTRIBUTION") {
-          awardsToProcess.push(avis);
+      if (offset === 0) {
+        itemsFound = totalCount;
+        console.log(`[scrape-boamp] Total notices: ${totalCount}`);
+      }
+
+      if (results.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      // Separate regular notices from attribution notices
+      const tendersToUpsert: any[] = [];
+      const attributions: any[] = [];
+
+      for (const record of results) {
+        const nature = (record.nature || "").toUpperCase();
+        if (nature === "ATTRIBUTION" || nature === "RESULTAT") {
+          attributions.push(record);
         } else {
-          tendersToUpsert.push(normalizeBoampToTender(avis));
+          tendersToUpsert.push(normalizeBoampToTender(record));
         }
       }
 
@@ -141,22 +117,21 @@ Deno.serve(async (req) => {
             onConflict: "reference,source",
             ignoreDuplicates: false,
           })
-          .select("id, reference");
+          .select("id");
 
         if (error) {
           console.error("[scrape-boamp] Upsert error:", error.message);
-          errors.push(`Upsert batch ${i}: ${error.message}`);
+          errors.push(`Upsert offset ${offset}: ${error.message}`);
         } else {
           itemsInserted += upserted?.length || 0;
         }
       }
 
-      // Process award notices - find matching tender by reference
-      for (const avis of awardsToProcess) {
-        const ref = avis.idweb || avis.id?.toString();
-        // Try to find parent tender (attribution references often link to original)
-        const parentRef = avis.reference_avis_initial || ref;
-        
+      // Process attributions - link to parent tender
+      for (const record of attributions) {
+        const parentRef = Array.isArray(record.annonce_lie) ? record.annonce_lie[0] : null;
+        if (!parentRef) continue;
+
         const { data: matchingTender } = await supabase
           .from("tenders")
           .select("id")
@@ -165,24 +140,23 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (matchingTender) {
-          const award = normalizeBoampToAward(avis, matchingTender.id);
-          const { error } = await supabase.from("award_notices").upsert(award, {
-            onConflict: "tender_id",
-          });
-          if (error) {
-            errors.push(`Award insert: ${error.message}`);
-          }
+          await supabase.from("award_notices").upsert({
+            tender_id: matchingTender.id,
+            winner_name: record.titulaire || null,
+            award_date: record.dateparution || null,
+          }, { onConflict: "tender_id" });
 
-          // Update tender status to awarded
           await supabase
             .from("tenders")
             .update({ status: "awarded" })
             .eq("id", matchingTender.id);
         }
       }
+
+      offset += limit;
+      hasMore = offset < totalCount && offset < 1000; // Cap at 1000 per run
     }
 
-    // Update log
     await supabase
       .from("scrape_logs")
       .update({
@@ -195,27 +169,18 @@ Deno.serve(async (req) => {
       .eq("id", logId);
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        items_found: itemsFound,
-        items_inserted: itemsInserted,
-        errors: errors.length,
-      }),
+      JSON.stringify({ success: true, items_found: itemsFound, items_inserted: itemsInserted, errors: errors.length }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("[scrape-boamp] Fatal error:", err);
-
-    await supabase
-      .from("scrape_logs")
-      .update({
-        finished_at: new Date().toISOString(),
-        items_found: itemsFound,
-        items_inserted: itemsInserted,
-        errors: err.message,
-        status: "failed",
-      })
-      .eq("id", logId);
+    await supabase.from("scrape_logs").update({
+      finished_at: new Date().toISOString(),
+      items_found: itemsFound,
+      items_inserted: itemsInserted,
+      errors: err.message,
+      status: "failed",
+    }).eq("id", logId);
 
     return new Response(
       JSON.stringify({ success: false, error: err.message }),
