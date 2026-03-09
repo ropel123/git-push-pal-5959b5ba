@@ -103,9 +103,9 @@ const Tenders = () => {
   const filteredTenders = tenders.filter((t) => {
     const q = search.toLowerCase();
     const matchText = !q || t.title.toLowerCase().includes(q) || t.buyer_name?.toLowerCase().includes(q) || t.object?.toLowerCase().includes(q) || t.region?.toLowerCase().includes(q);
-    const matchRegion = !regionFilter || t.region === regionFilter;
-    const matchStatus = !statusFilter || t.status === statusFilter;
-    const matchProcedure = !procedureFilter || t.procedure_type === procedureFilter;
+    const matchRegion = !regionFilter || regionFilter === "all" || t.region === regionFilter;
+    const matchStatus = !statusFilter || statusFilter === "all" || t.status === statusFilter;
+    const matchProcedure = !procedureFilter || procedureFilter === "all" || t.procedure_type === procedureFilter;
     return matchText && matchRegion && matchStatus && matchProcedure;
   });
 
