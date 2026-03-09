@@ -208,9 +208,6 @@ Deno.serve(async (req) => {
           "estimated-value-lot", "classification-cpv", "procedure-type",
           "description-lot", "publication-date",
           "place-of-performance", "contract-nature", "buyer-city", "buyer-country",
-          // Enriched fields
-          "buyer-street-address", "buyer-postal-code", "buyer-email", "buyer-phone",
-          "award-criteria", "selection-criteria",
         ],
         limit: LIMIT,
         page,
