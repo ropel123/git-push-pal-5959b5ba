@@ -265,16 +265,25 @@ export type Database = {
       }
       tenders: {
         Row: {
+          additional_info: string | null
+          award_criteria: string | null
+          buyer_address: string | null
+          buyer_contact: Json | null
           buyer_name: string | null
           buyer_siret: string | null
+          contract_type: string | null
           cpv_codes: string[] | null
           created_at: string | null
           deadline: string | null
           department: string | null
+          description: string | null
           estimated_amount: number | null
+          execution_location: string | null
           id: string
           lots: Json | null
+          nuts_code: string | null
           object: string | null
+          participation_conditions: string | null
           procedure_type: string | null
           publication_date: string | null
           reference: string | null
@@ -286,16 +295,25 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          additional_info?: string | null
+          award_criteria?: string | null
+          buyer_address?: string | null
+          buyer_contact?: Json | null
           buyer_name?: string | null
           buyer_siret?: string | null
+          contract_type?: string | null
           cpv_codes?: string[] | null
           created_at?: string | null
           deadline?: string | null
           department?: string | null
+          description?: string | null
           estimated_amount?: number | null
+          execution_location?: string | null
           id?: string
           lots?: Json | null
+          nuts_code?: string | null
           object?: string | null
+          participation_conditions?: string | null
           procedure_type?: string | null
           publication_date?: string | null
           reference?: string | null
@@ -307,16 +325,25 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          additional_info?: string | null
+          award_criteria?: string | null
+          buyer_address?: string | null
+          buyer_contact?: Json | null
           buyer_name?: string | null
           buyer_siret?: string | null
+          contract_type?: string | null
           cpv_codes?: string[] | null
           created_at?: string | null
           deadline?: string | null
           department?: string | null
+          description?: string | null
           estimated_amount?: number | null
+          execution_location?: string | null
           id?: string
           lots?: Json | null
+          nuts_code?: string | null
           object?: string | null
+          participation_conditions?: string | null
           procedure_type?: string | null
           publication_date?: string | null
           reference?: string | null
