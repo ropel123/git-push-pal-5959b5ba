@@ -21,21 +21,22 @@ function cleanBrackets(val: string | null): string | null {
   return val;
 }
 
-function extractField(notice: any, field: string): string | null {
-  const val = notice[field];
+function extractText(val: any): string | null {
   if (!val) return null;
-  // Handle multilingual objects like { "fra": "...", "eng": "..." }
-  if (typeof val === "object" && !Array.isArray(val)) {
-    return val["fra"] || val["fre"] || val["eng"] || Object.values(val)[0] as string || null;
-  }
+  if (typeof val === "string") return val;
   if (Array.isArray(val)) {
-    const first = val[0];
-    if (typeof first === "object" && first !== null) {
-      return first["fra"] || first["fre"] || first["eng"] || Object.values(first)[0] as string || null;
-    }
-    return first ? String(first) : null;
+    return val.length > 0 ? extractText(val[0]) : null;
+  }
+  if (typeof val === "object") {
+    // Multilingual object: prefer French
+    const text = val["fra"] || val["fre"] || val["eng"] || Object.values(val)[0];
+    return extractText(text);
   }
   return String(val);
+}
+
+function extractField(notice: any, field: string): string | null {
+  return extractText(notice[field]);
 }
 
 function normalizeTedToTender(notice: any) {
