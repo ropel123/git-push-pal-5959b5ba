@@ -18,7 +18,6 @@ function dig(obj: any, ...keys: string[]): any {
   return cur ?? null;
 }
 
-// Extract text from potentially nested/array values
 // Check if an object has only empty-string values
 function isEmptyObject(obj: any): boolean {
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return false;
@@ -37,6 +36,298 @@ function textify(val: any): string | null {
   return String(val);
 }
 
+// Map French department codes to regions
+const DEPT_TO_REGION: Record<string, string> = {
+  "01": "Auvergne-Rhône-Alpes", "03": "Auvergne-Rhône-Alpes", "07": "Auvergne-Rhône-Alpes",
+  "15": "Auvergne-Rhône-Alpes", "26": "Auvergne-Rhône-Alpes", "38": "Auvergne-Rhône-Alpes",
+  "42": "Auvergne-Rhône-Alpes", "43": "Auvergne-Rhône-Alpes", "63": "Auvergne-Rhône-Alpes",
+  "69": "Auvergne-Rhône-Alpes", "73": "Auvergne-Rhône-Alpes", "74": "Auvergne-Rhône-Alpes",
+  "21": "Bourgogne-Franche-Comté", "25": "Bourgogne-Franche-Comté", "39": "Bourgogne-Franche-Comté",
+  "58": "Bourgogne-Franche-Comté", "70": "Bourgogne-Franche-Comté", "71": "Bourgogne-Franche-Comté",
+  "89": "Bourgogne-Franche-Comté", "90": "Bourgogne-Franche-Comté",
+  "22": "Bretagne", "29": "Bretagne", "35": "Bretagne", "56": "Bretagne",
+  "18": "Centre-Val de Loire", "28": "Centre-Val de Loire", "36": "Centre-Val de Loire",
+  "37": "Centre-Val de Loire", "41": "Centre-Val de Loire", "45": "Centre-Val de Loire",
+  "2A": "Corse", "2B": "Corse", "20": "Corse",
+  "08": "Grand Est", "10": "Grand Est", "51": "Grand Est", "52": "Grand Est",
+  "54": "Grand Est", "55": "Grand Est", "57": "Grand Est", "67": "Grand Est", "68": "Grand Est", "88": "Grand Est",
+  "02": "Hauts-de-France", "59": "Hauts-de-France", "60": "Hauts-de-France",
+  "62": "Hauts-de-France", "80": "Hauts-de-France",
+  "75": "Île-de-France", "77": "Île-de-France", "78": "Île-de-France", "91": "Île-de-France",
+  "92": "Île-de-France", "93": "Île-de-France", "94": "Île-de-France", "95": "Île-de-France",
+  "14": "Normandie", "27": "Normandie", "50": "Normandie", "61": "Normandie", "76": "Normandie",
+  "16": "Nouvelle-Aquitaine", "17": "Nouvelle-Aquitaine", "19": "Nouvelle-Aquitaine",
+  "23": "Nouvelle-Aquitaine", "24": "Nouvelle-Aquitaine", "33": "Nouvelle-Aquitaine",
+  "40": "Nouvelle-Aquitaine", "47": "Nouvelle-Aquitaine", "64": "Nouvelle-Aquitaine",
+  "79": "Nouvelle-Aquitaine", "86": "Nouvelle-Aquitaine", "87": "Nouvelle-Aquitaine",
+  "09": "Occitanie", "11": "Occitanie", "12": "Occitanie", "30": "Occitanie",
+  "31": "Occitanie", "32": "Occitanie", "34": "Occitanie", "46": "Occitanie",
+  "48": "Occitanie", "65": "Occitanie", "66": "Occitanie", "81": "Occitanie", "82": "Occitanie",
+  "44": "Pays de la Loire", "49": "Pays de la Loire", "53": "Pays de la Loire",
+  "72": "Pays de la Loire", "85": "Pays de la Loire",
+  "04": "Provence-Alpes-Côte d'Azur", "05": "Provence-Alpes-Côte d'Azur",
+  "06": "Provence-Alpes-Côte d'Azur", "13": "Provence-Alpes-Côte d'Azur",
+  "83": "Provence-Alpes-Côte d'Azur", "84": "Provence-Alpes-Côte d'Azur",
+  "971": "Guadeloupe", "972": "Martinique", "973": "Guyane", "974": "La Réunion", "976": "Mayotte",
+};
+
+function regionFromDept(dept: string | null): string | null {
+  if (!dept) return null;
+  const d = String(dept).trim();
+  return DEPT_TO_REGION[d] || null;
+}
+
+function regionFromNuts(nuts: string | null): string | null {
+  if (!nuts || !nuts.startsWith("FR")) return null;
+  const nutsToRegion: Record<string, string> = {
+    "FRB": "Centre-Val de Loire", "FRC": "Bourgogne-Franche-Comté",
+    "FRD": "Normandie", "FRE": "Hauts-de-France", "FRF": "Grand Est",
+    "FRG": "Pays de la Loire", "FRH": "Bretagne", "FRI": "Nouvelle-Aquitaine",
+    "FRJ": "Occitanie", "FRK": "Auvergne-Rhône-Alpes", "FRL": "Provence-Alpes-Côte d'Azur",
+    "FRM": "Corse", "FR1": "Île-de-France",
+    "FRY1": "Guadeloupe", "FRY2": "Martinique", "FRY3": "Guyane", "FRY4": "La Réunion", "FRY5": "Mayotte",
+  };
+  // Try progressively shorter prefixes
+  for (let len = Math.min(nuts.length, 4); len >= 2; len--) {
+    const prefix = nuts.substring(0, len);
+    if (nutsToRegion[prefix]) return nutsToRegion[prefix];
+  }
+  return null;
+}
+
+// ========== JUSTIFICATION LABELS (MAPA) ==========
+const JUSTIF_LABELS: Record<string, string> = {
+  redressementJudiciaire: "Redressement judiciaire",
+  article2141: "Interdictions de soumissionner (art. L.2141)",
+  travailleursHandicapes: "Emploi des travailleurs handicapés",
+  salariesReguliers: "Emploi régulier des salariés",
+  salariesEtranger: "Bulletins de paie (étranger)",
+  chiffreAffaires: "Chiffre d'affaires",
+  assuranceRisques: "Assurance risques professionnels",
+  bilans: "Bilans",
+  effectifs: "Effectifs moyens annuels",
+  listeServices: "Liste des principales prestations",
+  listeTravaux: "Liste des travaux exécutés",
+  titresEtudes: "Titres d'études",
+  titresEtudesCadres: "Titres d'études des cadres",
+  outillage: "Outillage et équipement technique",
+  descriptionEquipement: "Description de l'équipement technique",
+  certificats: "Certificats de qualifications professionnelles",
+  dc1: "Formulaire DC1",
+  dc2: "Formulaire DC2",
+  capacitesAutres: "Capacités d'autres opérateurs économiques",
+  traductionFrancais: "Traduction en français",
+};
+
+// ========== EFORMS PARSER ==========
+function parseEformsDonnees(donnees: any): Record<string, any> {
+  const eforms = donnees?.EFORMS || donnees?.eforms;
+  if (!eforms) return {};
+
+  // Find the root notice element (ContractNotice, PriorInformationNotice, etc.)
+  const noticeKey = Object.keys(eforms).find(k =>
+    k.includes("Notice") || k.includes("notice")
+  );
+  const notice = noticeKey ? eforms[noticeKey] : eforms;
+
+  // Helper to find nested values in XML-like structure
+  function findVal(obj: any, key: string): any {
+    if (!obj || typeof obj !== "object") return null;
+    if (key in obj) return obj[key];
+    for (const v of Object.values(obj)) {
+      if (v && typeof v === "object") {
+        const found = findVal(v, key);
+        if (found !== null) return found;
+      }
+    }
+    return null;
+  }
+
+  function findText(obj: any, key: string): string | null {
+    const val = findVal(obj, key);
+    if (!val) return null;
+    if (typeof val === "string") return val.trim() || null;
+    if (typeof val === "object" && val["#text"]) return String(val["#text"]).trim() || null;
+    if (typeof val === "object") {
+      // Try language keys
+      const text = val["fra"] || val["fre"] || val["FRA"] || val["eng"] || Object.values(val).find(v => typeof v === "string" && v.trim());
+      if (text) return String(text).trim();
+      if (val["#text"]) return String(val["#text"]).trim();
+    }
+    return textify(val);
+  }
+
+  // === Organizations ===
+  const orgs = findVal(notice, "efac:Organizations") || findVal(notice, "Organizations");
+  const orgList = orgs ? (Array.isArray(orgs["efac:Organization"]) ? orgs["efac:Organization"] : orgs["efac:Organization"] ? [orgs["efac:Organization"]] : []) : [];
+  
+  // Find buyer org (first one or one with buyer role)
+  const buyerOrg = orgList.length > 0 ? orgList[0] : null;
+  const company = buyerOrg ? (buyerOrg["efac:Company"] || buyerOrg) : null;
+
+  let buyerSiret: string | null = null;
+  let buyerAddress: string | null = null;
+  const buyerContact: Record<string, string> = {};
+
+  if (company) {
+    // SIRET/SIREN
+    const companyId = findText(company, "cbc:CompanyID") || findText(company, "CompanyID");
+    if (companyId) buyerSiret = companyId;
+
+    // Contact
+    const contact = findVal(company, "cac:Contact") || findVal(company, "Contact") || {};
+    const email = findText(contact, "cbc:ElectronicMail") || findText(contact, "ElectronicMail");
+    const tel = findText(contact, "cbc:Telephone") || findText(contact, "Telephone");
+    const contactName = findText(contact, "cbc:Name") || findText(contact, "Name");
+    if (email) buyerContact.email = email;
+    if (tel) buyerContact.tel = tel;
+    if (contactName) buyerContact.contact = contactName;
+
+    // Address
+    const addr = findVal(company, "cac:PostalAddress") || findVal(company, "PostalAddress") || {};
+    const street = findText(addr, "cbc:StreetName") || findText(addr, "StreetName");
+    const city = findText(addr, "cbc:CityName") || findText(addr, "CityName");
+    const postal = findText(addr, "cbc:PostalZone") || findText(addr, "PostalZone");
+    const addrParts = [street, postal, city].filter(Boolean);
+    if (addrParts.length > 0) buyerAddress = addrParts.join(", ");
+    if (city) buyerContact.ville = city;
+  }
+
+  // === Procurement Project ===
+  const project = findVal(notice, "cac:ProcurementProject") || findVal(notice, "ProcurementProject") || {};
+  const title = findText(project, "cbc:Name") || findText(project, "Name");
+  const description = findText(project, "cbc:Description") || findText(project, "Description");
+  
+  // CPV
+  let cpvCodes: string[] = [];
+  const mainCpv = findVal(project, "cac:MainCommodityClassification") || findVal(project, "MainCommodityClassification");
+  if (mainCpv) {
+    const code = findText(mainCpv, "cbc:ItemClassificationCode") || findText(mainCpv, "ItemClassificationCode");
+    if (code && /^\d{8}/.test(code)) cpvCodes.push(code.substring(0, 8));
+  }
+  const addCpvs = findVal(project, "cac:AdditionalCommodityClassification");
+  if (addCpvs) {
+    const cpvArr = Array.isArray(addCpvs) ? addCpvs : [addCpvs];
+    for (const c of cpvArr) {
+      const code = findText(c, "cbc:ItemClassificationCode") || findText(c, "ItemClassificationCode");
+      if (code && /^\d{8}/.test(code)) cpvCodes.push(code.substring(0, 8));
+    }
+  }
+  cpvCodes = [...new Set(cpvCodes)];
+
+  // Contract type
+  const contractTypeCode = findText(project, "cbc:ProcurementTypeCode") || findText(project, "ProcurementTypeCode");
+  const contractTypeMap: Record<string, string> = {
+    works: "Travaux", services: "Services", supplies: "Fournitures",
+    "works-or-services": "Travaux ou services",
+  };
+  const contractType = contractTypeCode ? (contractTypeMap[contractTypeCode.toLowerCase()] || contractTypeCode) : null;
+
+  // Execution location
+  const realizedLoc = findVal(project, "cac:RealizedLocation") || findVal(project, "RealizedLocation");
+  let executionLocation: string | null = null;
+  let nutsCode: string | null = null;
+  if (realizedLoc) {
+    const loc = Array.isArray(realizedLoc) ? realizedLoc[0] : realizedLoc;
+    executionLocation = findText(loc, "cbc:Description") || findText(loc, "Description");
+    const locAddr = findVal(loc, "cac:Address") || findVal(loc, "Address") || {};
+    nutsCode = findText(locAddr, "cbc:CountrySubentityCode") || findText(locAddr, "CountrySubentityCode");
+    if (!executionLocation) {
+      const city = findText(locAddr, "cbc:CityName") || findText(locAddr, "CityName");
+      if (city) executionLocation = city;
+    }
+  }
+
+  // === Lots ===
+  let lots: any[] = [];
+  const lotData = findVal(notice, "cac:ProcurementProjectLot");
+  if (lotData) {
+    const lotArr = Array.isArray(lotData) ? lotData : [lotData];
+    lots = lotArr.map((lot: any, i: number) => {
+      const lotProject = findVal(lot, "cac:ProcurementProject") || findVal(lot, "ProcurementProject") || {};
+      return {
+        numero: findText(lot, "cbc:ID") || findText(lot, "ID") || (i + 1),
+        title: findText(lotProject, "cbc:Name") || findText(lotProject, "Name") || `Lot ${i + 1}`,
+        description: findText(lotProject, "cbc:Description") || findText(lotProject, "Description") || null,
+      };
+    });
+  }
+
+  // === Tendering Terms (conditions) ===
+  const tenderTerms = findVal(notice, "cac:TenderingTerms") || findVal(notice, "TenderingTerms") || {};
+  
+  // Award criteria
+  const awardCritArr: string[] = [];
+  const awardCrit = findVal(tenderTerms, "cac:AwardingTerms") || findVal(tenderTerms, "AwardingTerms");
+  if (awardCrit) {
+    const criteria = findVal(awardCrit, "cac:AwardingCriterion");
+    if (criteria) {
+      const critArr = Array.isArray(criteria) ? criteria : [criteria];
+      for (const c of critArr) {
+        const name = findText(c, "cbc:Name") || findText(c, "Name");
+        const desc = findText(c, "cbc:Description") || findText(c, "Description");
+        const weight = findText(c, "cbc:WeightNumeric") || findText(c, "WeightNumeric");
+        if (name) {
+          awardCritArr.push(weight ? `${name} (${weight}%)` : name);
+        } else if (desc) {
+          awardCritArr.push(desc);
+        }
+      }
+    }
+  }
+  const awardCriteria = awardCritArr.length > 0 ? awardCritArr.join("\n") : null;
+
+  // Participation conditions
+  const condParts: string[] = [];
+  const qualReq = findVal(tenderTerms, "cac:TendererQualificationRequest");
+  if (qualReq) {
+    const reqArr = Array.isArray(qualReq) ? qualReq : [qualReq];
+    for (const req of reqArr) {
+      const desc = findText(req, "cbc:Description") || findText(req, "Description");
+      if (desc) condParts.push(desc);
+    }
+  }
+  const participationConditions = condParts.length > 0 ? condParts.join("\n") : null;
+
+  // Estimated amount
+  let estimatedAmount: number | null = null;
+  const amountVal = findText(project, "cbc:EstimatedOverallContractAmount")
+    || findText(notice, "efbc:FrameworkMaximumAmount")
+    || findText(project, "EstimatedOverallContractAmount");
+  if (amountVal) {
+    const num = parseFloat(amountVal);
+    if (!isNaN(num) && num > 0) estimatedAmount = num;
+  }
+
+  // Additional info (appeal terms)
+  const appealTerms = findVal(tenderTerms, "cac:AppealTerms") || findVal(tenderTerms, "AppealTerms");
+  const additionalInfo = appealTerms ? textify(appealTerms) : null;
+
+  // Procedure type
+  const tenderProcess = findVal(notice, "cac:TenderingProcess") || findVal(notice, "TenderingProcess") || {};
+  const procType = findText(tenderProcess, "cbc:ProcedureCode") || findText(tenderProcess, "ProcedureCode");
+
+  return {
+    description,
+    titreMarche: title,
+    cpvCodes: cpvCodes.length > 0 ? cpvCodes : null,
+    executionLocation,
+    nutsCode,
+    buyerAddress,
+    buyerContact: Object.keys(buyerContact).length > 0 ? buyerContact : null,
+    buyerSiret,
+    contractType,
+    awardCriteria,
+    participationConditions,
+    additionalInfo,
+    estimatedAmount,
+    lots: lots.length > 0 ? lots : null,
+    internalRef: null,
+    procedureType: procType,
+  };
+}
+
+// ========== STANDARD (FNSimple/MAPA) PARSER ==========
 function parseBoampDonnees(raw: any): Record<string, any> {
   if (!raw) return {};
 
@@ -45,6 +336,12 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     try { donnees = JSON.parse(raw); } catch { return {}; }
   } else {
     donnees = raw;
+  }
+
+  // Check for eForms format first
+  const topKeys = Object.keys(donnees);
+  if (topKeys.includes("EFORMS") || topKeys.includes("eforms")) {
+    return parseEformsDonnees(donnees);
   }
 
   // The donnees object is wrapped in a family key (FNSimple, FNS, MAPA, etc.)
@@ -65,22 +362,20 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   const duree = initial?.duree || {};
   const renseignements = initial?.renseignements || {};
 
-  // === Title (FNSimple: natureMarche.intitule, MAPA: description.objet) ===
+  // === Title ===
   const titreMarche = textify(natureMarche.intitule) 
     || textify(descriptionBlock.objet) 
     || null;
 
-  // === Description (FNSimple: natureMarche.description, MAPA: description.objet) ===
+  // === Description ===
   const description = textify(natureMarche.description) 
     || textify(descriptionBlock.objet) 
     || null;
 
-  // === Buyer SIRET (FNSimple only) ===
+  // === Buyer SIRET ===
   const buyerSiret = textify(organisme.codeIdentificationNational) || null;
 
   // === Buyer address ===
-  // FNSimple: organisme.adresse/cp/ville
-  // MAPA: organisme.adr.voie.nomvoie / adr.cp / adr.ville
   const adr = organisme.adr || {};
   const adresseArr = [
     organisme.adresse || dig(adr, "voie", "nomvoie") || textify(adr.adresse),
@@ -89,34 +384,24 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   ].filter(Boolean);
   const buyerAddress = adresseArr.length > 0 ? adresseArr.join(", ") : null;
 
-  // === Buyer contact (multi-path) ===
+  // === Buyer contact ===
   const buyerContact: Record<string, string> = {};
   const coord = organisme.coord || {};
   const correspondant = organisme.correspondantPRM || {};
-
-  // Email
   const email = textify(communication.adresseMailContact) 
     || textify(communication.nomContact) 
     || textify(coord.mel) 
     || null;
   if (email) buyerContact.email = email;
-
-  // Phone
   const tel = textify(communication.telContact) || textify(coord.tel) || null;
   if (tel) buyerContact.tel = tel;
-
-  // Contact name
   const contactName = textify(correspondant.nom) || null;
   if (contactName) buyerContact.contact = contactName;
-
-  // URL
   const url = textify(communication.urlDocConsul) 
     || textify(communication.urlProfilAch) 
     || textify(organisme.urlProfilAcheteur) 
     || null;
   if (url) buyerContact.url = url;
-
-  // City
   const ville = organisme.ville || adr.ville || null;
   if (ville) buyerContact.ville = String(ville);
 
@@ -130,7 +415,7 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   if (Array.isArray(cpvSecondaire)) {
     cpvCodes.push(...cpvSecondaire.map((c: any) => String(c?.classPrincipale || c)).filter(Boolean));
   }
-  cpvCodes = [...new Set(cpvCodes)];
+  cpvCodes = [...new Set(cpvCodes)].filter(c => /^\d{8}/.test(c));
 
   // === Execution location ===
   const lieuExec = natureMarche.lieuExecution;
@@ -145,10 +430,22 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     }
   }
 
-  // === Award criteria (FNSimple: procedure.criteresAttrib, MAPA: criteres) ===
-  const awardCriteria = textify(procedure.criteresAttrib) 
-    || textify(criteres)
-    || null;
+  // === Award criteria ===
+  // FNSimple: from procedure.criteresAttrib
+  // MAPA: from criteres object — if critereCDC key exists, it means "criteria in the consultation rules"
+  let awardCriteria = textify(procedure.criteresAttrib) || null;
+  if (!awardCriteria && criteres && typeof criteres === "object") {
+    if ("critereCDC" in criteres) {
+      const cdcVal = criteres.critereCDC;
+      if (cdcVal && typeof cdcVal === "string" && cdcVal.trim()) {
+        awardCriteria = cdcVal.trim();
+      } else {
+        awardCriteria = "Critères définis dans le cahier des charges (règlement de consultation)";
+      }
+    } else if (!isEmptyObject(criteres)) {
+      awardCriteria = textify(criteres);
+    }
+  }
 
   // === Participation conditions ===
   const condParts: string[] = [];
@@ -156,41 +453,21 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   if (procedure.capaciteEcoFin) condParts.push("Capacité économique et financière : " + textify(procedure.capaciteEcoFin));
   if (procedure.capaciteTech) condParts.push("Capacités techniques : " + textify(procedure.capaciteTech));
   if (procedure.capaciteExercice) condParts.push("Capacité d'exercice : " + textify(procedure.capaciteExercice));
-  // MAPA paths - justifications block: map keys to readable labels, skip empty values
-  if (justifications && typeof justifications === "object" && !isEmptyObject(justifications)) {
-    const justifLabels: Record<string, string> = {
-      redressementJudiciaire: "Redressement judiciaire",
-      article2141: "Interdictions de soumissionner (art. L.2141)",
-      travailleursHandicapes: "Emploi des travailleurs handicapés",
-      salariesReguliers: "Emploi régulier des salariés",
-      salariesEtranger: "Bulletins de paie (étranger)",
-      chiffreAffaires: "Chiffre d'affaires",
-      assuranceRisques: "Assurance risques professionnels",
-      bilans: "Bilans",
-      effectifs: "Effectifs moyens annuels",
-      listeServices: "Liste des principales prestations",
-      listeTravaux: "Liste des travaux exécutés",
-      titresEtudes: "Titres d'études",
-      titresEtudesCadres: "Titres d'études des cadres",
-      outillage: "Outillage et équipement technique",
-      descriptionEquipement: "Description de l'équipement technique",
-      certificats: "Certificats de qualifications professionnelles",
-      dc1: "Formulaire DC1",
-      dc2: "Formulaire DC2",
-      capacitesAutres: "Capacités d'autres opérateurs économiques",
-      traductionFrancais: "Traduction en français",
-    };
+  
+  // MAPA paths - justifications block
+  if (justifications && typeof justifications === "object") {
+    // First pass: collect entries with non-empty values
     for (const [key, val] of Object.entries(justifications)) {
       if (val && typeof val === "string" && val.trim()) {
-        const label = justifLabels[key] || key;
+        const label = JUSTIF_LABELS[key] || key;
         condParts.push(`${label} : ${val}`);
       }
     }
-    // If keys exist but all values are empty, list the required document types
-    if (condParts.length === 0 && !isEmptyObject(justifications)) {
+    // If no values but keys exist, list required document types
+    if (condParts.length === 0) {
       const requiredDocs = Object.keys(justifications)
-        .filter(k => k in justifLabels)
-        .map(k => justifLabels[k]);
+        .filter(k => k in JUSTIF_LABELS)
+        .map(k => JUSTIF_LABELS[k]);
       if (requiredDocs.length > 0) {
         condParts.push("Documents requis :\n• " + requiredDocs.join("\n• "));
       }
@@ -202,7 +479,6 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   const additionalInfoParts: string[] = [];
   const informText = textify(informComplementaire.autresInformComplementaire) || textify(informComplementaire);
   if (informText) additionalInfoParts.push(informText);
-  // MAPA: duration info
   if (duree.dateACompterDu || duree.jusquau) {
     const dureeParts = [];
     if (duree.dateACompterDu) dureeParts.push("À compter du : " + duree.dateACompterDu);
@@ -235,7 +511,7 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     }));
   }
 
-  // === Internal reference (MAPA: renseignements.idMarche) ===
+  // === Internal reference ===
   const internalRef = textify(communication.identifiantInterne) || textify(renseignements.idMarche) || null;
 
   return {
@@ -247,7 +523,7 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     buyerAddress,
     buyerContact: Object.keys(buyerContact).length > 0 ? buyerContact : null,
     buyerSiret,
-    contractType: null, // handled from top-level in normalizeBoampToTender
+    contractType: null,
     awardCriteria,
     participationConditions,
     additionalInfo,
@@ -259,9 +535,13 @@ function parseBoampDonnees(raw: any): Record<string, any> {
 
 function normalizeBoampToTender(record: any) {
   const r = record;
-  
-  // Parse donnees for rich data
   const rich = parseBoampDonnees(r.donnees);
+
+  // Derive region from NUTS code or department, NOT from perimetre (which stores family)
+  const dept = r.code_departement_prestation 
+    || (Array.isArray(r.code_departement) ? r.code_departement[0] : r.code_departement) 
+    || null;
+  const region = regionFromNuts(rich.nutsCode) || regionFromDept(dept) || null;
 
   return {
     title: rich.titreMarche || r.objet || r.idweb || "Sans titre",
@@ -271,11 +551,9 @@ function normalizeBoampToTender(record: any) {
     buyer_name: r.nomacheteur || null,
     buyer_siret: rich.buyerSiret || null,
     object: r.objet || null,
-    procedure_type: r.procedure_libelle || r.type_procedure || null,
-    department: r.code_departement_prestation 
-      || (Array.isArray(r.code_departement) ? r.code_departement[0] : r.code_departement) 
-      || null,
-    region: r.perimetre || null,
+    procedure_type: rich.procedureType || r.procedure_libelle || r.type_procedure || null,
+    department: dept,
+    region,
     publication_date: r.dateparution || null,
     deadline: r.datelimitereponse || null,
     estimated_amount: rich.estimatedAmount || null,
@@ -283,7 +561,6 @@ function normalizeBoampToTender(record: any) {
     lots: rich.lots || [],
     status: "open" as const,
     updated_at: new Date().toISOString(),
-    // New rich fields
     description: rich.description,
     buyer_address: rich.buyerAddress,
     buyer_contact: rich.buyerContact,
