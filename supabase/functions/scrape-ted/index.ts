@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
     // TED expert query: place of performance = France, recent publication
     const searchPayload = {
       query: `place-of-performance = FRA AND publication-date >= ${dateStr} AND publication-date <= ${today}`,
-      fields: ["CONTENT"],
+      fields: ["sme-part"],
       limit: 100,
       page: 1,
       paginationMode: "PAGE_NUMBER",
