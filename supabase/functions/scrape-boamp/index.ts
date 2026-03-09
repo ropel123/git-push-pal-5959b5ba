@@ -495,9 +495,11 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   }
 
   // === Award criteria ===
-  // FNSimple: from procedure.criteresAttrib
-  // MAPA: from criteres object — if critereCDC key exists, it means "criteria in the consultation rules"
   let awardCriteria = textify(procedure.criteresAttrib) || null;
+  // Fallback: try natureMarche.criteresAttrib (rectificatifs store criteria there)
+  if (!awardCriteria) {
+    awardCriteria = textify(natureMarche.criteresAttrib) || null;
+  }
   if (!awardCriteria && criteres && typeof criteres === "object") {
     if ("critereCDC" in criteres) {
       const cdcVal = criteres.critereCDC;
@@ -509,6 +511,10 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     } else if (!isEmptyObject(criteres)) {
       awardCriteria = textify(criteres);
     }
+  }
+  // Default for MAPA/adapted procedures with no criteria in JSON
+  if (!awardCriteria && procedure && typeof procedure === "object" && !isEmptyObject(procedure)) {
+    awardCriteria = "Critères définis dans les documents de la consultation";
   }
 
   // === Participation conditions ===
