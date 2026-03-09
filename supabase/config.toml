@@ -1,1 +1,7 @@
 project_id = "xfqvaeshidleazgfqlze"
+
+[functions.scrape-boamp]
+verify_jwt = false
+
+[functions.scrape-ted]
+verify_jwt = false
