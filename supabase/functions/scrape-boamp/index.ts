@@ -279,7 +279,7 @@ function normalizeBoampToTender(record: any) {
     publication_date: r.dateparution || null,
     deadline: r.datelimitereponse || null,
     estimated_amount: rich.estimatedAmount || null,
-    cpv_codes: rich.cpvCodes || (r.descripteur_code ? (Array.isArray(r.descripteur_code) ? r.descripteur_code : [r.descripteur_code]) : []),
+    cpv_codes: rich.cpvCodes || (r.descripteur_code ? (Array.isArray(r.descripteur_code) ? r.descripteur_code : [r.descripteur_code]).filter((c: any) => /^\d{8}$/.test(String(c))) : []),
     lots: rich.lots || [],
     status: "open" as const,
     updated_at: new Date().toISOString(),

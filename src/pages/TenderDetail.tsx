@@ -326,7 +326,7 @@ const TenderDetail = () => {
       )}
 
       {/* Conditions de participation */}
-      {tender.participation_conditions && (
+      {isDisplayableText(tender.participation_conditions) && (
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-muted-foreground">Conditions de participation</CardTitle>
