@@ -1,12 +1,24 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { supabase } from "@/integrations/supabase/client";
 import AppSidebar from "./AppSidebar";
+import NotificationBell from "./NotificationBell";
+import ThemeToggle from "./ThemeToggle";
+
+const PAGE_TITLES: Record<string, string> = {
+  "/dashboard": "Tableau de bord",
+  "/tenders": "Appels d'offres",
+  "/pipeline": "Pipeline",
+  "/awards": "Attributions",
+  "/settings": "Paramètres",
+  "/activity": "Mon activité",
+};
 
 const AppLayout = () => {
   const { user, loading } = useAuth();
+  const location = useLocation();
   const [checkingOnboarding, setCheckingOnboarding] = useState(true);
   const [onboardingCompleted, setOnboardingCompleted] = useState(true);
 
@@ -37,14 +49,23 @@ const AppLayout = () => {
   if (!user) return <Navigate to="/auth" replace />;
   if (!onboardingCompleted) return <Navigate to="/onboarding" replace />;
 
+  const pageTitle = PAGE_TITLES[location.pathname] ?? "";
+
   return (
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="flex h-14 items-center gap-2 border-b border-border px-4">
-          <SidebarTrigger />
+        <header className="flex h-14 items-center justify-between gap-2 border-b border-border px-4">
+          <div className="flex items-center gap-2">
+            <SidebarTrigger />
+            {pageTitle && <span className="text-sm font-medium text-foreground hidden sm:block">{pageTitle}</span>}
+          </div>
+          <div className="flex items-center gap-1">
+            <NotificationBell />
+            <ThemeToggle />
+          </div>
         </header>
-        <div className="flex-1 p-4 md:p-6">
+        <div className="flex-1 p-3 sm:p-4 md:p-6">
           <Outlet />
         </div>
       </SidebarInset>

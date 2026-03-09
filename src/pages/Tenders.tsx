@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -12,7 +12,7 @@ import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Dow
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
+import { computeScore, getScoreColor } from "@/lib/scoring";
 
 interface Tender {
   id: string;
@@ -58,6 +58,7 @@ const Tenders = () => {
   const [searchName, setSearchName] = useState("");
   const [savingSearch, setSavingSearch] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [procedures, setProcedures] = useState<string[]>([]);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -68,26 +69,52 @@ const Tenders = () => {
         if (data) setProfile(data);
       });
       fetchSavedSearches();
+      // Fetch distinct procedures for filter dropdown
+      supabase.from("tenders").select("procedure_type").not("procedure_type", "is", null).then(({ data }) => {
+        if (data) {
+          const unique = [...new Set(data.map((d) => d.procedure_type).filter(Boolean))] as string[];
+          setProcedures(unique);
+        }
+      });
     }
   }, [user]);
 
-  useEffect(() => {
-    fetchTenders();
-  }, [page]);
-
-  const fetchTenders = async () => {
+  const fetchTenders = useCallback(async () => {
     setLoading(true);
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
-    const { data, count } = await supabase
+
+    let query = supabase
       .from("tenders")
       .select("*", { count: "exact" })
       .order("publication_date", { ascending: false })
       .range(from, to);
+
+    // Server-side filters
+    if (search.trim()) {
+      query = query.or(`title.ilike.%${search.trim()}%,buyer_name.ilike.%${search.trim()}%,object.ilike.%${search.trim()}%`);
+    }
+    if (regionFilter && regionFilter !== "all") {
+      query = query.eq("region", regionFilter);
+    }
+    if (statusFilter && statusFilter !== "all") {
+      query = query.eq("status", statusFilter as "open" | "closed" | "awarded" | "cancelled");
+    }
+    if (procedureFilter && procedureFilter !== "all") {
+      query = query.eq("procedure_type", procedureFilter);
+    }
+
+    const { data, count } = await query;
     if (data) setTenders(data);
     if (count !== null) setTotalCount(count);
     setLoading(false);
-  };
+  }, [page, search, regionFilter, statusFilter, procedureFilter]);
+
+  // Debounced fetch on filter/page change
+  useEffect(() => {
+    const timeout = setTimeout(() => fetchTenders(), 300);
+    return () => clearTimeout(timeout);
+  }, [fetchTenders]);
 
   const fetchSavedSearches = async () => {
     if (!user) return;
@@ -141,7 +168,7 @@ const Tenders = () => {
 
   const exportCSV = () => {
     const headers = ["Titre", "Acheteur", "Montant estimé", "Région", "Date limite", "Statut"];
-    const rows = filteredTenders.map((t) => [
+    const rows = tenders.map((t) => [
       `"${(t.title ?? "").replace(/"/g, '""')}"`,
       `"${(t.buyer_name ?? "").replace(/"/g, '""')}"`,
       t.estimated_amount ?? "",
@@ -159,15 +186,6 @@ const Tenders = () => {
     URL.revokeObjectURL(url);
   };
 
-  const filteredTenders = tenders.filter((t) => {
-    const q = search.toLowerCase();
-    const matchText = !q || t.title.toLowerCase().includes(q) || t.buyer_name?.toLowerCase().includes(q) || t.object?.toLowerCase().includes(q) || t.region?.toLowerCase().includes(q);
-    const matchRegion = !regionFilter || regionFilter === "all" || t.region === regionFilter;
-    const matchStatus = !statusFilter || statusFilter === "all" || t.status === statusFilter;
-    const matchProcedure = !procedureFilter || procedureFilter === "all" || t.procedure_type === procedureFilter;
-    return matchText && matchRegion && matchStatus && matchProcedure;
-  });
-
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   const getStatusColor = (status: string | null) => {
@@ -180,11 +198,10 @@ const Tenders = () => {
   };
 
   const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
-  const procedures = [...new Set(tenders.map((t) => t.procedure_type).filter(Boolean))] as string[];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Appels d'offres</h1>
           <p className="text-muted-foreground">{totalCount} résultat(s) — page {page + 1}/{totalPages || 1}</p>
@@ -211,36 +228,34 @@ const Tenders = () => {
               </PopoverContent>
             </Popover>
           )}
-          <Button variant="outline" size="sm" onClick={exportCSV} disabled={filteredTenders.length === 0}>
+          <Button variant="outline" size="sm" onClick={exportCSV} disabled={tenders.length === 0}>
             <Download className="h-4 w-4 mr-1" /> CSV
           </Button>
         </div>
       </div>
 
-      {/* Search + toggle filters */}
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Rechercher par titre, acheteur, région..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+          <Input placeholder="Rechercher par titre, acheteur, objet..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} className="pl-10" />
         </div>
         <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
           Filtres {showFilters ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />}
         </Button>
       </div>
 
-      {/* Advanced filters */}
       {showFilters && (
         <Card className="bg-card border-border">
           <CardContent className="pt-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-3">
-              <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(0); }}>
                 <SelectTrigger><SelectValue placeholder="Région" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Toutes les régions</SelectItem>
                   {REGIONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
                 <SelectTrigger><SelectValue placeholder="Statut" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Tous les statuts</SelectItem>
@@ -250,7 +265,7 @@ const Tenders = () => {
                   <SelectItem value="cancelled">Annulé</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={procedureFilter} onValueChange={setProcedureFilter}>
+              <Select value={procedureFilter} onValueChange={(v) => { setProcedureFilter(v); setPage(0); }}>
                 <SelectTrigger><SelectValue placeholder="Procédure" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Toutes les procédures</SelectItem>
@@ -258,12 +273,12 @@ const Tenders = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap">
               <Input placeholder="Nom de la recherche" value={searchName} onChange={(e) => setSearchName(e.target.value)} className="max-w-xs" />
               <Button variant="secondary" size="sm" onClick={saveSearch} disabled={savingSearch || !searchName.trim()}>
                 <Save className="h-4 w-4 mr-1" /> Sauvegarder
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setSearch(""); }}>
+              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setSearch(""); setPage(0); }}>
                 Réinitialiser
               </Button>
             </div>
@@ -273,25 +288,25 @@ const Tenders = () => {
 
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">Chargement...</div>
-      ) : filteredTenders.length === 0 ? (
+      ) : tenders.length === 0 ? (
         <Card className="bg-card border-border">
           <CardContent className="py-12 text-center text-muted-foreground">
             <Search className="h-12 w-12 mx-auto mb-4 opacity-30" />
             <p className="text-lg font-medium">Aucun appel d'offres trouvé</p>
-            <p className="text-sm mt-1">Les appels d'offres apparaîtront ici une fois importés dans la base.</p>
+            <p className="text-sm mt-1">Modifiez vos filtres ou attendez de nouveaux imports.</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {filteredTenders.map((tender) => {
+          {tenders.map((tender) => {
             const score = profile ? computeScore(tender, profile) : null;
             return (
               <Card key={tender.id} className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer" onClick={() => navigate(`/tenders/${tender.id}`)}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-4">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                     <div className="flex-1 min-w-0 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-foreground truncate">{tender.title}</h3>
+                        <h3 className="font-semibold text-foreground text-sm sm:text-base truncate">{tender.title}</h3>
                         {tender.status && (
                           <Badge variant="outline" className={getStatusColor(tender.status)}>
                             {statusLabel[tender.status] ?? tender.status}
@@ -303,15 +318,15 @@ const Tenders = () => {
                           </Badge>
                         )}
                       </div>
-                      {tender.object && <p className="text-sm text-muted-foreground line-clamp-2">{tender.object}</p>}
-                      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                      {tender.object && <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2">{tender.object}</p>}
+                      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                         {tender.buyer_name && <span className="font-medium">{tender.buyer_name}</span>}
                         {tender.region && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {tender.region}</span>}
                         {tender.estimated_amount && <span className="flex items-center gap-1"><Euro className="h-3 w-3" /> {new Intl.NumberFormat("fr-FR").format(tender.estimated_amount)} €</span>}
                         {tender.deadline && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {format(new Date(tender.deadline), "dd MMM yyyy", { locale: fr })}</span>}
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }} className="shrink-0">
+                    <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }} className="shrink-0 self-start">
                       <Plus className="h-4 w-4 mr-1" /> Pipeline
                     </Button>
                   </div>
@@ -322,7 +337,6 @@ const Tenders = () => {
         </div>
       )}
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-4 pt-2">
           <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
