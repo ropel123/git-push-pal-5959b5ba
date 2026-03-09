@@ -28,86 +28,111 @@ function textify(val: any): string | null {
 }
 
 function parseBoampDonnees(raw: any): Record<string, any> {
-  let donnees: any = null;
   if (!raw) return {};
 
-  // donnees can be a JSON string or already parsed
+  let donnees: any = null;
   if (typeof raw === "string") {
     try { donnees = JSON.parse(raw); } catch { return {}; }
   } else {
     donnees = raw;
   }
 
-  // The structure varies: sometimes it's nested under AVIS, MARCHE, etc.
-  // Try common paths
-  const objet = dig(donnees, "OBJET") || dig(donnees, "DONNEES", "OBJET") || {};
-  const identite = dig(donnees, "IDENTITE") || dig(donnees, "DONNEES", "IDENTITE") || {};
-  const procedure = dig(donnees, "PROCEDURE") || dig(donnees, "DONNEES", "PROCEDURE") || {};
-  const condition = dig(donnees, "CONDITION") || dig(procedure, "CONDITION_PARTICIPATION") || {};
+  // The donnees object is wrapped in a family key (FNSimple, FNS, MAPA, etc.)
+  // Find the first non-meta key to get the root
+  const familyKey = Object.keys(donnees).find(k => 
+    typeof donnees[k] === "object" && donnees[k] !== null
+  );
+  const root = familyKey ? donnees[familyKey] : donnees;
 
-  // Description complete
-  const description = textify(objet.OBJET_COMPLET) || textify(objet.DESCRIPTION) || null;
+  const organisme = root?.organisme || {};
+  const initial = root?.initial || {};
+  const communication = initial?.communication || {};
+  const procedure = initial?.procedure || {};
+  const natureMarche = initial?.natureMarche || {};
+  const informComplementaire = initial?.informComplementaire || {};
 
-  // Better title
-  const titreMarche = textify(objet.TITRE_MARCHE) || null;
+  // Title
+  const titreMarche = textify(natureMarche.intitule) || null;
 
-  // CPV codes from donnees
+  // Description
+  const description = textify(natureMarche.description) || null;
+
+  // Buyer SIRET
+  const buyerSiret = textify(organisme.codeIdentificationNational) || null;
+
+  // Buyer address
+  const adresseArr = [organisme.adresse, organisme.cp, organisme.ville].filter(Boolean);
+  const buyerAddress = adresseArr.length > 0 ? adresseArr.join(", ") : null;
+
+  // Buyer contact
+  const buyerContact: Record<string, string> = {};
+  if (communication.nomContact) buyerContact.email = String(communication.nomContact);
+  if (communication.telContact) buyerContact.tel = String(communication.telContact);
+  if (communication.urlDocConsul) buyerContact.url = String(communication.urlDocConsul);
+  if (organisme.ville) buyerContact.ville = String(organisme.ville);
+
+  // CPV codes
   let cpvCodes: string[] = [];
-  const cpvData = objet.CPV;
-  if (Array.isArray(cpvData)) {
-    cpvCodes = cpvData.map((c: any) => c?.PRINCIPAL || c?.CODE || c).filter(Boolean).map(String);
-  } else if (cpvData?.PRINCIPAL) {
-    cpvCodes = [String(cpvData.PRINCIPAL)];
+  const cpvData = dig(natureMarche, "codeCPV", "objetPrincipal", "classPrincipale");
+  if (cpvData) {
+    cpvCodes = Array.isArray(cpvData) ? cpvData.map(String) : [String(cpvData)];
+  }
+  // Also check for secondary CPV
+  const cpvSecondaire = dig(natureMarche, "codeCPV", "objetSecondaire");
+  if (Array.isArray(cpvSecondaire)) {
+    cpvCodes.push(...cpvSecondaire.map((c: any) => String(c?.classPrincipale || c)).filter(Boolean));
+  }
+  cpvCodes = [...new Set(cpvCodes)];
+
+  // Execution location
+  const lieuExec = natureMarche.lieuExecution;
+  let executionLocation: string | null = null;
+  let nutsCode: string | null = null;
+  if (lieuExec) {
+    if (typeof lieuExec === "string") {
+      executionLocation = lieuExec;
+    } else {
+      executionLocation = textify(lieuExec.libelle) || textify(lieuExec.lieu) || textify(lieuExec) || null;
+      nutsCode = textify(lieuExec.codeNuts) || textify(lieuExec.code_nuts) || null;
+    }
   }
 
-  // Lieu d'execution
-  const lieuExec = dig(objet, "LIEU_EXEC_LIVR") || dig(objet, "LIEU_EXECUTION") || {};
-  const executionLocation = textify(lieuExec.LIBELLE) || textify(lieuExec.LIEU) || null;
-  const nutsCode = textify(lieuExec.CODE_NUTS) || null;
+  // Award criteria
+  const awardCriteria = textify(procedure.criteresAttrib) || null;
 
-  // Buyer address & contact
-  const adresse = [identite.ADRESSE, identite.CP, identite.VILLE].filter(Boolean).join(", ") || null;
-  const buyerContact: Record<string, string> = {};
-  if (identite.MEL) buyerContact.email = String(identite.MEL);
-  if (identite.TEL) buyerContact.tel = String(identite.TEL);
-  if (identite.URL) buyerContact.url = String(identite.URL);
-  if (identite.VILLE) buyerContact.ville = String(identite.VILLE);
+  // Participation conditions
+  const condParts: string[] = [];
+  if (procedure.capaciteEcoFin) condParts.push("Capacité économique et financière : " + textify(procedure.capaciteEcoFin));
+  if (procedure.capaciteTech) condParts.push("Capacités techniques : " + textify(procedure.capaciteTech));
+  const participationConditions = condParts.length > 0 ? condParts.join("\n") : null;
 
-  // SIRET
-  const buyerSiret = textify(identite.SIRET) || null;
+  // Additional info
+  const additionalInfo = textify(informComplementaire.autresInformComplementaire) 
+    || textify(informComplementaire) || null;
 
-  // Type de marche
-  const contractType = textify(objet.TYPE_MARCHE) || textify(dig(donnees, "TYPE_MARCHE")) || null;
+  // Contract type from top-level record field (passed separately)
+  const contractType = null; // handled in normalizeBoampToTender from top-level
 
-  // Criteres d'attribution
-  const awardCriteria = textify(dig(procedure, "CRITERES_ATTRIBUTION")) 
-    || textify(dig(procedure, "CRITERE_ATTRIBUTION")) || null;
-
-  // Conditions de participation
-  const participationConditions = textify(condition) || textify(dig(procedure, "CONDITION_PARTICIPATION")) || null;
-
-  // Renseignements complementaires
-  const additionalInfo = textify(dig(procedure, "RENSEIGNEMENTS_COMPLEMENTAIRES"))
-    || textify(dig(donnees, "RENSEIGNEMENTS_COMPLEMENTAIRES")) || null;
-
-  // Estimated amount
+  // Estimated amount - try to extract from description text
   let estimatedAmount: number | null = null;
-  const montant = dig(objet, "CARACTERISTIQUES", "QUANTITE") || dig(objet, "VALEUR_ESTIMEE") || dig(objet, "MONTANT");
-  if (montant) {
-    const num = parseFloat(String(montant));
-    if (!isNaN(num) && num > 0) estimatedAmount = num;
+  if (description) {
+    const match = description.match(/([\d\s]+[,.][\d]{2})\s*euro/i) 
+      || description.match(/([\d\s]+)\s*euro/i);
+    if (match) {
+      const num = parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
+      if (!isNaN(num) && num > 0) estimatedAmount = num;
+    }
   }
 
   // Lots
   let lots: any[] = [];
-  const lotsData = dig(objet, "CARACTERISTIQUES", "DIV_EN_LOTS") || dig(objet, "LOTS");
+  const lotsData = natureMarche.lotsMarche;
   if (Array.isArray(lotsData)) {
     lots = lotsData.map((lot: any, i: number) => ({
-      numero: lot.NUM || i + 1,
-      title: textify(lot.INTITULE) || textify(lot.TITRE) || `Lot ${i + 1}`,
-      description: textify(lot.DESCRIPTION) || null,
-      amount: lot.VALEUR ? parseFloat(String(lot.VALEUR)) || null : null,
-      cpv: lot.CPV?.PRINCIPAL || null,
+      numero: lot.numero || lot.num || i + 1,
+      title: textify(lot.intitule) || textify(lot.titre) || `Lot ${i + 1}`,
+      description: textify(lot.description) || null,
+      cpv: dig(lot, "codeCPV", "objetPrincipal", "classPrincipale") || null,
     }));
   }
 
@@ -117,7 +142,7 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     cpvCodes: cpvCodes.length > 0 ? cpvCodes : null,
     executionLocation,
     nutsCode,
-    buyerAddress: adresse,
+    buyerAddress,
     buyerContact: Object.keys(buyerContact).length > 0 ? buyerContact : null,
     buyerSiret,
     contractType,
