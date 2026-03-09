@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
       const tendersToUpsert = batch
         .map((n: any) => {
           const tender = normalizeTedToTender(n);
-          tender.publication_date = todayFormatted;
+          if (!tender.publication_date) tender.publication_date = todayFormatted;
           return tender;
         })
         .filter((t: any) => t.reference);
