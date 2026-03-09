@@ -308,17 +308,40 @@ function parseEformsDonnees(donnees: any): Record<string, any> {
 
   const awardCriteria = awardCritArr.length > 0 ? awardCritArr.join("\n") : null;
 
-  // Participation conditions
+  // Participation conditions — notice level + lot level
   const condParts: string[] = [];
-  const qualReq = findVal(tenderTerms, "cac:TendererQualificationRequest");
-  if (qualReq) {
-    const reqArr = Array.isArray(qualReq) ? qualReq : [qualReq];
-    for (const req of reqArr) {
-      const desc = findText(req, "cbc:Description") || findText(req, "Description");
-      if (desc) condParts.push(desc);
+  
+  function extractConditions(terms: any): void {
+    // Qualification requirements
+    const qualReq = findVal(terms, "cac:TendererQualificationRequest");
+    if (qualReq) {
+      const reqArr = Array.isArray(qualReq) ? qualReq : [qualReq];
+      for (const req of reqArr) {
+        const desc = findText(req, "cbc:Description") || findText(req, "Description");
+        if (desc) condParts.push(desc);
+      }
+    }
+    // Contract execution requirements (e-invoicing, etc.)
+    const execReq = findVal(terms, "cac:ContractExecutionRequirement");
+    if (execReq) {
+      const reqArr = Array.isArray(execReq) ? execReq : [execReq];
+      for (const req of reqArr) {
+        const name = findText(req, "cbc:Name") || findText(req, "Name");
+        const desc = findText(req, "cbc:Description") || findText(req, "Description");
+        if (name || desc) condParts.push([name, desc].filter(Boolean).join(" : "));
+      }
     }
   }
-  const participationConditions = condParts.length > 0 ? condParts.join("\n") : null;
+
+  extractConditions(tenderTerms);
+  // If nothing at notice level, try lot level
+  if (condParts.length === 0) {
+    for (const lot of lotArr) {
+      const lotTerms = findVal(lot, "cac:TenderingTerms") || findVal(lot, "TenderingTerms");
+      if (lotTerms) extractConditions(lotTerms);
+    }
+  }
+  const participationConditions = condParts.length > 0 ? [...new Set(condParts)].join("\n") : null;
 
   // Estimated amount
   let estimatedAmount: number | null = null;
