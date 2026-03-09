@@ -8,32 +8,68 @@ const corsHeaders = {
 
 const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
 
+function extractField(notice: any, field: string): string | null {
+  const val = notice[field];
+  if (!val) return null;
+  if (Array.isArray(val)) return val[0] || null;
+  return String(val);
+}
+
 function normalizeTedToTender(notice: any) {
-  // Notice structure from TED: { "publication-number": "...", "links": {...}, ...fieldValues }
   const pubNumber = notice["publication-number"] || "";
   
-  // Extract available data from the notice fields
-  // Field names use BT-* format from eForms
-  const title = notice["BT-21-Procedure"] || notice["BT-22-Lot"] || notice["title"] || pubNumber;
-  const buyerName = notice["BT-500-Organization-Company"] || notice["organisation-official-name"] || null;
-  const deadline = notice["BT-131(d)-Lot"] || notice["submission-deadline"] || null;
-  
+  const title = extractField(notice, "notice-title") || pubNumber;
+  const buyerName = extractField(notice, "buyer-name");
+  const deadlineRaw = extractField(notice, "deadline-receipt-request");
+  const estimatedRaw = notice["estimated-value"];
+  const cpvRaw = notice["cpv-code"];
+  const procedureType = extractField(notice, "procedure-type");
+  const descriptionLot = notice["description-lot"];
+  const pubDate = extractField(notice, "publication-date");
+
+  // Parse deadline
+  let deadline: string | null = null;
+  if (deadlineRaw) {
+    try { deadline = new Date(deadlineRaw).toISOString(); } catch { /* skip */ }
+  }
+
+  // Parse estimated amount
+  let estimatedAmount: number | null = null;
+  if (estimatedRaw) {
+    const num = Array.isArray(estimatedRaw) ? estimatedRaw[0] : estimatedRaw;
+    const parsed = parseFloat(String(num));
+    if (!isNaN(parsed)) estimatedAmount = parsed;
+  }
+
+  // Parse CPV codes
+  let cpvCodes: string[] = [];
+  if (cpvRaw) {
+    cpvCodes = Array.isArray(cpvRaw) ? cpvRaw.map(String) : [String(cpvRaw)];
+  }
+
+  // Parse lots
+  let lots: any[] = [];
+  if (descriptionLot) {
+    const descs = Array.isArray(descriptionLot) ? descriptionLot : [descriptionLot];
+    lots = descs.map((d: any, i: number) => ({ numero: i + 1, description: String(d) }));
+  }
+
   return {
-    title: Array.isArray(title) ? title[0] : (title || "Sans titre"),
+    title: title || "Sans titre",
     reference: pubNumber,
     source: "ted",
     source_url: `https://ted.europa.eu/en/notice/-/${pubNumber}`,
-    buyer_name: Array.isArray(buyerName) ? buyerName[0] : buyerName,
+    buyer_name: buyerName,
     buyer_siret: null,
-    object: null,
-    procedure_type: null,
+    object: title !== pubNumber ? title : null,
+    procedure_type: procedureType,
     department: null,
     region: null,
-    publication_date: null, // Will be set from query context
-    deadline: null,
-    estimated_amount: null,
-    cpv_codes: [],
-    lots: [],
+    publication_date: pubDate || null,
+    deadline,
+    estimated_amount: estimatedAmount,
+    cpv_codes: cpvCodes,
+    lots,
     status: "open" as const,
     updated_at: new Date().toISOString(),
   };
