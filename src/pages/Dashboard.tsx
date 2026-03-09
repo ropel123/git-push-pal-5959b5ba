@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Kanban, Trophy, TrendingUp, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Search, Kanban, Trophy, TrendingUp, AlertTriangle, BookmarkCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format, differenceInDays } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -28,11 +29,11 @@ const Dashboard = () => {
   const [pipelineDistribution, setPipelineDistribution] = useState<{ name: string; value: number }[]>([]);
   const [recentPipeline, setRecentPipeline] = useState<any[]>([]);
   const [urgentTenders, setUrgentTenders] = useState<any[]>([]);
+  const [savedSearches, setSavedSearches] = useState<{ id: string; name: string; filters: any }[]>([]);
 
   useEffect(() => {
     if (!user) return;
 
-    // Fetch stats
     Promise.all([
       supabase.from("tenders").select("id", { count: "exact", head: true }),
       supabase.from("pipeline_items").select("id", { count: "exact", head: true }).eq("user_id", user.id),
@@ -42,19 +43,14 @@ const Dashboard = () => {
       setStats({ totalTenders: t.count ?? 0, pipelineItems: p.count ?? 0, wonItems: w.count ?? 0, openTenders: o.count ?? 0 });
     });
 
-    // Monthly tenders chart
     supabase.from("tenders").select("publication_date").not("publication_date", "is", null).then(({ data }) => {
       if (!data) return;
       const counts: Record<string, number> = {};
-      data.forEach((t) => {
-        const m = format(new Date(t.publication_date!), "yyyy-MM");
-        counts[m] = (counts[m] ?? 0) + 1;
-      });
+      data.forEach((t) => { const m = format(new Date(t.publication_date!), "yyyy-MM"); counts[m] = (counts[m] ?? 0) + 1; });
       const sorted = Object.entries(counts).sort().slice(-6);
       setMonthlyData(sorted.map(([m, c]) => ({ month: format(new Date(m + "-01"), "MMM yy", { locale: fr }), count: c })));
     });
 
-    // Pipeline distribution
     supabase.from("pipeline_items").select("stage").eq("user_id", user.id).then(({ data }) => {
       if (!data) return;
       const counts: Record<string, number> = {};
@@ -62,20 +58,19 @@ const Dashboard = () => {
       setPipelineDistribution(Object.entries(counts).map(([k, v]) => ({ name: STAGE_LABELS[k] ?? k, value: v })));
     });
 
-    // Recent pipeline items
     supabase.from("pipeline_items").select("*, tenders(title, deadline)").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5).then(({ data }) => {
       if (data) setRecentPipeline(data);
     });
 
-    // Urgent tenders (deadline < 7 days)
     supabase.from("tenders").select("id, title, deadline").eq("status", "open").not("deadline", "is", null).then(({ data }) => {
       if (!data) return;
       const now = new Date();
-      const urgent = data.filter((t) => {
-        const days = differenceInDays(new Date(t.deadline!), now);
-        return days >= 0 && days <= 7;
-      }).slice(0, 5);
+      const urgent = data.filter((t) => { const days = differenceInDays(new Date(t.deadline!), now); return days >= 0 && days <= 7; }).slice(0, 5);
       setUrgentTenders(urgent);
+    });
+
+    supabase.from("saved_searches").select("id, name, filters").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5).then(({ data }) => {
+      if (data) setSavedSearches(data);
     });
   }, [user]);
 
@@ -93,7 +88,6 @@ const Dashboard = () => {
         <p className="text-muted-foreground">Vue d'ensemble de votre activité</p>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {cards.map((card) => (
           <Card key={card.title} className={`bg-card border-border ${card.onClick ? "cursor-pointer hover:border-primary/30 transition-colors" : ""}`} onClick={card.onClick}>
@@ -108,7 +102,6 @@ const Dashboard = () => {
         ))}
       </div>
 
-      {/* Charts row */}
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="bg-card border-border">
           <CardHeader className="pb-2">
@@ -153,8 +146,7 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      {/* Urgent + Recent */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {urgentTenders.length > 0 && (
           <Card className="bg-card border-border">
             <CardHeader className="pb-2">
@@ -190,6 +182,26 @@ const Dashboard = () => {
             )}
           </CardContent>
         </Card>
+
+        {savedSearches.length > 0 && (
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+                <BookmarkCheck className="h-4 w-4 text-primary" /> Recherches sauvegardées
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {savedSearches.map((s) => (
+                <div key={s.id} className="p-2 rounded-md bg-secondary/50 text-sm cursor-pointer hover:bg-secondary/80 transition-colors" onClick={() => navigate("/tenders")}>
+                  <span className="text-foreground">{s.name}</span>
+                </div>
+              ))}
+              <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => navigate("/tenders")}>
+                Voir toutes les recherches →
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

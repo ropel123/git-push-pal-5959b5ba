@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -28,6 +29,14 @@ interface Tender {
   cpv_codes: string[] | null;
 }
 
+interface SavedSearch {
+  id: string;
+  name: string;
+  filters: any;
+}
+
+const PAGE_SIZE = 20;
+
 const REGIONS = [
   "Auvergne-Rhône-Alpes", "Bourgogne-Franche-Comté", "Bretagne",
   "Centre-Val de Loire", "Corse", "Grand Est", "Hauts-de-France",
@@ -37,6 +46,8 @@ const REGIONS = [
 
 const Tenders = () => {
   const [tenders, setTenders] = useState<Tender[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
@@ -46,28 +57,59 @@ const Tenders = () => {
   const [profile, setProfile] = useState<any>(null);
   const [searchName, setSearchName] = useState("");
   const [savingSearch, setSavingSearch] = useState(false);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchTenders();
     if (user) {
       supabase.from("profiles").select("*").eq("user_id", user.id).single().then(({ data }) => {
         if (data) setProfile(data);
       });
+      fetchSavedSearches();
     }
   }, [user]);
 
+  useEffect(() => {
+    fetchTenders();
+  }, [page]);
+
   const fetchTenders = async () => {
     setLoading(true);
-    const { data } = await supabase
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data, count } = await supabase
       .from("tenders")
-      .select("*")
+      .select("*", { count: "exact" })
       .order("publication_date", { ascending: false })
-      .limit(100);
+      .range(from, to);
     if (data) setTenders(data);
+    if (count !== null) setTotalCount(count);
     setLoading(false);
+  };
+
+  const fetchSavedSearches = async () => {
+    if (!user) return;
+    const { data } = await supabase.from("saved_searches").select("id, name, filters").eq("user_id", user.id).order("created_at", { ascending: false });
+    if (data) setSavedSearches(data);
+  };
+
+  const applySavedSearch = (s: SavedSearch) => {
+    const f = s.filters ?? {};
+    setSearch(f.search ?? "");
+    setRegionFilter(f.regionFilter ?? "");
+    setStatusFilter(f.statusFilter ?? "");
+    setProcedureFilter(f.procedureFilter ?? "");
+    setShowFilters(true);
+    setPage(0);
+    toast({ title: `Recherche "${s.name}" appliquée` });
+  };
+
+  const deleteSavedSearch = async (id: string) => {
+    await supabase.from("saved_searches").delete().eq("id", id);
+    setSavedSearches((prev) => prev.filter((s) => s.id !== id));
+    toast({ title: "Recherche supprimée" });
   };
 
   const addToPipeline = async (tenderId: string) => {
@@ -90,14 +132,31 @@ const Tenders = () => {
     if (!user || !searchName.trim()) return;
     setSavingSearch(true);
     const filters = { search, regionFilter, statusFilter, procedureFilter };
-    await supabase.from("saved_searches").insert({
-      user_id: user.id,
-      name: searchName.trim(),
-      filters,
-    });
+    await supabase.from("saved_searches").insert({ user_id: user.id, name: searchName.trim(), filters });
     toast({ title: "Recherche sauvegardée ✓" });
     setSearchName("");
     setSavingSearch(false);
+    fetchSavedSearches();
+  };
+
+  const exportCSV = () => {
+    const headers = ["Titre", "Acheteur", "Montant estimé", "Région", "Date limite", "Statut"];
+    const rows = filteredTenders.map((t) => [
+      `"${(t.title ?? "").replace(/"/g, '""')}"`,
+      `"${(t.buyer_name ?? "").replace(/"/g, '""')}"`,
+      t.estimated_amount ?? "",
+      t.region ?? "",
+      t.deadline ? format(new Date(t.deadline), "dd/MM/yyyy") : "",
+      t.status ?? "",
+    ]);
+    const csv = [headers.join(";"), ...rows.map((r) => r.join(";"))].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `appels-offres-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const filteredTenders = tenders.filter((t) => {
@@ -108,6 +167,8 @@ const Tenders = () => {
     const matchProcedure = !procedureFilter || procedureFilter === "all" || t.procedure_type === procedureFilter;
     return matchText && matchRegion && matchStatus && matchProcedure;
   });
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
   const getStatusColor = (status: string | null) => {
     switch (status) {
@@ -126,7 +187,33 @@ const Tenders = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Appels d'offres</h1>
-          <p className="text-muted-foreground">{filteredTenders.length} résultat(s)</p>
+          <p className="text-muted-foreground">{totalCount} résultat(s) — page {page + 1}/{totalPages || 1}</p>
+        </div>
+        <div className="flex gap-2">
+          {savedSearches.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <BookmarkCheck className="h-4 w-4 mr-1" /> Recherches sauvegardées
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-2">
+                <div className="space-y-1">
+                  {savedSearches.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between p-2 rounded-md hover:bg-secondary/50 transition-colors">
+                      <button className="text-sm text-foreground truncate flex-1 text-left" onClick={() => applySavedSearch(s)}>{s.name}</button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-destructive" onClick={() => deleteSavedSearch(s.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+          <Button variant="outline" size="sm" onClick={exportCSV} disabled={filteredTenders.length === 0}>
+            <Download className="h-4 w-4 mr-1" /> CSV
+          </Button>
         </div>
       </div>
 
@@ -134,12 +221,7 @@ const Tenders = () => {
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Rechercher par titre, acheteur, région..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
+          <Input placeholder="Rechercher par titre, acheteur, région..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
         </div>
         <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
           Filtres {showFilters ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />}
@@ -204,11 +286,7 @@ const Tenders = () => {
           {filteredTenders.map((tender) => {
             const score = profile ? computeScore(tender, profile) : null;
             return (
-              <Card
-                key={tender.id}
-                className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer"
-                onClick={() => navigate(`/tenders/${tender.id}`)}
-              >
+              <Card key={tender.id} className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer" onClick={() => navigate(`/tenders/${tender.id}`)}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0 space-y-2">
@@ -233,12 +311,7 @@ const Tenders = () => {
                         {tender.deadline && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {format(new Date(tender.deadline), "dd MMM yyyy", { locale: fr })}</span>}
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }}
-                      className="shrink-0"
-                    >
+                    <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }} className="shrink-0">
                       <Plus className="h-4 w-4 mr-1" /> Pipeline
                     </Button>
                   </div>
@@ -246,6 +319,19 @@ const Tenders = () => {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-4 pt-2">
+          <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
+            <ChevronLeft className="h-4 w-4 mr-1" /> Précédent
+          </Button>
+          <span className="text-sm text-muted-foreground">Page {page + 1} / {totalPages}</span>
+          <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>
+            Suivant <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
         </div>
       )}
     </div>
