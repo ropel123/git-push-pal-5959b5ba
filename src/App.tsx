@@ -15,6 +15,7 @@ import Pipeline from "./pages/Pipeline";
 import Awards from "./pages/Awards";
 import SettingsPage from "./pages/SettingsPage";
 import Onboarding from "./pages/Onboarding";
+import BuyerDetail from "./pages/BuyerDetail";
 
 const queryClient = new QueryClient();
 
