@@ -241,40 +241,71 @@ function parseEformsDonnees(donnees: any): Record<string, any> {
   // === Lots ===
   let lots: any[] = [];
   const lotData = findVal(notice, "cac:ProcurementProjectLot");
-  if (lotData) {
-    const lotArr = Array.isArray(lotData) ? lotData : [lotData];
-    lots = lotArr.map((lot: any, i: number) => {
-      const lotProject = findVal(lot, "cac:ProcurementProject") || findVal(lot, "ProcurementProject") || {};
-      return {
-        numero: findText(lot, "cbc:ID") || findText(lot, "ID") || (i + 1),
-        title: findText(lotProject, "cbc:Name") || findText(lotProject, "Name") || `Lot ${i + 1}`,
-        description: findText(lotProject, "cbc:Description") || findText(lotProject, "Description") || null,
-      };
-    });
-  }
+  const lotArr = lotData ? (Array.isArray(lotData) ? lotData : [lotData]) : [];
+  lots = lotArr.map((lot: any, i: number) => {
+    const lotProject = findVal(lot, "cac:ProcurementProject") || findVal(lot, "ProcurementProject") || {};
+    return {
+      numero: findText(lot, "cbc:ID") || findText(lot, "ID") || (i + 1),
+      title: findText(lotProject, "cbc:Name") || findText(lotProject, "Name") || `Lot ${i + 1}`,
+      description: findText(lotProject, "cbc:Description") || findText(lotProject, "Description") || null,
+    };
+  });
 
-  // === Tendering Terms (conditions) ===
-  const tenderTerms = findVal(notice, "cac:TenderingTerms") || findVal(notice, "TenderingTerms") || {};
-  
-  // Award criteria
+  // === Award criteria — search at notice level AND lot level ===
   const awardCritArr: string[] = [];
-  const awardCrit = findVal(tenderTerms, "cac:AwardingTerms") || findVal(tenderTerms, "AwardingTerms");
-  if (awardCrit) {
-    const criteria = findVal(awardCrit, "cac:AwardingCriterion");
-    if (criteria) {
-      const critArr = Array.isArray(criteria) ? criteria : [criteria];
-      for (const c of critArr) {
-        const name = findText(c, "cbc:Name") || findText(c, "Name");
-        const desc = findText(c, "cbc:Description") || findText(c, "Description");
-        const weight = findText(c, "cbc:WeightNumeric") || findText(c, "WeightNumeric");
-        if (name) {
-          awardCritArr.push(weight ? `${name} (${weight}%)` : name);
-        } else if (desc) {
-          awardCritArr.push(desc);
+  
+  // Helper to extract criteria from a TenderingTerms block
+  function extractCriteria(terms: any): void {
+    const awardCrit = findVal(terms, "cac:AwardingTerms") || findVal(terms, "AwardingTerms");
+    if (awardCrit) {
+      const criteria = findVal(awardCrit, "cac:AwardingCriterion");
+      if (criteria) {
+        const critArr = Array.isArray(criteria) ? criteria : [criteria];
+        for (const c of critArr) {
+          const name = findText(c, "cbc:Name") || findText(c, "Name");
+          const desc = findText(c, "cbc:Description") || findText(c, "Description");
+          const weight = findText(c, "cbc:WeightNumeric") || findText(c, "WeightNumeric");
+          if (name) {
+            awardCritArr.push(weight ? `${name} (${weight}%)` : name);
+          } else if (desc) {
+            awardCritArr.push(desc);
+          }
         }
       }
     }
   }
+
+  // Try notice-level TenderingTerms first
+  const tenderTerms = findVal(notice, "cac:TenderingTerms") || findVal(notice, "TenderingTerms") || {};
+  extractCriteria(tenderTerms);
+
+  // If no criteria found at notice level, search in lot-level TenderingTerms
+  if (awardCritArr.length === 0) {
+    for (const lot of lotArr) {
+      const lotTerms = findVal(lot, "cac:TenderingTerms") || findVal(lot, "TenderingTerms");
+      if (lotTerms) extractCriteria(lotTerms);
+    }
+  }
+
+  // Detect "selection-criteria-source: epo-procurement-document" pattern
+  if (awardCritArr.length === 0) {
+    const selCritSource = findText(notice, "efbc:SelectionCriteriaSource") 
+      || findText(notice, "selection-criteria-source");
+    if (selCritSource && selCritSource.toLowerCase().includes("procurement-document")) {
+      awardCritArr.push("Critères définis dans les documents de la consultation");
+    }
+    // Also check within lots
+    if (awardCritArr.length === 0) {
+      for (const lot of lotArr) {
+        const src = findText(lot, "efbc:SelectionCriteriaSource") || findText(lot, "selection-criteria-source");
+        if (src && src.toLowerCase().includes("procurement-document")) {
+          awardCritArr.push("Critères définis dans les documents de la consultation");
+          break;
+        }
+      }
+    }
+  }
+
   const awardCriteria = awardCritArr.length > 0 ? awardCritArr.join("\n") : null;
 
   // Participation conditions
