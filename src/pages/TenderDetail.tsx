@@ -314,7 +314,7 @@ const TenderDetail = () => {
       )}
 
       {/* Critères d'attribution */}
-      {tender.award_criteria && (
+      {isDisplayableText(tender.award_criteria) && (
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-muted-foreground">Critères d'attribution</CardTitle>
