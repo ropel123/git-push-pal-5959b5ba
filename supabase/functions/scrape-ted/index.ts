@@ -8,32 +8,93 @@ const corsHeaders = {
 
 const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
 
+function cleanBrackets(val: string | null): string | null {
+  if (!val || typeof val !== "string") return val;
+  const trimmed = val.trim();
+  // Try to parse JSON arrays like '["value"]'
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.length > 0) return String(parsed[0]);
+    } catch { /* not JSON */ }
+  }
+  return val;
+}
+
+function extractText(val: any): string | null {
+  if (!val) return null;
+  if (typeof val === "string") return val;
+  if (Array.isArray(val)) {
+    return val.length > 0 ? extractText(val[0]) : null;
+  }
+  if (typeof val === "object") {
+    // Multilingual object: prefer French
+    const text = val["fra"] || val["fre"] || val["eng"] || Object.values(val)[0];
+    return extractText(text);
+  }
+  return String(val);
+}
+
+function extractField(notice: any, field: string): string | null {
+  return extractText(notice[field]);
+}
+
 function normalizeTedToTender(notice: any) {
-  // Notice structure from TED: { "publication-number": "...", "links": {...}, ...fieldValues }
   const pubNumber = notice["publication-number"] || "";
   
-  // Extract available data from the notice fields
-  // Field names use BT-* format from eForms
-  const title = notice["BT-21-Procedure"] || notice["BT-22-Lot"] || notice["title"] || pubNumber;
-  const buyerName = notice["BT-500-Organization-Company"] || notice["organisation-official-name"] || null;
-  const deadline = notice["BT-131(d)-Lot"] || notice["submission-deadline"] || null;
-  
+  const titleRaw = extractField(notice, "notice-title") || pubNumber;
+  const title = cleanBrackets(titleRaw);
+  const buyerName = cleanBrackets(extractField(notice, "buyer-name"));
+  const deadlineRaw = extractField(notice, "deadline-receipt-request");
+  const estimatedRaw = notice["estimated-value-lot"];
+  const cpvRaw = notice["classification-cpv"];
+  const procedureType = extractField(notice, "procedure-type");
+  const descriptionLot = notice["description-lot"];
+  const pubDate = extractField(notice, "publication-date");
+
+  // Parse deadline
+  let deadline: string | null = null;
+  if (deadlineRaw) {
+    try { deadline = new Date(deadlineRaw).toISOString(); } catch { /* skip */ }
+  }
+
+  // Parse estimated amount
+  let estimatedAmount: number | null = null;
+  if (estimatedRaw) {
+    const num = Array.isArray(estimatedRaw) ? estimatedRaw[0] : estimatedRaw;
+    const parsed = parseFloat(String(num));
+    if (!isNaN(parsed)) estimatedAmount = parsed;
+  }
+
+  // Parse CPV codes
+  let cpvCodes: string[] = [];
+  if (cpvRaw) {
+    cpvCodes = Array.isArray(cpvRaw) ? cpvRaw.map(String) : [String(cpvRaw)];
+  }
+
+  // Parse lots
+  let lots: any[] = [];
+  if (descriptionLot) {
+    const descs = Array.isArray(descriptionLot) ? descriptionLot : [descriptionLot];
+    lots = descs.map((d: any, i: number) => ({ numero: i + 1, description: String(d) }));
+  }
+
   return {
-    title: Array.isArray(title) ? title[0] : (title || "Sans titre"),
+    title: title || "Sans titre",
     reference: pubNumber,
     source: "ted",
     source_url: `https://ted.europa.eu/en/notice/-/${pubNumber}`,
-    buyer_name: Array.isArray(buyerName) ? buyerName[0] : buyerName,
+    buyer_name: buyerName,
     buyer_siret: null,
-    object: null,
-    procedure_type: null,
+    object: title !== pubNumber ? title : null,
+    procedure_type: procedureType,
     department: null,
     region: null,
-    publication_date: null, // Will be set from query context
-    deadline: null,
-    estimated_amount: null,
-    cpv_codes: [],
-    lots: [],
+    publication_date: pubDate || null,
+    deadline,
+    estimated_amount: estimatedAmount,
+    cpv_codes: cpvCodes,
+    lots,
     status: "open" as const,
     updated_at: new Date().toISOString(),
   };
@@ -70,7 +131,7 @@ Deno.serve(async (req) => {
     // then we have the reference + source_url which is enough for MVP
     const searchPayload = {
       query: `place-of-performance = FRA AND publication-date >= ${dateStr} AND publication-date <= ${today}`,
-      fields: ["sme-part"],
+      fields: ["notice-title", "buyer-name", "deadline-receipt-request", "estimated-value-lot", "classification-cpv", "procedure-type", "description-lot", "publication-date"],
       limit: 100,
       page: 1,
       paginationMode: "PAGE_NUMBER",
@@ -103,6 +164,7 @@ Deno.serve(async (req) => {
     itemsFound = data.totalNoticeCount || notices.length;
     console.log(`[scrape-ted] Found ${itemsFound} notices, processing ${notices.length}`);
 
+
     // Process in batches
     const batchSize = 20;
     for (let i = 0; i < notices.length; i += batchSize) {
@@ -110,7 +172,7 @@ Deno.serve(async (req) => {
       const tendersToUpsert = batch
         .map((n: any) => {
           const tender = normalizeTedToTender(n);
-          tender.publication_date = todayFormatted;
+          if (!tender.publication_date) tender.publication_date = todayFormatted;
           return tender;
         })
         .filter((t: any) => t.reference);
