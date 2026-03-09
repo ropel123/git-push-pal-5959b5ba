@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
     // then we have the reference + source_url which is enough for MVP
     const searchPayload = {
       query: `place-of-performance = FRA AND publication-date >= ${dateStr} AND publication-date <= ${today}`,
-      fields: ["notice-title", "buyer-name", "deadline-receipt-request", "estimated-value", "cpv-code", "procedure-type", "description-lot", "publication-date"],
+      fields: ["notice-title", "buyer-name", "deadline-receipt-request", "estimated-value-lot", "classification-cpv", "procedure-type", "description-lot", "publication-date"],
       limit: 100,
       page: 1,
       paginationMode: "PAGE_NUMBER",
