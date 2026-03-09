@@ -14,16 +14,326 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      alerts: {
+        Row: {
+          created_at: string | null
+          enabled: boolean | null
+          filters: Json | null
+          frequency: string | null
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          enabled?: boolean | null
+          filters?: Json | null
+          frequency?: string | null
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          enabled?: boolean | null
+          filters?: Json | null
+          frequency?: string | null
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      award_notices: {
+        Row: {
+          award_date: string | null
+          awarded_amount: number | null
+          contract_duration: string | null
+          created_at: string | null
+          id: string
+          lots_awarded: Json | null
+          num_candidates: number | null
+          tender_id: string | null
+          winner_name: string | null
+          winner_siren: string | null
+        }
+        Insert: {
+          award_date?: string | null
+          awarded_amount?: number | null
+          contract_duration?: string | null
+          created_at?: string | null
+          id?: string
+          lots_awarded?: Json | null
+          num_candidates?: number | null
+          tender_id?: string | null
+          winner_name?: string | null
+          winner_siren?: string | null
+        }
+        Update: {
+          award_date?: string | null
+          awarded_amount?: number | null
+          contract_duration?: string | null
+          created_at?: string | null
+          id?: string
+          lots_awarded?: Json | null
+          num_candidates?: number | null
+          tender_id?: string | null
+          winner_name?: string | null
+          winner_siren?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "award_notices_tender_id_fkey"
+            columns: ["tender_id"]
+            isOneToOne: false
+            referencedRelation: "tenders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_comments: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          pipeline_item_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          pipeline_item_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          pipeline_item_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_comments_pipeline_item_id_fkey"
+            columns: ["pipeline_item_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_items: {
+        Row: {
+          assigned_to: string | null
+          created_at: string | null
+          id: string
+          notes: string | null
+          score: number | null
+          stage: Database["public"]["Enums"]["pipeline_stage"] | null
+          tender_id: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          score?: number | null
+          stage?: Database["public"]["Enums"]["pipeline_stage"] | null
+          tender_id: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          assigned_to?: string | null
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          score?: number | null
+          stage?: Database["public"]["Enums"]["pipeline_stage"] | null
+          tender_id?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_items_tender_id_fkey"
+            columns: ["tender_id"]
+            isOneToOne: false
+            referencedRelation: "tenders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          company_name: string | null
+          company_size: string | null
+          created_at: string | null
+          id: string
+          keywords: string[] | null
+          onboarding_completed: boolean | null
+          regions: string[] | null
+          sectors: string[] | null
+          siren: string | null
+          user_id: string
+        }
+        Insert: {
+          company_name?: string | null
+          company_size?: string | null
+          created_at?: string | null
+          id?: string
+          keywords?: string[] | null
+          onboarding_completed?: boolean | null
+          regions?: string[] | null
+          sectors?: string[] | null
+          siren?: string | null
+          user_id: string
+        }
+        Update: {
+          company_name?: string | null
+          company_size?: string | null
+          created_at?: string | null
+          id?: string
+          keywords?: string[] | null
+          onboarding_completed?: boolean | null
+          regions?: string[] | null
+          sectors?: string[] | null
+          siren?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      saved_searches: {
+        Row: {
+          created_at: string | null
+          filters: Json | null
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          filters?: Json | null
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          filters?: Json | null
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      tenders: {
+        Row: {
+          buyer_name: string | null
+          buyer_siret: string | null
+          cpv_codes: string[] | null
+          created_at: string | null
+          deadline: string | null
+          department: string | null
+          estimated_amount: number | null
+          id: string
+          lots: Json | null
+          object: string | null
+          procedure_type: string | null
+          publication_date: string | null
+          reference: string | null
+          region: string | null
+          source: string | null
+          status: Database["public"]["Enums"]["tender_status"] | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          buyer_name?: string | null
+          buyer_siret?: string | null
+          cpv_codes?: string[] | null
+          created_at?: string | null
+          deadline?: string | null
+          department?: string | null
+          estimated_amount?: number | null
+          id?: string
+          lots?: Json | null
+          object?: string | null
+          procedure_type?: string | null
+          publication_date?: string | null
+          reference?: string | null
+          region?: string | null
+          source?: string | null
+          status?: Database["public"]["Enums"]["tender_status"] | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          buyer_name?: string | null
+          buyer_siret?: string | null
+          cpv_codes?: string[] | null
+          created_at?: string | null
+          deadline?: string | null
+          department?: string | null
+          estimated_amount?: number | null
+          id?: string
+          lots?: Json | null
+          object?: string | null
+          procedure_type?: string | null
+          publication_date?: string | null
+          reference?: string | null
+          region?: string | null
+          source?: string | null
+          status?: Database["public"]["Enums"]["tender_status"] | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user" | "viewer"
+      pipeline_stage:
+        | "spotted"
+        | "analyzing"
+        | "no_go"
+        | "responding"
+        | "won"
+        | "lost"
+      tender_status: "open" | "closed" | "cancelled" | "awarded"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +460,17 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user", "viewer"],
+      pipeline_stage: [
+        "spotted",
+        "analyzing",
+        "no_go",
+        "responding",
+        "won",
+        "lost",
+      ],
+      tender_status: ["open", "closed", "cancelled", "awarded"],
+    },
   },
 } as const
