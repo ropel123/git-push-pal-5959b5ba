@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 // TED API v3 - no auth required for search
-const TED_API_BASE = "https://ted.europa.eu/api/v3.0/notices/search";
+const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
 
 function normalizeTedToTender(notice: any) {
   // TED search results have fields based on what we request
