@@ -11,7 +11,17 @@ const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
 function extractField(notice: any, field: string): string | null {
   const val = notice[field];
   if (!val) return null;
-  if (Array.isArray(val)) return val[0] || null;
+  // Handle multilingual objects like { "fra": "...", "eng": "..." }
+  if (typeof val === "object" && !Array.isArray(val)) {
+    return val["fra"] || val["fre"] || val["eng"] || Object.values(val)[0] as string || null;
+  }
+  if (Array.isArray(val)) {
+    const first = val[0];
+    if (typeof first === "object" && first !== null) {
+      return first["fra"] || first["fre"] || first["eng"] || Object.values(first)[0] as string || null;
+    }
+    return first ? String(first) : null;
+  }
   return String(val);
 }
 
