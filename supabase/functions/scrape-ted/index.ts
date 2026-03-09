@@ -11,12 +11,15 @@ const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
 function cleanBrackets(val: string | null): string | null {
   if (!val || typeof val !== "string") return val;
   const trimmed = val.trim();
-  // Try to parse JSON arrays like '["value"]'
   if (trimmed.startsWith("[")) {
     try {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed) && parsed.length > 0) return String(parsed[0]);
     } catch { /* not JSON */ }
+  }
+  // Remove wrapping quotes
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1);
   }
   return val;
 }
@@ -28,11 +31,21 @@ function extractText(val: any): string | null {
     return val.length > 0 ? extractText(val[0]) : null;
   }
   if (typeof val === "object") {
-    // Multilingual object: prefer French
     const text = val["fra"] || val["fre"] || val["eng"] || Object.values(val)[0];
     return extractText(text);
   }
   return String(val);
+}
+
+function extractAllText(val: any): string[] {
+  if (!val) return [];
+  if (typeof val === "string") return [val];
+  if (Array.isArray(val)) return val.flatMap(extractAllText);
+  if (typeof val === "object") {
+    const text = val["fra"] || val["fre"] || val["eng"] || Object.values(val)[0];
+    return extractAllText(text);
+  }
+  return [String(val)];
 }
 
 function extractField(notice: any, field: string): string | null {
@@ -51,6 +64,12 @@ function normalizeTedToTender(notice: any) {
   const procedureType = extractField(notice, "procedure-type");
   const descriptionLot = notice["description-lot"];
   const pubDate = extractField(notice, "publication-date");
+  
+  // New fields
+  const placeOfPerformance = extractField(notice, "place-of-performance");
+  const contractNature = cleanBrackets(extractField(notice, "contract-nature"));
+  const buyerCity = cleanBrackets(extractField(notice, "buyer-city"));
+  const buyerCountry = cleanBrackets(extractField(notice, "buyer-country"));
 
   // Parse deadline
   let deadline: string | null = null;
@@ -58,26 +77,40 @@ function normalizeTedToTender(notice: any) {
     try { deadline = new Date(deadlineRaw).toISOString(); } catch { /* skip */ }
   }
 
-  // Parse estimated amount
+  // Parse estimated amount - store null instead of 0
   let estimatedAmount: number | null = null;
   if (estimatedRaw) {
     const num = Array.isArray(estimatedRaw) ? estimatedRaw[0] : estimatedRaw;
     const parsed = parseFloat(String(num));
-    if (!isNaN(parsed)) estimatedAmount = parsed;
+    if (!isNaN(parsed) && parsed > 0) estimatedAmount = parsed;
   }
 
-  // Parse CPV codes
+  // Parse CPV codes - deduplicate
   let cpvCodes: string[] = [];
   if (cpvRaw) {
-    cpvCodes = Array.isArray(cpvRaw) ? cpvRaw.map(String) : [String(cpvRaw)];
+    const raw = Array.isArray(cpvRaw) ? cpvRaw.map(String) : [String(cpvRaw)];
+    cpvCodes = [...new Set(raw)];
   }
 
-  // Parse lots
+  // Parse lots with descriptions
   let lots: any[] = [];
   if (descriptionLot) {
-    const descs = Array.isArray(descriptionLot) ? descriptionLot : [descriptionLot];
-    lots = descs.map((d: any, i: number) => ({ numero: i + 1, description: String(d) }));
+    const descs = extractAllText(descriptionLot);
+    lots = descs.map((d: string, i: number) => ({ numero: i + 1, description: cleanBrackets(d) }));
   }
+
+  // Build description from lot descriptions
+  const description = lots.length > 0 
+    ? lots.map((l: any) => l.description).filter(Boolean).join("\n\n") 
+    : null;
+
+  // Execution location from place-of-performance
+  const executionLocation = cleanBrackets(placeOfPerformance);
+
+  // Buyer contact
+  const buyerContact: Record<string, string> = {};
+  if (buyerCity) buyerContact.ville = buyerCity;
+  if (buyerCountry) buyerContact.pays = buyerCountry;
 
   return {
     title: title || "Sans titre",
@@ -97,6 +130,16 @@ function normalizeTedToTender(notice: any) {
     lots,
     status: "open" as const,
     updated_at: new Date().toISOString(),
+    // New fields
+    description,
+    execution_location: executionLocation,
+    nuts_code: null,
+    contract_type: contractNature,
+    buyer_contact: Object.keys(buyerContact).length > 0 ? buyerContact : null,
+    buyer_address: null,
+    award_criteria: null,
+    participation_conditions: null,
+    additional_info: null,
   };
 }
 
@@ -127,11 +170,14 @@ Deno.serve(async (req) => {
     const today = new Date().toISOString().split("T")[0].replace(/-/g, "");
     const todayFormatted = new Date().toISOString().split("T")[0];
 
-    // Use minimal fields to avoid API errors - just get publication numbers
-    // then we have the reference + source_url which is enough for MVP
     const searchPayload = {
       query: `place-of-performance = FRA AND publication-date >= ${dateStr} AND publication-date <= ${today}`,
-      fields: ["notice-title", "buyer-name", "deadline-receipt-request", "estimated-value-lot", "classification-cpv", "procedure-type", "description-lot", "publication-date"],
+      fields: [
+        "notice-title", "buyer-name", "deadline-receipt-request",
+        "estimated-value-lot", "classification-cpv", "procedure-type",
+        "description-lot", "publication-date",
+        "place-of-performance", "contract-nature", "buyer-city", "buyer-country"
+      ],
       limit: 100,
       page: 1,
       paginationMode: "PAGE_NUMBER",
@@ -164,8 +210,6 @@ Deno.serve(async (req) => {
     itemsFound = data.totalNoticeCount || notices.length;
     console.log(`[scrape-ted] Found ${itemsFound} notices, processing ${notices.length}`);
 
-
-    // Process in batches
     const batchSize = 20;
     for (let i = 0; i < notices.length; i += batchSize) {
       const batch = notices.slice(i, i + batchSize);

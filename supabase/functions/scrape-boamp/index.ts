@@ -6,29 +6,165 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// BOAMP uses Opendatasoft API v2.1
 const BOAMP_API_BASE = "https://www.boamp.fr/api/explore/v2.1/catalog/datasets/boamp/records";
 
-function normalizeBoampToTender(record: any) {
-  const r = record; // each record is a flat object from ODS API
+// Safely traverse nested objects
+function dig(obj: any, ...keys: string[]): any {
+  let cur = obj;
+  for (const k of keys) {
+    if (cur == null || typeof cur !== "object") return null;
+    cur = cur[k];
+  }
+  return cur ?? null;
+}
+
+// Extract text from potentially nested/array values
+function textify(val: any): string | null {
+  if (!val) return null;
+  if (typeof val === "string") return val.trim() || null;
+  if (Array.isArray(val)) return val.map(textify).filter(Boolean).join("\n") || null;
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
+}
+
+function parseBoampDonnees(raw: any): Record<string, any> {
+  let donnees: any = null;
+  if (!raw) return {};
+
+  // donnees can be a JSON string or already parsed
+  if (typeof raw === "string") {
+    try { donnees = JSON.parse(raw); } catch { return {}; }
+  } else {
+    donnees = raw;
+  }
+
+  // The structure varies: sometimes it's nested under AVIS, MARCHE, etc.
+  // Try common paths
+  const objet = dig(donnees, "OBJET") || dig(donnees, "DONNEES", "OBJET") || {};
+  const identite = dig(donnees, "IDENTITE") || dig(donnees, "DONNEES", "IDENTITE") || {};
+  const procedure = dig(donnees, "PROCEDURE") || dig(donnees, "DONNEES", "PROCEDURE") || {};
+  const condition = dig(donnees, "CONDITION") || dig(procedure, "CONDITION_PARTICIPATION") || {};
+
+  // Description complete
+  const description = textify(objet.OBJET_COMPLET) || textify(objet.DESCRIPTION) || null;
+
+  // Better title
+  const titreMarche = textify(objet.TITRE_MARCHE) || null;
+
+  // CPV codes from donnees
+  let cpvCodes: string[] = [];
+  const cpvData = objet.CPV;
+  if (Array.isArray(cpvData)) {
+    cpvCodes = cpvData.map((c: any) => c?.PRINCIPAL || c?.CODE || c).filter(Boolean).map(String);
+  } else if (cpvData?.PRINCIPAL) {
+    cpvCodes = [String(cpvData.PRINCIPAL)];
+  }
+
+  // Lieu d'execution
+  const lieuExec = dig(objet, "LIEU_EXEC_LIVR") || dig(objet, "LIEU_EXECUTION") || {};
+  const executionLocation = textify(lieuExec.LIBELLE) || textify(lieuExec.LIEU) || null;
+  const nutsCode = textify(lieuExec.CODE_NUTS) || null;
+
+  // Buyer address & contact
+  const adresse = [identite.ADRESSE, identite.CP, identite.VILLE].filter(Boolean).join(", ") || null;
+  const buyerContact: Record<string, string> = {};
+  if (identite.MEL) buyerContact.email = String(identite.MEL);
+  if (identite.TEL) buyerContact.tel = String(identite.TEL);
+  if (identite.URL) buyerContact.url = String(identite.URL);
+  if (identite.VILLE) buyerContact.ville = String(identite.VILLE);
+
+  // SIRET
+  const buyerSiret = textify(identite.SIRET) || null;
+
+  // Type de marche
+  const contractType = textify(objet.TYPE_MARCHE) || textify(dig(donnees, "TYPE_MARCHE")) || null;
+
+  // Criteres d'attribution
+  const awardCriteria = textify(dig(procedure, "CRITERES_ATTRIBUTION")) 
+    || textify(dig(procedure, "CRITERE_ATTRIBUTION")) || null;
+
+  // Conditions de participation
+  const participationConditions = textify(condition) || textify(dig(procedure, "CONDITION_PARTICIPATION")) || null;
+
+  // Renseignements complementaires
+  const additionalInfo = textify(dig(procedure, "RENSEIGNEMENTS_COMPLEMENTAIRES"))
+    || textify(dig(donnees, "RENSEIGNEMENTS_COMPLEMENTAIRES")) || null;
+
+  // Estimated amount
+  let estimatedAmount: number | null = null;
+  const montant = dig(objet, "CARACTERISTIQUES", "QUANTITE") || dig(objet, "VALEUR_ESTIMEE") || dig(objet, "MONTANT");
+  if (montant) {
+    const num = parseFloat(String(montant));
+    if (!isNaN(num) && num > 0) estimatedAmount = num;
+  }
+
+  // Lots
+  let lots: any[] = [];
+  const lotsData = dig(objet, "CARACTERISTIQUES", "DIV_EN_LOTS") || dig(objet, "LOTS");
+  if (Array.isArray(lotsData)) {
+    lots = lotsData.map((lot: any, i: number) => ({
+      numero: lot.NUM || i + 1,
+      title: textify(lot.INTITULE) || textify(lot.TITRE) || `Lot ${i + 1}`,
+      description: textify(lot.DESCRIPTION) || null,
+      amount: lot.VALEUR ? parseFloat(String(lot.VALEUR)) || null : null,
+      cpv: lot.CPV?.PRINCIPAL || null,
+    }));
+  }
+
   return {
-    title: r.objet || r.idweb || "Sans titre",
+    description,
+    titreMarche,
+    cpvCodes: cpvCodes.length > 0 ? cpvCodes : null,
+    executionLocation,
+    nutsCode,
+    buyerAddress: adresse,
+    buyerContact: Object.keys(buyerContact).length > 0 ? buyerContact : null,
+    buyerSiret,
+    contractType,
+    awardCriteria,
+    participationConditions,
+    additionalInfo,
+    estimatedAmount,
+    lots: lots.length > 0 ? lots : null,
+  };
+}
+
+function normalizeBoampToTender(record: any) {
+  const r = record;
+  
+  // Parse donnees for rich data
+  const rich = parseBoampDonnees(r.donnees);
+
+  return {
+    title: rich.titreMarche || r.objet || r.idweb || "Sans titre",
     reference: r.idweb,
     source: "boamp",
     source_url: r.url_avis || `https://www.boamp.fr/pages/avis/?q=idweb:${r.idweb}`,
     buyer_name: r.nomacheteur || null,
-    buyer_siret: null, // SIRET is nested in donnees JSON, not top-level
+    buyer_siret: rich.buyerSiret || null,
     object: r.objet || null,
     procedure_type: r.procedure_libelle || r.type_procedure || null,
-    department: Array.isArray(r.code_departement) ? r.code_departement[0] : r.code_departement || null,
-    region: null,
+    department: r.code_departement_prestation 
+      || (Array.isArray(r.code_departement) ? r.code_departement[0] : r.code_departement) 
+      || null,
+    region: r.perimetre || null,
     publication_date: r.dateparution || null,
     deadline: r.datelimitereponse || null,
-    estimated_amount: null,
-    cpv_codes: r.descripteur_code || [],
-    lots: [],
+    estimated_amount: rich.estimatedAmount || null,
+    cpv_codes: rich.cpvCodes || (r.descripteur_code ? (Array.isArray(r.descripteur_code) ? r.descripteur_code : [r.descripteur_code]) : []),
+    lots: rich.lots || [],
     status: "open" as const,
     updated_at: new Date().toISOString(),
+    // New rich fields
+    description: rich.description,
+    buyer_address: rich.buyerAddress,
+    buyer_contact: rich.buyerContact,
+    execution_location: rich.executionLocation,
+    nuts_code: rich.nutsCode,
+    contract_type: rich.contractType || r.type_marche || null,
+    award_criteria: rich.awardCriteria,
+    participation_conditions: rich.participationConditions,
+    additional_info: rich.additionalInfo,
   };
 }
 
@@ -53,12 +189,10 @@ Deno.serve(async (req) => {
       status: "running",
     });
 
-    // Fetch notices published yesterday or today
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().split("T")[0];
 
-    // ODS API: filter by dateparution, paginate with offset
     let offset = 0;
     const limit = 100;
     let hasMore = true;
@@ -96,7 +230,6 @@ Deno.serve(async (req) => {
         break;
       }
 
-      // Separate regular notices from attribution notices
       const tendersToUpsert: any[] = [];
       const attributions: any[] = [];
 
@@ -109,7 +242,6 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Upsert tenders
       if (tendersToUpsert.length > 0) {
         const { data: upserted, error } = await supabase
           .from("tenders")
@@ -127,7 +259,6 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Process attributions - link to parent tender
       for (const record of attributions) {
         const parentRef = Array.isArray(record.annonce_lie) ? record.annonce_lie[0] : null;
         if (!parentRef) continue;
@@ -154,7 +285,7 @@ Deno.serve(async (req) => {
       }
 
       offset += limit;
-      hasMore = offset < totalCount && offset < 1000; // Cap at 1000 per run
+      hasMore = offset < totalCount && offset < 1000;
     }
 
     await supabase
