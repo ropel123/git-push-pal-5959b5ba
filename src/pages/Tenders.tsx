@@ -6,10 +6,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Filter, Calendar, MapPin, Euro, Plus } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 
 interface Tender {
   id: string;
@@ -26,26 +28,44 @@ interface Tender {
   cpv_codes: string[] | null;
 }
 
+const REGIONS = [
+  "Auvergne-Rhône-Alpes", "Bourgogne-Franche-Comté", "Bretagne",
+  "Centre-Val de Loire", "Corse", "Grand Est", "Hauts-de-France",
+  "Île-de-France", "Normandie", "Nouvelle-Aquitaine", "Occitanie",
+  "Pays de la Loire", "Provence-Alpes-Côte d'Azur", "Outre-mer",
+];
+
 const Tenders = () => {
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
+  const [regionFilter, setRegionFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [procedureFilter, setProcedureFilter] = useState("");
+  const [profile, setProfile] = useState<any>(null);
+  const [searchName, setSearchName] = useState("");
+  const [savingSearch, setSavingSearch] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     fetchTenders();
-  }, []);
+    if (user) {
+      supabase.from("profiles").select("*").eq("user_id", user.id).single().then(({ data }) => {
+        if (data) setProfile(data);
+      });
+    }
+  }, [user]);
 
   const fetchTenders = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("tenders")
       .select("*")
       .order("publication_date", { ascending: false })
       .limit(100);
-
     if (data) setTenders(data);
     setLoading(false);
   };
@@ -57,26 +77,36 @@ const Tenders = () => {
       tender_id: tenderId,
       stage: "spotted" as const,
     });
-    if (error) {
-      if (error.code === "23505") {
-        toast({ title: "Déjà dans le pipeline", variant: "destructive" });
-      } else {
-        toast({ title: "Erreur", description: error.message, variant: "destructive" });
-      }
+    if (error?.code === "23505") {
+      toast({ title: "Déjà dans le pipeline", variant: "destructive" });
+    } else if (error) {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "Ajouté au pipeline ✓" });
     }
   };
 
+  const saveSearch = async () => {
+    if (!user || !searchName.trim()) return;
+    setSavingSearch(true);
+    const filters = { search, regionFilter, statusFilter, procedureFilter };
+    await supabase.from("saved_searches").insert({
+      user_id: user.id,
+      name: searchName.trim(),
+      filters,
+    });
+    toast({ title: "Recherche sauvegardée ✓" });
+    setSearchName("");
+    setSavingSearch(false);
+  };
+
   const filteredTenders = tenders.filter((t) => {
     const q = search.toLowerCase();
-    return (
-      !q ||
-      t.title.toLowerCase().includes(q) ||
-      t.buyer_name?.toLowerCase().includes(q) ||
-      t.object?.toLowerCase().includes(q) ||
-      t.region?.toLowerCase().includes(q)
-    );
+    const matchText = !q || t.title.toLowerCase().includes(q) || t.buyer_name?.toLowerCase().includes(q) || t.object?.toLowerCase().includes(q) || t.region?.toLowerCase().includes(q);
+    const matchRegion = !regionFilter || regionFilter === "all" || t.region === regionFilter;
+    const matchStatus = !statusFilter || statusFilter === "all" || t.status === statusFilter;
+    const matchProcedure = !procedureFilter || procedureFilter === "all" || t.procedure_type === procedureFilter;
+    return matchText && matchRegion && matchStatus && matchProcedure;
   });
 
   const getStatusColor = (status: string | null) => {
@@ -88,12 +118,8 @@ const Tenders = () => {
     }
   };
 
-  const statusLabel: Record<string, string> = {
-    open: "Ouvert",
-    closed: "Clôturé",
-    awarded: "Attribué",
-    cancelled: "Annulé",
-  };
+  const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
+  const procedures = [...new Set(tenders.map((t) => t.procedure_type).filter(Boolean))] as string[];
 
   return (
     <div className="space-y-6">
@@ -104,6 +130,7 @@ const Tenders = () => {
         </div>
       </div>
 
+      {/* Search + toggle filters */}
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -114,7 +141,53 @@ const Tenders = () => {
             className="pl-10"
           />
         </div>
+        <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
+          Filtres {showFilters ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />}
+        </Button>
       </div>
+
+      {/* Advanced filters */}
+      {showFilters && (
+        <Card className="bg-card border-border">
+          <CardContent className="pt-4 space-y-4">
+            <div className="grid gap-4 md:grid-cols-3">
+              <Select value={regionFilter} onValueChange={setRegionFilter}>
+                <SelectTrigger><SelectValue placeholder="Région" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les régions</SelectItem>
+                  {REGIONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger><SelectValue placeholder="Statut" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les statuts</SelectItem>
+                  <SelectItem value="open">Ouvert</SelectItem>
+                  <SelectItem value="closed">Clôturé</SelectItem>
+                  <SelectItem value="awarded">Attribué</SelectItem>
+                  <SelectItem value="cancelled">Annulé</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={procedureFilter} onValueChange={setProcedureFilter}>
+                <SelectTrigger><SelectValue placeholder="Procédure" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les procédures</SelectItem>
+                  {procedures.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2 items-center">
+              <Input placeholder="Nom de la recherche" value={searchName} onChange={(e) => setSearchName(e.target.value)} className="max-w-xs" />
+              <Button variant="secondary" size="sm" onClick={saveSearch} disabled={savingSearch || !searchName.trim()}>
+                <Save className="h-4 w-4 mr-1" /> Sauvegarder
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setSearch(""); }}>
+                Réinitialiser
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">Chargement...</div>
@@ -128,60 +201,51 @@ const Tenders = () => {
         </Card>
       ) : (
         <div className="space-y-3">
-          {filteredTenders.map((tender) => (
-            <Card key={tender.id} className="bg-card border-border hover:border-primary/30 transition-colors">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0 space-y-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-foreground truncate">{tender.title}</h3>
-                      {tender.status && (
-                        <Badge variant="outline" className={getStatusColor(tender.status)}>
-                          {statusLabel[tender.status] ?? tender.status}
-                        </Badge>
-                      )}
+          {filteredTenders.map((tender) => {
+            const score = profile ? computeScore(tender, profile) : null;
+            return (
+              <Card
+                key={tender.id}
+                className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer"
+                onClick={() => navigate(`/tenders/${tender.id}`)}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-foreground truncate">{tender.title}</h3>
+                        {tender.status && (
+                          <Badge variant="outline" className={getStatusColor(tender.status)}>
+                            {statusLabel[tender.status] ?? tender.status}
+                          </Badge>
+                        )}
+                        {score !== null && (
+                          <Badge variant="outline" className={getScoreColor(score)}>
+                            {score}/100
+                          </Badge>
+                        )}
+                      </div>
+                      {tender.object && <p className="text-sm text-muted-foreground line-clamp-2">{tender.object}</p>}
+                      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                        {tender.buyer_name && <span className="font-medium">{tender.buyer_name}</span>}
+                        {tender.region && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {tender.region}</span>}
+                        {tender.estimated_amount && <span className="flex items-center gap-1"><Euro className="h-3 w-3" /> {new Intl.NumberFormat("fr-FR").format(tender.estimated_amount)} €</span>}
+                        {tender.deadline && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {format(new Date(tender.deadline), "dd MMM yyyy", { locale: fr })}</span>}
+                      </div>
                     </div>
-
-                    {tender.object && (
-                      <p className="text-sm text-muted-foreground line-clamp-2">{tender.object}</p>
-                    )}
-
-                    <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                      {tender.buyer_name && (
-                        <span className="flex items-center gap-1">
-                          <span className="font-medium">{tender.buyer_name}</span>
-                        </span>
-                      )}
-                      {tender.region && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" /> {tender.region}
-                        </span>
-                      )}
-                      {tender.estimated_amount && (
-                        <span className="flex items-center gap-1">
-                          <Euro className="h-3 w-3" /> {new Intl.NumberFormat("fr-FR").format(tender.estimated_amount)} €
-                        </span>
-                      )}
-                      {tender.deadline && (
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" /> {format(new Date(tender.deadline), "dd MMM yyyy", { locale: fr })}
-                        </span>
-                      )}
-                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }}
+                      className="shrink-0"
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Pipeline
+                    </Button>
                   </div>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }}
-                    className="shrink-0"
-                  >
-                    <Plus className="h-4 w-4 mr-1" /> Pipeline
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

@@ -1,6 +1,9 @@
+import { useNavigate } from "react-router-dom";
 import Hero from "@/components/ui/animated-shader-hero";
 
 const HeroSection = () => {
+  const navigate = useNavigate();
+
   const scrollToSection = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -17,8 +20,8 @@ const HeroSection = () => {
       subtitle="HACKIFY combine expertise humaine et intelligence artificielle pour vous accompagner sur toute la chaîne de valeur des appels d'offres. Du sourcing IA à la victoire."
       buttons={{
         primary: {
-          text: "Réserver un audit stratégique",
-          href: "https://calendly.com/hackifyao"
+          text: "Commencer gratuitement",
+          onClick: () => navigate('/auth')
         },
         secondary: {
           text: "Découvrir nos services",
