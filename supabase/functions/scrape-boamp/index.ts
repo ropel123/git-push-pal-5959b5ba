@@ -48,7 +48,7 @@ const DEPT_TO_REGION: Record<string, string> = {
   "22": "Bretagne", "29": "Bretagne", "35": "Bretagne", "56": "Bretagne",
   "18": "Centre-Val de Loire", "28": "Centre-Val de Loire", "36": "Centre-Val de Loire",
   "37": "Centre-Val de Loire", "41": "Centre-Val de Loire", "45": "Centre-Val de Loire",
-  "2A": "Corse", "2B": "Corse", "20": "Corse",
+  "2A": "Corse", "2B": "Corse", "20": "Corse", "20A": "Corse", "20B": "Corse",
   "08": "Grand Est", "10": "Grand Est", "51": "Grand Est", "52": "Grand Est",
   "54": "Grand Est", "55": "Grand Est", "57": "Grand Est", "67": "Grand Est", "68": "Grand Est", "88": "Grand Est",
   "02": "Hauts-de-France", "59": "Hauts-de-France", "60": "Hauts-de-France",
@@ -241,53 +241,107 @@ function parseEformsDonnees(donnees: any): Record<string, any> {
   // === Lots ===
   let lots: any[] = [];
   const lotData = findVal(notice, "cac:ProcurementProjectLot");
-  if (lotData) {
-    const lotArr = Array.isArray(lotData) ? lotData : [lotData];
-    lots = lotArr.map((lot: any, i: number) => {
-      const lotProject = findVal(lot, "cac:ProcurementProject") || findVal(lot, "ProcurementProject") || {};
-      return {
-        numero: findText(lot, "cbc:ID") || findText(lot, "ID") || (i + 1),
-        title: findText(lotProject, "cbc:Name") || findText(lotProject, "Name") || `Lot ${i + 1}`,
-        description: findText(lotProject, "cbc:Description") || findText(lotProject, "Description") || null,
-      };
-    });
-  }
+  const lotArr = lotData ? (Array.isArray(lotData) ? lotData : [lotData]) : [];
+  lots = lotArr.map((lot: any, i: number) => {
+    const lotProject = findVal(lot, "cac:ProcurementProject") || findVal(lot, "ProcurementProject") || {};
+    return {
+      numero: findText(lot, "cbc:ID") || findText(lot, "ID") || (i + 1),
+      title: findText(lotProject, "cbc:Name") || findText(lotProject, "Name") || `Lot ${i + 1}`,
+      description: findText(lotProject, "cbc:Description") || findText(lotProject, "Description") || null,
+    };
+  });
 
-  // === Tendering Terms (conditions) ===
-  const tenderTerms = findVal(notice, "cac:TenderingTerms") || findVal(notice, "TenderingTerms") || {};
-  
-  // Award criteria
+  // === Award criteria — search at notice level AND lot level ===
   const awardCritArr: string[] = [];
-  const awardCrit = findVal(tenderTerms, "cac:AwardingTerms") || findVal(tenderTerms, "AwardingTerms");
-  if (awardCrit) {
-    const criteria = findVal(awardCrit, "cac:AwardingCriterion");
-    if (criteria) {
-      const critArr = Array.isArray(criteria) ? criteria : [criteria];
-      for (const c of critArr) {
-        const name = findText(c, "cbc:Name") || findText(c, "Name");
-        const desc = findText(c, "cbc:Description") || findText(c, "Description");
-        const weight = findText(c, "cbc:WeightNumeric") || findText(c, "WeightNumeric");
-        if (name) {
-          awardCritArr.push(weight ? `${name} (${weight}%)` : name);
-        } else if (desc) {
-          awardCritArr.push(desc);
+  
+  // Helper to extract criteria from a TenderingTerms block
+  function extractCriteria(terms: any): void {
+    const awardCrit = findVal(terms, "cac:AwardingTerms") || findVal(terms, "AwardingTerms");
+    if (awardCrit) {
+      const criteria = findVal(awardCrit, "cac:AwardingCriterion");
+      if (criteria) {
+        const critArr = Array.isArray(criteria) ? criteria : [criteria];
+        for (const c of critArr) {
+          const name = findText(c, "cbc:Name") || findText(c, "Name");
+          const desc = findText(c, "cbc:Description") || findText(c, "Description");
+          const weight = findText(c, "cbc:WeightNumeric") || findText(c, "WeightNumeric");
+          if (name) {
+            awardCritArr.push(weight ? `${name} (${weight}%)` : name);
+          } else if (desc) {
+            awardCritArr.push(desc);
+          }
         }
       }
     }
   }
-  const awardCriteria = awardCritArr.length > 0 ? awardCritArr.join("\n") : null;
 
-  // Participation conditions
-  const condParts: string[] = [];
-  const qualReq = findVal(tenderTerms, "cac:TendererQualificationRequest");
-  if (qualReq) {
-    const reqArr = Array.isArray(qualReq) ? qualReq : [qualReq];
-    for (const req of reqArr) {
-      const desc = findText(req, "cbc:Description") || findText(req, "Description");
-      if (desc) condParts.push(desc);
+  // Try notice-level TenderingTerms first
+  const tenderTerms = findVal(notice, "cac:TenderingTerms") || findVal(notice, "TenderingTerms") || {};
+  extractCriteria(tenderTerms);
+
+  // If no criteria found at notice level, search in lot-level TenderingTerms
+  if (awardCritArr.length === 0) {
+    for (const lot of lotArr) {
+      const lotTerms = findVal(lot, "cac:TenderingTerms") || findVal(lot, "TenderingTerms");
+      if (lotTerms) extractCriteria(lotTerms);
     }
   }
-  const participationConditions = condParts.length > 0 ? condParts.join("\n") : null;
+
+  // Detect "selection-criteria-source: epo-procurement-document" pattern
+  if (awardCritArr.length === 0) {
+    const selCritSource = findText(notice, "efbc:SelectionCriteriaSource") 
+      || findText(notice, "selection-criteria-source");
+    if (selCritSource && selCritSource.toLowerCase().includes("procurement-document")) {
+      awardCritArr.push("Critères définis dans les documents de la consultation");
+    }
+    // Also check within lots
+    if (awardCritArr.length === 0) {
+      for (const lot of lotArr) {
+        const src = findText(lot, "efbc:SelectionCriteriaSource") || findText(lot, "selection-criteria-source");
+        if (src && src.toLowerCase().includes("procurement-document")) {
+          awardCritArr.push("Critères définis dans les documents de la consultation");
+          break;
+        }
+      }
+    }
+  }
+
+  const awardCriteria = awardCritArr.length > 0 ? awardCritArr.join("\n") : null;
+
+  // Participation conditions — notice level + lot level
+  const condParts: string[] = [];
+  
+  function extractConditions(terms: any): void {
+    // Qualification requirements
+    const qualReq = findVal(terms, "cac:TendererQualificationRequest");
+    if (qualReq) {
+      const reqArr = Array.isArray(qualReq) ? qualReq : [qualReq];
+      for (const req of reqArr) {
+        const desc = findText(req, "cbc:Description") || findText(req, "Description");
+        if (desc) condParts.push(desc);
+      }
+    }
+    // Contract execution requirements (e-invoicing, etc.)
+    const execReq = findVal(terms, "cac:ContractExecutionRequirement");
+    if (execReq) {
+      const reqArr = Array.isArray(execReq) ? execReq : [execReq];
+      for (const req of reqArr) {
+        const name = findText(req, "cbc:Name") || findText(req, "Name");
+        const desc = findText(req, "cbc:Description") || findText(req, "Description");
+        if (name || desc) condParts.push([name, desc].filter(Boolean).join(" : "));
+      }
+    }
+  }
+
+  extractConditions(tenderTerms);
+  // If nothing at notice level, try lot level
+  if (condParts.length === 0) {
+    for (const lot of lotArr) {
+      const lotTerms = findVal(lot, "cac:TenderingTerms") || findVal(lot, "TenderingTerms");
+      if (lotTerms) extractConditions(lotTerms);
+    }
+  }
+  const participationConditions = condParts.length > 0 ? [...new Set(condParts)].join("\n") : null;
 
   // Estimated amount
   let estimatedAmount: number | null = null;
@@ -441,9 +495,11 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   }
 
   // === Award criteria ===
-  // FNSimple: from procedure.criteresAttrib
-  // MAPA: from criteres object — if critereCDC key exists, it means "criteria in the consultation rules"
   let awardCriteria = textify(procedure.criteresAttrib) || null;
+  // Fallback: try natureMarche.criteresAttrib (rectificatifs store criteria there)
+  if (!awardCriteria) {
+    awardCriteria = textify(natureMarche.criteresAttrib) || null;
+  }
   if (!awardCriteria && criteres && typeof criteres === "object") {
     if ("critereCDC" in criteres) {
       const cdcVal = criteres.critereCDC;
@@ -455,6 +511,10 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     } else if (!isEmptyObject(criteres)) {
       awardCriteria = textify(criteres);
     }
+  }
+  // Default for MAPA/adapted procedures with no criteria in JSON
+  if (!awardCriteria && procedure && typeof procedure === "object" && !isEmptyObject(procedure)) {
+    awardCriteria = "Critères définis dans les documents de la consultation";
   }
 
   // === Participation conditions ===
@@ -500,26 +560,46 @@ function parseBoampDonnees(raw: any): Record<string, any> {
 
   // === Estimated amount ===
   let estimatedAmount: number | null = null;
-  const descText = description || "";
-  if (descText) {
-    const match = descText.match(/([\d\s]+[,.][\d]{2})\s*euro/i) 
-      || descText.match(/([\d\s]+)\s*euro/i);
-    if (match) {
-      const num = parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
-      if (!isNaN(num) && num > 0) estimatedAmount = num;
+  // Direct extraction from valeurEstimee field first
+  const directAmount = dig(natureMarche, "valeurEstimee", "valeur");
+  if (directAmount) {
+    const num = parseFloat(String(directAmount));
+    if (!isNaN(num) && num > 0) estimatedAmount = num;
+  }
+  // Fallback: regex on description text
+  if (!estimatedAmount) {
+    const descText = description || "";
+    if (descText) {
+      const match = descText.match(/([\d\s]+[,.][\d]{2})\s*euro/i) 
+        || descText.match(/([\d\s]+)\s*euro/i);
+      if (match) {
+        const num = parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
+        if (!isNaN(num) && num > 0) estimatedAmount = num;
+      }
     }
   }
 
   // === Lots ===
   let lots: any[] = [];
-  const lotsData = natureMarche.lotsMarche;
-  if (Array.isArray(lotsData)) {
-    lots = lotsData.map((lot: any, i: number) => ({
-      numero: lot.numero || lot.num || i + 1,
-      title: textify(lot.intitule) || textify(lot.titre) || `Lot ${i + 1}`,
-      description: textify(lot.description) || null,
-      cpv: dig(lot, "codeCPV", "objetPrincipal", "classPrincipale") || null,
-    }));
+  // Real lots are in initial.lots.lot[] or rectif.lots.lot[], NOT in natureMarche.lotsMarche
+  const lotsRaw = initial?.lots?.lot || rectif?.lots?.lot || null;
+  const lotsArr = lotsRaw ? (Array.isArray(lotsRaw) ? lotsRaw : [lotsRaw]) : [];
+  if (lotsArr.length > 0) {
+    lots = lotsArr.map((lot: any, i: number) => {
+      const lotAmount = dig(lot, "estimationValeur", "valeur");
+      return {
+        numero: lot.numero || lot.num || i + 1,
+        title: textify(lot.intitule) || textify(lot.titre) || `Lot ${i + 1}`,
+        description: textify(lot.description) || null,
+        cpv: dig(lot, "codeCPV", "objetPrincipal", "classPrincipale") || null,
+        amount: lotAmount ? parseFloat(String(lotAmount)) || null : null,
+      };
+    });
+    // If no global estimated amount, sum lot amounts
+    if (!estimatedAmount) {
+      const totalFromLots = lots.reduce((sum: number, l: any) => sum + (l.amount || 0), 0);
+      if (totalFromLots > 0) estimatedAmount = totalFromLots;
+    }
   }
 
   // === Internal reference ===
