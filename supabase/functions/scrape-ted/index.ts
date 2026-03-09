@@ -6,29 +6,31 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// TED API v3 - no auth required for search
 const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
 
 function normalizeTedToTender(notice: any) {
-  // TED search results have fields based on what we request
-  const content = notice.CONTENT || notice.content || {};
-  const pubNumber = notice["publication-number"] || notice.publicationNumber || notice.id || "";
-  const title = notice["notice-title"] || notice.title || content.title || "Sans titre";
-  const buyerName = notice["buyer-name"] || content.buyerName || null;
-
+  // Notice structure from TED: { "publication-number": "...", "links": {...}, ...fieldValues }
+  const pubNumber = notice["publication-number"] || "";
+  
+  // Extract available data from the notice fields
+  // Field names use BT-* format from eForms
+  const title = notice["BT-21-Procedure"] || notice["BT-22-Lot"] || notice["title"] || pubNumber;
+  const buyerName = notice["BT-500-Organization-Company"] || notice["organisation-official-name"] || null;
+  const deadline = notice["BT-131(d)-Lot"] || notice["submission-deadline"] || null;
+  
   return {
-    title: Array.isArray(title) ? title[0] : title,
+    title: Array.isArray(title) ? title[0] : (title || "Sans titre"),
     reference: pubNumber,
     source: "ted",
     source_url: `https://ted.europa.eu/en/notice/-/${pubNumber}`,
     buyer_name: Array.isArray(buyerName) ? buyerName[0] : buyerName,
     buyer_siret: null,
     object: null,
-    procedure_type: notice["procedure-type"] || null,
+    procedure_type: null,
     department: null,
     region: null,
-    publication_date: notice["publication-date"] || null,
-    deadline: notice["submission-deadline"] || null,
+    publication_date: null, // Will be set from query context
+    deadline: null,
     estimated_amount: null,
     cpv_codes: [],
     lots: [],
@@ -58,16 +60,17 @@ Deno.serve(async (req) => {
       status: "running",
     });
 
-    // Search for French notices published in the last 24h
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().split("T")[0].replace(/-/g, "");
     const today = new Date().toISOString().split("T")[0].replace(/-/g, "");
+    const todayFormatted = new Date().toISOString().split("T")[0];
 
-    // TED expert query: place of performance = France, recent publication
+    // Use minimal fields to avoid API errors - just get publication numbers
+    // then we have the reference + source_url which is enough for MVP
     const searchPayload = {
       query: `place-of-performance = FRA AND publication-date >= ${dateStr} AND publication-date <= ${today}`,
-      fields: ["sme-part"],
+      fields: [] as string[], // Empty = returns just publication-number and links
       limit: 100,
       page: 1,
       paginationMode: "PAGE_NUMBER",
@@ -104,7 +107,13 @@ Deno.serve(async (req) => {
     const batchSize = 20;
     for (let i = 0; i < notices.length; i += batchSize) {
       const batch = notices.slice(i, i + batchSize);
-      const tendersToUpsert = batch.map(normalizeTedToTender).filter((t: any) => t.reference);
+      const tendersToUpsert = batch
+        .map((n: any) => {
+          const tender = normalizeTedToTender(n);
+          tender.publication_date = todayFormatted;
+          return tender;
+        })
+        .filter((t: any) => t.reference);
 
       if (tendersToUpsert.length === 0) continue;
 
