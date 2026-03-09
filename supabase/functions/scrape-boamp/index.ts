@@ -560,26 +560,46 @@ function parseBoampDonnees(raw: any): Record<string, any> {
 
   // === Estimated amount ===
   let estimatedAmount: number | null = null;
-  const descText = description || "";
-  if (descText) {
-    const match = descText.match(/([\d\s]+[,.][\d]{2})\s*euro/i) 
-      || descText.match(/([\d\s]+)\s*euro/i);
-    if (match) {
-      const num = parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
-      if (!isNaN(num) && num > 0) estimatedAmount = num;
+  // Direct extraction from valeurEstimee field first
+  const directAmount = dig(natureMarche, "valeurEstimee", "valeur");
+  if (directAmount) {
+    const num = parseFloat(String(directAmount));
+    if (!isNaN(num) && num > 0) estimatedAmount = num;
+  }
+  // Fallback: regex on description text
+  if (!estimatedAmount) {
+    const descText = description || "";
+    if (descText) {
+      const match = descText.match(/([\d\s]+[,.][\d]{2})\s*euro/i) 
+        || descText.match(/([\d\s]+)\s*euro/i);
+      if (match) {
+        const num = parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
+        if (!isNaN(num) && num > 0) estimatedAmount = num;
+      }
     }
   }
 
   // === Lots ===
   let lots: any[] = [];
-  const lotsData = natureMarche.lotsMarche;
-  if (Array.isArray(lotsData)) {
-    lots = lotsData.map((lot: any, i: number) => ({
-      numero: lot.numero || lot.num || i + 1,
-      title: textify(lot.intitule) || textify(lot.titre) || `Lot ${i + 1}`,
-      description: textify(lot.description) || null,
-      cpv: dig(lot, "codeCPV", "objetPrincipal", "classPrincipale") || null,
-    }));
+  // Real lots are in initial.lots.lot[] or rectif.lots.lot[], NOT in natureMarche.lotsMarche
+  const lotsRaw = initial?.lots?.lot || rectif?.lots?.lot || null;
+  const lotsArr = lotsRaw ? (Array.isArray(lotsRaw) ? lotsRaw : [lotsRaw]) : [];
+  if (lotsArr.length > 0) {
+    lots = lotsArr.map((lot: any, i: number) => {
+      const lotAmount = dig(lot, "estimationValeur", "valeur");
+      return {
+        numero: lot.numero || lot.num || i + 1,
+        title: textify(lot.intitule) || textify(lot.titre) || `Lot ${i + 1}`,
+        description: textify(lot.description) || null,
+        cpv: dig(lot, "codeCPV", "objetPrincipal", "classPrincipale") || null,
+        amount: lotAmount ? parseFloat(String(lotAmount)) || null : null,
+      };
+    });
+    // If no global estimated amount, sum lot amounts
+    if (!estimatedAmount) {
+      const totalFromLots = lots.reduce((sum: number, l: any) => sum + (l.amount || 0), 0);
+      if (totalFromLots > 0) estimatedAmount = totalFromLots;
+    }
   }
 
   // === Internal reference ===
