@@ -21,8 +21,8 @@ function normalizeTedToTender(notice: any) {
   const title = extractField(notice, "notice-title") || pubNumber;
   const buyerName = extractField(notice, "buyer-name");
   const deadlineRaw = extractField(notice, "deadline-receipt-request");
-  const estimatedRaw = notice["estimated-value"];
-  const cpvRaw = notice["cpv-code"];
+  const estimatedRaw = notice["estimated-value-lot"];
+  const cpvRaw = notice["classification-cpv"];
   const procedureType = extractField(notice, "procedure-type");
   const descriptionLot = notice["description-lot"];
   const pubDate = extractField(notice, "publication-date");
