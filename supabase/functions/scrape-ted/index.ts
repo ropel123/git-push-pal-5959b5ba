@@ -163,15 +163,7 @@ Deno.serve(async (req) => {
 
     itemsFound = data.totalNoticeCount || notices.length;
     console.log(`[scrape-ted] Found ${itemsFound} notices, processing ${notices.length}`);
-    
-    // Debug first notice structure
-    if (notices.length > 0) {
-      const n = notices[0];
-      console.log("[scrape-ted] First notice keys:", Object.keys(n));
-      console.log("[scrape-ted] buyer-name raw:", JSON.stringify(n["buyer-name"]));
-      console.log("[scrape-ted] buyer-name type:", typeof n["buyer-name"]);
-      console.log("[scrape-ted] notice-title raw:", JSON.stringify(n["notice-title"]));
-    }
+
 
     // Process in batches
     const batchSize = 20;
