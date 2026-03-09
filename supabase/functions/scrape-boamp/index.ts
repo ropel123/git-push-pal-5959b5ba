@@ -22,7 +22,7 @@ function dig(obj: any, ...keys: string[]): any {
 function isEmptyObject(obj: any): boolean {
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return false;
   const values = Object.values(obj);
-  return values.length > 0 && values.every(v => v === "" || v === null || v === undefined || (typeof v === "object" && isEmptyObject(v)));
+  return values.length === 0 || values.every(v => v === "" || v === null || v === undefined || (typeof v === "object" && isEmptyObject(v)));
 }
 
 function textify(val: any): string | null {
