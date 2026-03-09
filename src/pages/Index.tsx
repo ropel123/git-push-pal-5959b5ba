@@ -1,13 +1,32 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import Navbar from "@/components/Navbar";
+import HeroSection from "@/components/HeroSection";
+import TrustSection from "@/components/TrustSection";
+import FeaturedSectionStats from "@/components/ui/featured-section-stats";
+import ProblemsSection from "@/components/ProblemsSection";
+import SolutionSection from "@/components/SolutionSection";
+import TargetSection from "@/components/TargetSection";
+import WhySection from "@/components/WhySection";
+import ProcessSection from "@/components/ProcessSection";
+import FAQSection from "@/components/FAQSection";
+import CTASection from "@/components/CTASection";
+import HoverFooter from "@/components/HoverFooter";
 
 const Index = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Bienvenue sur votre application</h1>
-        <p className="text-xl text-muted-foreground">Commencez à construire votre projet ici !</p>
-      </div>
-    </div>
+    <main className="min-h-screen bg-background">
+      <Navbar />
+      <HeroSection />
+      <TrustSection />
+      <FeaturedSectionStats />
+      <ProblemsSection />
+      <SolutionSection />
+      <TargetSection />
+      <WhySection />
+      <ProcessSection />
+      <FAQSection />
+      <CTASection />
+      <HoverFooter />
+    </main>
   );
 };
 
