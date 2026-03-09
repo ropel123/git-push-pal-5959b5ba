@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ChevronRight, ChevronLeft, Trash2, Euro, MessageSquare, Send } from "lucide-react";
-import { format } from "date-fns";
+import { ChevronRight, ChevronLeft, Trash2, Euro, MessageSquare, Send, Download, AlertTriangle } from "lucide-react";
+import { format, differenceInDays } from "date-fns";
 import { fr } from "date-fns/locale";
 
 type Stage = "spotted" | "analyzing" | "no_go" | "responding" | "won" | "lost";
@@ -40,6 +41,7 @@ interface Comment {
 const Pipeline = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [items, setItems] = useState<PipelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -105,13 +107,47 @@ const Pipeline = () => {
     }
   };
 
+  const exportCSV = () => {
+    const headers = ["Titre", "Acheteur", "Montant estimé", "Étape", "Score", "Date limite"];
+    const rows = items.map((item) => [
+      `"${(item.tenders?.title ?? "").replace(/"/g, '""')}"`,
+      `"${(item.tenders?.buyer_name ?? "").replace(/"/g, '""')}"`,
+      item.tenders?.estimated_amount ?? "",
+      STAGES.find((s) => s.key === item.stage)?.label ?? item.stage,
+      item.score ?? "",
+      item.tenders?.deadline ? format(new Date(item.tenders.deadline), "dd/MM/yyyy") : "",
+    ]);
+    const csv = [headers.join(";"), ...rows.map((r) => r.join(";"))].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pipeline-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const getDeadlineIndicator = (deadline: string | null) => {
+    if (!deadline) return null;
+    const days = differenceInDays(new Date(deadline), new Date());
+    if (days < 0) return <span className="text-xs text-destructive font-medium">Expiré</span>;
+    if (days <= 3) return <span className="text-xs text-destructive font-medium flex items-center gap-0.5"><AlertTriangle className="h-3 w-3" /> {days}j</span>;
+    if (days <= 7) return <span className="text-xs text-yellow-400 font-medium">{days}j</span>;
+    return <span className="text-xs text-muted-foreground">{format(new Date(deadline), "dd MMM", { locale: fr })}</span>;
+  };
+
   if (loading) return <div className="text-center py-12 text-muted-foreground">Chargement...</div>;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Pipeline</h1>
-        <p className="text-muted-foreground">Suivez vos appels d'offres par étape</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Pipeline</h1>
+          <p className="text-muted-foreground">Suivez vos appels d'offres par étape</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={exportCSV} disabled={items.length === 0}>
+          <Download className="h-4 w-4 mr-1" /> CSV
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -127,14 +163,25 @@ const Pipeline = () => {
                 {stageItems.map((item) => (
                   <Card key={item.id} className="bg-card border-border">
                     <CardContent className="p-3 space-y-2">
-                      <p className="text-sm font-medium text-foreground line-clamp-2">{item.tenders?.title ?? "AO supprimé"}</p>
+                      <p
+                        className="text-sm font-medium text-foreground line-clamp-2 cursor-pointer hover:text-primary transition-colors"
+                        onClick={() => navigate(`/tenders/${item.tender_id}`)}
+                      >
+                        {item.tenders?.title ?? "AO supprimé"}
+                      </p>
                       {item.tenders?.buyer_name && <p className="text-xs text-muted-foreground">{item.tenders.buyer_name}</p>}
-                      {item.tenders?.estimated_amount && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Euro className="h-3 w-3" />
-                          {new Intl.NumberFormat("fr-FR").format(item.tenders.estimated_amount)} €
-                        </p>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {item.tenders?.estimated_amount && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Euro className="h-3 w-3" />
+                            {new Intl.NumberFormat("fr-FR").format(item.tenders.estimated_amount)} €
+                          </p>
+                        )}
+                        {item.score !== null && item.score > 0 && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{item.score}/100</Badge>
+                        )}
+                      </div>
+                      {getDeadlineIndicator(item.tenders?.deadline ?? null)}
                       <div className="flex items-center justify-between pt-1">
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveStage(item.id, "prev")} disabled={STAGES.findIndex((s) => s.key === item.stage) === 0}>
