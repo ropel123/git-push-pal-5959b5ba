@@ -37,6 +37,7 @@ const App = () => (
               <Route path="/pipeline" element={<Pipeline />} />
               <Route path="/awards" element={<Awards />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/buyers/:id" element={<BuyerDetail />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

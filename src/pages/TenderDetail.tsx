@@ -156,7 +156,9 @@ const TenderDetail = () => {
             {tender.buyer_name && (
               <div className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
-                <span>{tender.buyer_name}</span>
+                <button className="text-primary hover:underline" onClick={() => navigate(`/buyers/${encodeURIComponent(tender.buyer_name!)}`)}>
+                  {tender.buyer_name}
+                </button>
                 {tender.buyer_siret && <span className="text-muted-foreground text-xs">({tender.buyer_siret})</span>}
               </div>
             )}
