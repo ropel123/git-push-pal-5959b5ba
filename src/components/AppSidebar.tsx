@@ -19,6 +19,7 @@ import {
   Award,
   Settings,
   LogOut,
+  Activity,
 } from "lucide-react";
 
 const menuItems = [
@@ -26,6 +27,7 @@ const menuItems = [
   { title: "Appels d'offres", icon: Search, path: "/tenders" },
   { title: "Pipeline", icon: Kanban, path: "/pipeline" },
   { title: "Attributions", icon: Award, path: "/awards" },
+  { title: "Mon activité", icon: Activity, path: "/activity" },
   { title: "Paramètres", icon: Settings, path: "/settings" },
 ];
 
