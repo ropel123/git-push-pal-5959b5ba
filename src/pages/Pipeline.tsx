@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronRight, ChevronLeft, Trash2, Euro } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ChevronRight, ChevronLeft, Trash2, Euro, MessageSquare, Send } from "lucide-react";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
 
 type Stage = "spotted" | "analyzing" | "no_go" | "responding" | "won" | "lost";
 
@@ -24,12 +28,13 @@ interface PipelineItem {
   score: number | null;
   notes: string | null;
   tender_id: string;
-  tenders: {
-    title: string;
-    buyer_name: string | null;
-    estimated_amount: number | null;
-    deadline: string | null;
-  } | null;
+  tenders: { title: string; buyer_name: string | null; estimated_amount: number | null; deadline: string | null } | null;
+}
+
+interface Comment {
+  id: string;
+  content: string;
+  created_at: string | null;
 }
 
 const Pipeline = () => {
@@ -37,6 +42,10 @@ const Pipeline = () => {
   const { toast } = useToast();
   const [items, setItems] = useState<PipelineItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState("");
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
 
   useEffect(() => {
     if (user) fetchItems();
@@ -58,7 +67,6 @@ const Pipeline = () => {
     const currentIdx = STAGES.findIndex((s) => s.key === item.stage);
     const newIdx = direction === "next" ? currentIdx + 1 : currentIdx - 1;
     if (newIdx < 0 || newIdx >= STAGES.length) return;
-
     const newStage = STAGES[newIdx].key;
     await supabase.from("pipeline_items").update({ stage: newStage }).eq("id", itemId);
     setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, stage: newStage } : i)));
@@ -70,9 +78,34 @@ const Pipeline = () => {
     toast({ title: "Retiré du pipeline" });
   };
 
-  if (loading) {
-    return <div className="text-center py-12 text-muted-foreground">Chargement...</div>;
-  }
+  const openComments = async (itemId: string) => {
+    setActiveItemId(itemId);
+    setCommentsLoading(true);
+    const { data } = await supabase
+      .from("pipeline_comments")
+      .select("id, content, created_at")
+      .eq("pipeline_item_id", itemId)
+      .order("created_at", { ascending: true });
+    setComments(data ?? []);
+    setCommentsLoading(false);
+  };
+
+  const addComment = async () => {
+    if (!user || !activeItemId || !newComment.trim()) return;
+    const { data, error } = await supabase
+      .from("pipeline_comments")
+      .insert({ pipeline_item_id: activeItemId, user_id: user.id, content: newComment.trim() })
+      .select("id, content, created_at")
+      .single();
+    if (error) {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    } else if (data) {
+      setComments((prev) => [...prev, data]);
+      setNewComment("");
+    }
+  };
+
+  if (loading) return <div className="text-center py-12 text-muted-foreground">Chargement...</div>;
 
   return (
     <div className="space-y-6">
@@ -87,22 +120,15 @@ const Pipeline = () => {
           return (
             <div key={stage.key} className="space-y-3">
               <div className="flex items-center justify-between">
-                <Badge variant="outline" className={stage.color}>
-                  {stage.label}
-                </Badge>
+                <Badge variant="outline" className={stage.color}>{stage.label}</Badge>
                 <span className="text-xs text-muted-foreground">{stageItems.length}</span>
               </div>
-
               <div className="space-y-2 min-h-[200px]">
                 {stageItems.map((item) => (
                   <Card key={item.id} className="bg-card border-border">
                     <CardContent className="p-3 space-y-2">
-                      <p className="text-sm font-medium text-foreground line-clamp-2">
-                        {item.tenders?.title ?? "AO supprimé"}
-                      </p>
-                      {item.tenders?.buyer_name && (
-                        <p className="text-xs text-muted-foreground">{item.tenders.buyer_name}</p>
-                      )}
+                      <p className="text-sm font-medium text-foreground line-clamp-2">{item.tenders?.title ?? "AO supprimé"}</p>
+                      {item.tenders?.buyer_name && <p className="text-xs text-muted-foreground">{item.tenders.buyer_name}</p>}
                       {item.tenders?.estimated_amount && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
                           <Euro className="h-3 w-3" />
@@ -111,33 +137,50 @@ const Pipeline = () => {
                       )}
                       <div className="flex items-center justify-between pt-1">
                         <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => moveStage(item.id, "prev")}
-                            disabled={STAGES.findIndex((s) => s.key === item.stage) === 0}
-                          >
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveStage(item.id, "prev")} disabled={STAGES.findIndex((s) => s.key === item.stage) === 0}>
                             <ChevronLeft className="h-3 w-3" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => moveStage(item.id, "next")}
-                            disabled={STAGES.findIndex((s) => s.key === item.stage) === STAGES.length - 1}
-                          >
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveStage(item.id, "next")} disabled={STAGES.findIndex((s) => s.key === item.stage) === STAGES.length - 1}>
                             <ChevronRight className="h-3 w-3" />
                           </Button>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-destructive"
-                          onClick={() => removeItem(item.id)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openComments(item.id)}>
+                                <MessageSquare className="h-3 w-3" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle className="text-sm">Commentaires — {item.tenders?.title}</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                                {commentsLoading ? (
+                                  <p className="text-sm text-muted-foreground">Chargement...</p>
+                                ) : comments.length === 0 ? (
+                                  <p className="text-sm text-muted-foreground">Aucun commentaire</p>
+                                ) : (
+                                  comments.map((c) => (
+                                    <div key={c.id} className="p-2 rounded-md bg-secondary/50 text-sm">
+                                      <p className="text-foreground">{c.content}</p>
+                                      {c.created_at && <p className="text-xs text-muted-foreground mt-1">{format(new Date(c.created_at), "dd MMM yyyy HH:mm", { locale: fr })}</p>}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                              <div className="flex gap-2">
+                                <Textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Ajouter un commentaire..." className="min-h-[60px]" />
+                                <Button size="icon" onClick={addComment} disabled={!newComment.trim()}>
+                                  <Send className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem(item.id)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
