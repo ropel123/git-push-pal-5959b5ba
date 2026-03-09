@@ -487,6 +487,7 @@ function parseBoampDonnees(raw: any): Record<string, any> {
 
   // === Additional info ===
   const additionalInfoParts: string[] = [];
+  if (rectifInfo) additionalInfoParts.push(rectifInfo);
   const informText = textify(informComplementaire.autresInformComplementaire) || textify(informComplementaire);
   if (informText) additionalInfoParts.push(informText);
   if (duree.dateACompterDu || duree.jusquau) {
