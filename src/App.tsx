@@ -15,6 +15,7 @@ import Pipeline from "./pages/Pipeline";
 import Awards from "./pages/Awards";
 import SettingsPage from "./pages/SettingsPage";
 import Onboarding from "./pages/Onboarding";
+import BuyerDetail from "./pages/BuyerDetail";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ const App = () => (
               <Route path="/pipeline" element={<Pipeline />} />
               <Route path="/awards" element={<Awards />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/buyers/:id" element={<BuyerDetail />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
