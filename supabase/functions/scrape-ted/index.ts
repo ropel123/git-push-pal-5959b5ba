@@ -17,7 +17,6 @@ function cleanBrackets(val: string | null): string | null {
       if (Array.isArray(parsed) && parsed.length > 0) return String(parsed[0]);
     } catch { /* not JSON */ }
   }
-  // Remove wrapping quotes
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
     return trimmed.slice(1, -1);
   }
@@ -65,11 +64,33 @@ function normalizeTedToTender(notice: any) {
   const descriptionLot = notice["description-lot"];
   const pubDate = extractField(notice, "publication-date");
   
-  // New fields
+  // Location & buyer details
   const placeOfPerformance = extractField(notice, "place-of-performance");
   const contractNature = cleanBrackets(extractField(notice, "contract-nature"));
   const buyerCity = cleanBrackets(extractField(notice, "buyer-city"));
   const buyerCountry = cleanBrackets(extractField(notice, "buyer-country"));
+
+  // New enriched fields
+  const buyerStreet = cleanBrackets(extractField(notice, "buyer-street-address"));
+  const buyerPostal = cleanBrackets(extractField(notice, "buyer-postal-code"));
+  const buyerEmail = cleanBrackets(extractField(notice, "buyer-email"));
+  const buyerPhone = cleanBrackets(extractField(notice, "buyer-phone"));
+
+  // Award criteria
+  const awardCriteriaRaw = notice["award-criteria"];
+  let awardCriteria: string | null = null;
+  if (awardCriteriaRaw) {
+    const texts = extractAllText(awardCriteriaRaw);
+    if (texts.length > 0) awardCriteria = texts.join("\n");
+  }
+
+  // Selection criteria (participation conditions)
+  const selectionCriteriaRaw = notice["selection-criteria"];
+  let participationConditions: string | null = null;
+  if (selectionCriteriaRaw) {
+    const texts = extractAllText(selectionCriteriaRaw);
+    if (texts.length > 0) participationConditions = texts.join("\n");
+  }
 
   // Parse deadline
   let deadline: string | null = null;
@@ -77,7 +98,7 @@ function normalizeTedToTender(notice: any) {
     try { deadline = new Date(deadlineRaw).toISOString(); } catch { /* skip */ }
   }
 
-  // Parse estimated amount - store null instead of 0
+  // Parse estimated amount
   let estimatedAmount: number | null = null;
   if (estimatedRaw) {
     const num = Array.isArray(estimatedRaw) ? estimatedRaw[0] : estimatedRaw;
@@ -85,32 +106,38 @@ function normalizeTedToTender(notice: any) {
     if (!isNaN(parsed) && parsed > 0) estimatedAmount = parsed;
   }
 
-  // Parse CPV codes - deduplicate
+  // Parse CPV codes
   let cpvCodes: string[] = [];
   if (cpvRaw) {
     const raw = Array.isArray(cpvRaw) ? cpvRaw.map(String) : [String(cpvRaw)];
     cpvCodes = [...new Set(raw)];
   }
 
-  // Parse lots with descriptions
+  // Parse lots
   let lots: any[] = [];
   if (descriptionLot) {
     const descs = extractAllText(descriptionLot);
     lots = descs.map((d: string, i: number) => ({ numero: i + 1, description: cleanBrackets(d) }));
   }
 
-  // Build description from lot descriptions
+  // Description
   const description = lots.length > 0 
     ? lots.map((l: any) => l.description).filter(Boolean).join("\n\n") 
     : null;
 
-  // Execution location from place-of-performance
+  // Execution location
   const executionLocation = cleanBrackets(placeOfPerformance);
 
-  // Buyer contact
+  // Buyer contact — enriched
   const buyerContact: Record<string, string> = {};
   if (buyerCity) buyerContact.ville = buyerCity;
   if (buyerCountry) buyerContact.pays = buyerCountry;
+  if (buyerEmail) buyerContact.email = buyerEmail;
+  if (buyerPhone) buyerContact.tel = buyerPhone;
+
+  // Buyer address — full
+  const addrParts = [buyerStreet, buyerPostal, buyerCity, buyerCountry].filter(Boolean);
+  const buyerAddress = addrParts.length > 0 ? addrParts.join(", ") : null;
 
   return {
     title: title || "Sans titre",
@@ -130,15 +157,14 @@ function normalizeTedToTender(notice: any) {
     lots,
     status: "open" as const,
     updated_at: new Date().toISOString(),
-    // New fields
     description,
     execution_location: executionLocation,
     nuts_code: null,
     contract_type: contractNature,
     buyer_contact: Object.keys(buyerContact).length > 0 ? buyerContact : null,
-    buyer_address: null,
-    award_criteria: null,
-    participation_conditions: null,
+    buyer_address: buyerAddress,
+    award_criteria: awardCriteria,
+    participation_conditions: participationConditions,
     additional_info: null,
   };
 }
@@ -170,73 +196,89 @@ Deno.serve(async (req) => {
     const today = new Date().toISOString().split("T")[0].replace(/-/g, "");
     const todayFormatted = new Date().toISOString().split("T")[0];
 
-    const searchPayload = {
-      query: `place-of-performance = FRA AND publication-date >= ${dateStr} AND publication-date <= ${today}`,
-      fields: [
-        "notice-title", "buyer-name", "deadline-receipt-request",
-        "estimated-value-lot", "classification-cpv", "procedure-type",
-        "description-lot", "publication-date",
-        "place-of-performance", "contract-nature", "buyer-city", "buyer-country"
-      ],
-      limit: 100,
-      page: 1,
-      paginationMode: "PAGE_NUMBER",
-    };
+    const LIMIT = 100;
+    let page = 1;
+    let totalProcessed = 0;
 
-    console.log(`[scrape-ted] Searching TED for FR notices from ${dateStr} to ${today}`);
+    while (true) {
+      const searchPayload = {
+        query: `place-of-performance = FRA AND publication-date >= ${dateStr} AND publication-date <= ${today}`,
+        fields: [
+          "notice-title", "buyer-name", "deadline-receipt-request",
+          "estimated-value-lot", "classification-cpv", "procedure-type",
+          "description-lot", "publication-date",
+          "place-of-performance", "contract-nature", "buyer-city", "buyer-country",
+        ],
+        limit: LIMIT,
+        page,
+        paginationMode: "PAGE_NUMBER",
+      };
 
-    const response = await fetch(TED_API_BASE, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(searchPayload),
-    });
+      console.log(`[scrape-ted] Page ${page}: Searching TED for FR notices from ${dateStr} to ${today}`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`TED API returned ${response.status}: ${errorText.substring(0, 500)}`);
-    }
+      const response = await fetch(TED_API_BASE, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(searchPayload),
+      });
 
-    const data = await response.json();
-    const notices = data.notices || data.results || [];
-
-    if (!Array.isArray(notices)) {
-      console.log("[scrape-ted] Response keys:", Object.keys(data));
-      throw new Error("Unexpected TED API response format");
-    }
-
-    itemsFound = data.totalNoticeCount || notices.length;
-    console.log(`[scrape-ted] Found ${itemsFound} notices, processing ${notices.length}`);
-
-    const batchSize = 20;
-    for (let i = 0; i < notices.length; i += batchSize) {
-      const batch = notices.slice(i, i + batchSize);
-      const tendersToUpsert = batch
-        .map((n: any) => {
-          const tender = normalizeTedToTender(n);
-          if (!tender.publication_date) tender.publication_date = todayFormatted;
-          return tender;
-        })
-        .filter((t: any) => t.reference);
-
-      if (tendersToUpsert.length === 0) continue;
-
-      const { data: upserted, error } = await supabase
-        .from("tenders")
-        .upsert(tendersToUpsert, {
-          onConflict: "reference,source",
-          ignoreDuplicates: false,
-        })
-        .select("id");
-
-      if (error) {
-        console.error("[scrape-ted] Upsert error:", error.message);
-        errors.push(`Upsert batch ${i}: ${error.message}`);
-      } else {
-        itemsInserted += upserted?.length || 0;
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`TED API returned ${response.status}: ${errorText.substring(0, 500)}`);
       }
+
+      const data = await response.json();
+      const notices = data.notices || data.results || [];
+
+      if (!Array.isArray(notices)) {
+        console.log("[scrape-ted] Response keys:", Object.keys(data));
+        throw new Error("Unexpected TED API response format");
+      }
+
+      if (page === 1) {
+        itemsFound = data.totalNoticeCount || notices.length;
+        console.log(`[scrape-ted] Total notices: ${itemsFound}`);
+      }
+
+      if (notices.length === 0) break;
+
+      const batchSize = 20;
+      for (let i = 0; i < notices.length; i += batchSize) {
+        const batch = notices.slice(i, i + batchSize);
+        const tendersToUpsert = batch
+          .map((n: any) => {
+            const tender = normalizeTedToTender(n);
+            if (!tender.publication_date) tender.publication_date = todayFormatted;
+            return tender;
+          })
+          .filter((t: any) => t.reference);
+
+        if (tendersToUpsert.length === 0) continue;
+
+        const { data: upserted, error } = await supabase
+          .from("tenders")
+          .upsert(tendersToUpsert, {
+            onConflict: "reference,source",
+            ignoreDuplicates: false,
+          })
+          .select("id");
+
+        if (error) {
+          console.error("[scrape-ted] Upsert error:", error.message);
+          errors.push(`Upsert page ${page} batch ${i}: ${error.message}`);
+        } else {
+          itemsInserted += upserted?.length || 0;
+        }
+      }
+
+      totalProcessed += notices.length;
+      
+      // Stop if we got fewer than LIMIT (last page) or reached reasonable max
+      if (notices.length < LIMIT || totalProcessed >= 2000) break;
+      page++;
     }
 
     await supabase.from("scrape_logs").update({
