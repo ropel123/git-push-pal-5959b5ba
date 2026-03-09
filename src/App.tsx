@@ -10,9 +10,11 @@ import Auth from "./pages/Auth";
 import AppLayout from "./components/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import Tenders from "./pages/Tenders";
+import TenderDetail from "./pages/TenderDetail";
 import Pipeline from "./pages/Pipeline";
 import Awards from "./pages/Awards";
 import SettingsPage from "./pages/SettingsPage";
+import Onboarding from "./pages/Onboarding";
 
 const queryClient = new QueryClient();
 
@@ -26,9 +28,11 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/onboarding" element={<Onboarding />} />
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/tenders" element={<Tenders />} />
+              <Route path="/tenders/:id" element={<TenderDetail />} />
               <Route path="/pipeline" element={<Pipeline />} />
               <Route path="/awards" element={<Awards />} />
               <Route path="/settings" element={<SettingsPage />} />
