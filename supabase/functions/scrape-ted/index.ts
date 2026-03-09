@@ -9,7 +9,7 @@ const corsHeaders = {
 const TED_API_BASE = "https://api.ted.europa.eu/v3/notices/search";
 
 function cleanBrackets(val: string | null): string | null {
-  if (!val) return null;
+  if (!val || typeof val !== "string") return val;
   // Remove wrapping ["..."] from stringified arrays
   const match = val.match(/^\["(.*)"\]$/s);
   return match ? match[1] : val;
