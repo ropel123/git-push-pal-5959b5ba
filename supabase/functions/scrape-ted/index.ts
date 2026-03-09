@@ -28,8 +28,9 @@ function extractField(notice: any, field: string): string | null {
 function normalizeTedToTender(notice: any) {
   const pubNumber = notice["publication-number"] || "";
   
-  const title = extractField(notice, "notice-title") || pubNumber;
-  const buyerName = extractField(notice, "buyer-name");
+  const titleRaw = extractField(notice, "notice-title") || pubNumber;
+  const title = cleanBrackets(titleRaw);
+  const buyerName = cleanBrackets(extractField(notice, "buyer-name"));
   const deadlineRaw = extractField(notice, "deadline-receipt-request");
   const estimatedRaw = notice["estimated-value-lot"];
   const cpvRaw = notice["classification-cpv"];
