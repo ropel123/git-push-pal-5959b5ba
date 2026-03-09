@@ -577,7 +577,7 @@ function normalizeBoampToTender(record: any) {
     buyer_contact: rich.buyerContact,
     execution_location: rich.executionLocation,
     nuts_code: rich.nutsCode,
-    contract_type: rich.contractType || r.type_marche || null,
+    contract_type: rich.contractType || (Array.isArray(r.type_marche) ? r.type_marche[0] : r.type_marche) || null,
     award_criteria: rich.awardCriteria,
     participation_conditions: rich.participationConditions,
     additional_info: rich.additionalInfo,

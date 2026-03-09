@@ -158,7 +158,7 @@ const TenderDetail = () => {
             {tender.contract_type && (
               <Badge variant="secondary">
                 <Briefcase className="h-3 w-3 mr-1" />
-                {tender.contract_type}
+                {(tender.contract_type || "").replace(/[\[\]"]/g, "")}
               </Badge>
             )}
             {score !== null && (
