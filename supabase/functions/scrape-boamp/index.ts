@@ -19,11 +19,21 @@ function dig(obj: any, ...keys: string[]): any {
 }
 
 // Extract text from potentially nested/array values
+// Check if an object has only empty-string values
+function isEmptyObject(obj: any): boolean {
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return false;
+  const values = Object.values(obj);
+  return values.length > 0 && values.every(v => v === "" || v === null || v === undefined || (typeof v === "object" && isEmptyObject(v)));
+}
+
 function textify(val: any): string | null {
   if (!val) return null;
   if (typeof val === "string") return val.trim() || null;
   if (Array.isArray(val)) return val.map(textify).filter(Boolean).join("\n") || null;
-  if (typeof val === "object") return JSON.stringify(val);
+  if (typeof val === "object") {
+    if (isEmptyObject(val)) return null;
+    return JSON.stringify(val);
+  }
   return String(val);
 }
 
@@ -137,8 +147,7 @@ function parseBoampDonnees(raw: any): Record<string, any> {
 
   // === Award criteria (FNSimple: procedure.criteresAttrib, MAPA: criteres) ===
   const awardCriteria = textify(procedure.criteresAttrib) 
-    || textify(criteres.critereCDC)
-    || textify(criteres) 
+    || textify(criteres)
     || null;
 
   // === Participation conditions ===
@@ -147,10 +156,45 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   if (procedure.capaciteEcoFin) condParts.push("Capacité économique et financière : " + textify(procedure.capaciteEcoFin));
   if (procedure.capaciteTech) condParts.push("Capacités techniques : " + textify(procedure.capaciteTech));
   if (procedure.capaciteExercice) condParts.push("Capacité d'exercice : " + textify(procedure.capaciteExercice));
-  // MAPA paths - justifications block
-  if (justifications) {
-    const justifText = textify(justifications);
-    if (justifText && condParts.length === 0) condParts.push(justifText);
+  // MAPA paths - justifications block: map keys to readable labels, skip empty values
+  if (justifications && typeof justifications === "object" && !isEmptyObject(justifications)) {
+    const justifLabels: Record<string, string> = {
+      redressementJudiciaire: "Redressement judiciaire",
+      article2141: "Interdictions de soumissionner (art. L.2141)",
+      travailleursHandicapes: "Emploi des travailleurs handicapés",
+      salariesReguliers: "Emploi régulier des salariés",
+      salariesEtranger: "Bulletins de paie (étranger)",
+      chiffreAffaires: "Chiffre d'affaires",
+      assuranceRisques: "Assurance risques professionnels",
+      bilans: "Bilans",
+      effectifs: "Effectifs moyens annuels",
+      listeServices: "Liste des principales prestations",
+      listeTravaux: "Liste des travaux exécutés",
+      titresEtudes: "Titres d'études",
+      titresEtudesCadres: "Titres d'études des cadres",
+      outillage: "Outillage et équipement technique",
+      descriptionEquipement: "Description de l'équipement technique",
+      certificats: "Certificats de qualifications professionnelles",
+      dc1: "Formulaire DC1",
+      dc2: "Formulaire DC2",
+      capacitesAutres: "Capacités d'autres opérateurs économiques",
+      traductionFrancais: "Traduction en français",
+    };
+    for (const [key, val] of Object.entries(justifications)) {
+      if (val && typeof val === "string" && val.trim()) {
+        const label = justifLabels[key] || key;
+        condParts.push(`${label} : ${val}`);
+      }
+    }
+    // If keys exist but all values are empty, list the required document types
+    if (condParts.length === 0 && !isEmptyObject(justifications)) {
+      const requiredDocs = Object.keys(justifications)
+        .filter(k => k in justifLabels)
+        .map(k => justifLabels[k]);
+      if (requiredDocs.length > 0) {
+        condParts.push("Documents requis :\n• " + requiredDocs.join("\n• "));
+      }
+    }
   }
   const participationConditions = condParts.length > 0 ? condParts.join("\n") : null;
 
@@ -235,7 +279,7 @@ function normalizeBoampToTender(record: any) {
     publication_date: r.dateparution || null,
     deadline: r.datelimitereponse || null,
     estimated_amount: rich.estimatedAmount || null,
-    cpv_codes: rich.cpvCodes || (r.descripteur_code ? (Array.isArray(r.descripteur_code) ? r.descripteur_code : [r.descripteur_code]) : []),
+    cpv_codes: rich.cpvCodes || (r.descripteur_code ? (Array.isArray(r.descripteur_code) ? r.descripteur_code : [r.descripteur_code]).filter((c: any) => /^\d{8}$/.test(String(c))) : []),
     lots: rich.lots || [],
     status: "open" as const,
     updated_at: new Date().toISOString(),

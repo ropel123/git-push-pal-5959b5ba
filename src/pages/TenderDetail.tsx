@@ -123,6 +123,18 @@ const TenderDetail = () => {
   const contact = tender.buyer_contact && typeof tender.buyer_contact === "object" ? tender.buyer_contact : null;
   const cpvCodes = tender.cpv_codes ? [...new Set(tender.cpv_codes)] : [];
 
+  // Helper: check if a text field is actually meaningful (not empty JSON)
+  const isDisplayableText = (text: string | null | undefined): boolean => {
+    if (!text || !text.trim()) return false;
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed === "object" && parsed !== null) {
+        return !Object.values(parsed).every((v: any) => v === "" || v === null || v === undefined);
+      }
+    } catch { /* not JSON, it's regular text */ }
+    return true;
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       <Button variant="ghost" size="sm" onClick={() => navigate("/tenders")}>
@@ -302,7 +314,7 @@ const TenderDetail = () => {
       )}
 
       {/* Critères d'attribution */}
-      {tender.award_criteria && (
+      {isDisplayableText(tender.award_criteria) && (
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-muted-foreground">Critères d'attribution</CardTitle>
@@ -314,7 +326,7 @@ const TenderDetail = () => {
       )}
 
       {/* Conditions de participation */}
-      {tender.participation_conditions && (
+      {isDisplayableText(tender.participation_conditions) && (
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-muted-foreground">Conditions de participation</CardTitle>
