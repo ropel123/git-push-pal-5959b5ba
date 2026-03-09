@@ -126,10 +126,14 @@ const TenderDetail = () => {
   // Helper: check if a text field is actually meaningful (not empty JSON)
   const isDisplayableText = (text: string | null | undefined): boolean => {
     if (!text || !text.trim()) return false;
+    const trimmed = text.trim();
+    if (trimmed === "{}" || trimmed === "[]" || trimmed === "null") return false;
     try {
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(trimmed);
       if (typeof parsed === "object" && parsed !== null) {
-        return !Object.values(parsed).every((v: any) => v === "" || v === null || v === undefined);
+        if (Array.isArray(parsed)) return parsed.length > 0;
+        const values = Object.values(parsed);
+        return values.length > 0 && !values.every((v: any) => v === "" || v === null || v === undefined);
       }
     } catch { /* not JSON, it's regular text */ }
     return true;
@@ -154,7 +158,7 @@ const TenderDetail = () => {
             {tender.contract_type && (
               <Badge variant="secondary">
                 <Briefcase className="h-3 w-3 mr-1" />
-                {tender.contract_type}
+                {(tender.contract_type || "").replace(/[\[\]"]/g, "")}
               </Badge>
             )}
             {score !== null && (

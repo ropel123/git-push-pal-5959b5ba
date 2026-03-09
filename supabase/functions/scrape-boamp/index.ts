@@ -22,7 +22,7 @@ function dig(obj: any, ...keys: string[]): any {
 function isEmptyObject(obj: any): boolean {
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return false;
   const values = Object.values(obj);
-  return values.length > 0 && values.every(v => v === "" || v === null || v === undefined || (typeof v === "object" && isEmptyObject(v)));
+  return values.length === 0 || values.every(v => v === "" || v === null || v === undefined || (typeof v === "object" && isEmptyObject(v)));
 }
 
 function textify(val: any): string | null {
@@ -351,16 +351,26 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   const root = familyKey ? donnees[familyKey] : donnees;
 
   const organisme = root?.organisme || {};
+  // Use initial block, fallback to rectificatif for amendment notices
   const initial = root?.initial || {};
-  const communication = initial?.communication || {};
-  const procedure = initial?.procedure || {};
-  const natureMarche = initial?.natureMarche || {};
-  const informComplementaire = initial?.informComplementaire || {};
-  const descriptionBlock = initial?.description || {};
-  const justifications = initial?.justifications || {};
-  const criteres = initial?.criteres || {};
-  const duree = initial?.duree || {};
-  const renseignements = initial?.renseignements || {};
+  const rectif = root?.rectificatif || {};
+  const fb = (initBlock: any, rectBlock: any) => {
+    // Return initBlock if it has data, otherwise fall back to rectBlock
+    if (initBlock && typeof initBlock === "object" && !isEmptyObject(initBlock)) return initBlock;
+    return rectBlock || {};
+  };
+  const communication = initial?.communication || rectif?.communication || {};
+  const procedure = fb(initial?.procedure, rectif?.procedure);
+  const natureMarche = fb(initial?.natureMarche, rectif?.natureMarche);
+  const informComplementaire = fb(initial?.informComplementaire, rectif?.informComplementaire);
+  const descriptionBlock = fb(initial?.description, rectif?.description);
+  const justifications = fb(initial?.justifications, rectif?.justifications);
+  const criteres = fb(initial?.criteres, rectif?.criteres);
+  const duree = fb(initial?.duree, rectif?.duree);
+  const renseignements = fb(initial?.renseignements, rectif?.renseignements);
+
+  // Rectificatif-specific additional info (e.g. "Au lieu de 13/03 lire 20/03")
+  const rectifInfo = rectif?.infosRectif ? textify(rectif.infosRectif) : null;
 
   // === Title ===
   const titreMarche = textify(natureMarche.intitule) 
@@ -477,6 +487,7 @@ function parseBoampDonnees(raw: any): Record<string, any> {
 
   // === Additional info ===
   const additionalInfoParts: string[] = [];
+  if (rectifInfo) additionalInfoParts.push(rectifInfo);
   const informText = textify(informComplementaire.autresInformComplementaire) || textify(informComplementaire);
   if (informText) additionalInfoParts.push(informText);
   if (duree.dateACompterDu || duree.jusquau) {
@@ -566,7 +577,7 @@ function normalizeBoampToTender(record: any) {
     buyer_contact: rich.buyerContact,
     execution_location: rich.executionLocation,
     nuts_code: rich.nutsCode,
-    contract_type: rich.contractType || r.type_marche || null,
+    contract_type: rich.contractType || (Array.isArray(r.type_marche) ? r.type_marche[0] : r.type_marche) || null,
     award_criteria: rich.awardCriteria,
     participation_conditions: rich.participationConditions,
     additional_info: rich.additionalInfo,
