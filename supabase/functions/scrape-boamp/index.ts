@@ -38,7 +38,6 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   }
 
   // The donnees object is wrapped in a family key (FNSimple, FNS, MAPA, etc.)
-  // Find the first non-meta key to get the root
   const familyKey = Object.keys(donnees).find(k => 
     typeof donnees[k] === "object" && donnees[k] !== null
   );
@@ -50,41 +49,80 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   const procedure = initial?.procedure || {};
   const natureMarche = initial?.natureMarche || {};
   const informComplementaire = initial?.informComplementaire || {};
+  const descriptionBlock = initial?.description || {};
+  const justifications = initial?.justifications || {};
+  const criteres = initial?.criteres || {};
+  const duree = initial?.duree || {};
+  const renseignements = initial?.renseignements || {};
 
-  // Title
-  const titreMarche = textify(natureMarche.intitule) || null;
+  // === Title (FNSimple: natureMarche.intitule, MAPA: description.objet) ===
+  const titreMarche = textify(natureMarche.intitule) 
+    || textify(descriptionBlock.objet) 
+    || null;
 
-  // Description
-  const description = textify(natureMarche.description) || null;
+  // === Description (FNSimple: natureMarche.description, MAPA: description.objet) ===
+  const description = textify(natureMarche.description) 
+    || textify(descriptionBlock.objet) 
+    || null;
 
-  // Buyer SIRET
+  // === Buyer SIRET (FNSimple only) ===
   const buyerSiret = textify(organisme.codeIdentificationNational) || null;
 
-  // Buyer address
-  const adresseArr = [organisme.adresse, organisme.cp, organisme.ville].filter(Boolean);
+  // === Buyer address ===
+  // FNSimple: organisme.adresse/cp/ville
+  // MAPA: organisme.adr.voie.nomvoie / adr.cp / adr.ville
+  const adr = organisme.adr || {};
+  const adresseArr = [
+    organisme.adresse || dig(adr, "voie", "nomvoie") || textify(adr.adresse),
+    organisme.cp || adr.cp,
+    organisme.ville || adr.ville,
+  ].filter(Boolean);
   const buyerAddress = adresseArr.length > 0 ? adresseArr.join(", ") : null;
 
-  // Buyer contact
+  // === Buyer contact (multi-path) ===
   const buyerContact: Record<string, string> = {};
-  if (communication.nomContact) buyerContact.email = String(communication.nomContact);
-  if (communication.telContact) buyerContact.tel = String(communication.telContact);
-  if (communication.urlDocConsul) buyerContact.url = String(communication.urlDocConsul);
-  if (organisme.ville) buyerContact.ville = String(organisme.ville);
+  const coord = organisme.coord || {};
+  const correspondant = organisme.correspondantPRM || {};
 
-  // CPV codes
+  // Email
+  const email = textify(communication.adresseMailContact) 
+    || textify(communication.nomContact) 
+    || textify(coord.mel) 
+    || null;
+  if (email) buyerContact.email = email;
+
+  // Phone
+  const tel = textify(communication.telContact) || textify(coord.tel) || null;
+  if (tel) buyerContact.tel = tel;
+
+  // Contact name
+  const contactName = textify(correspondant.nom) || null;
+  if (contactName) buyerContact.contact = contactName;
+
+  // URL
+  const url = textify(communication.urlDocConsul) 
+    || textify(communication.urlProfilAch) 
+    || textify(organisme.urlProfilAcheteur) 
+    || null;
+  if (url) buyerContact.url = url;
+
+  // City
+  const ville = organisme.ville || adr.ville || null;
+  if (ville) buyerContact.ville = String(ville);
+
+  // === CPV codes ===
   let cpvCodes: string[] = [];
   const cpvData = dig(natureMarche, "codeCPV", "objetPrincipal", "classPrincipale");
   if (cpvData) {
     cpvCodes = Array.isArray(cpvData) ? cpvData.map(String) : [String(cpvData)];
   }
-  // Also check for secondary CPV
   const cpvSecondaire = dig(natureMarche, "codeCPV", "objetSecondaire");
   if (Array.isArray(cpvSecondaire)) {
     cpvCodes.push(...cpvSecondaire.map((c: any) => String(c?.classPrincipale || c)).filter(Boolean));
   }
   cpvCodes = [...new Set(cpvCodes)];
 
-  // Execution location
+  // === Execution location ===
   const lieuExec = natureMarche.lieuExecution;
   let executionLocation: string | null = null;
   let nutsCode: string | null = null;
@@ -97,34 +135,51 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     }
   }
 
-  // Award criteria
-  const awardCriteria = textify(procedure.criteresAttrib) || null;
+  // === Award criteria (FNSimple: procedure.criteresAttrib, MAPA: criteres) ===
+  const awardCriteria = textify(procedure.criteresAttrib) 
+    || textify(criteres.critereCDC)
+    || textify(criteres) 
+    || null;
 
-  // Participation conditions
+  // === Participation conditions ===
   const condParts: string[] = [];
+  // FNSimple paths
   if (procedure.capaciteEcoFin) condParts.push("Capacité économique et financière : " + textify(procedure.capaciteEcoFin));
   if (procedure.capaciteTech) condParts.push("Capacités techniques : " + textify(procedure.capaciteTech));
+  if (procedure.capaciteExercice) condParts.push("Capacité d'exercice : " + textify(procedure.capaciteExercice));
+  // MAPA paths - justifications block
+  if (justifications) {
+    const justifText = textify(justifications);
+    if (justifText && condParts.length === 0) condParts.push(justifText);
+  }
   const participationConditions = condParts.length > 0 ? condParts.join("\n") : null;
 
-  // Additional info
-  const additionalInfo = textify(informComplementaire.autresInformComplementaire) 
-    || textify(informComplementaire) || null;
+  // === Additional info ===
+  const additionalInfoParts: string[] = [];
+  const informText = textify(informComplementaire.autresInformComplementaire) || textify(informComplementaire);
+  if (informText) additionalInfoParts.push(informText);
+  // MAPA: duration info
+  if (duree.dateACompterDu || duree.jusquau) {
+    const dureeParts = [];
+    if (duree.dateACompterDu) dureeParts.push("À compter du : " + duree.dateACompterDu);
+    if (duree.jusquau) dureeParts.push("Jusqu'au : " + duree.jusquau);
+    additionalInfoParts.push(dureeParts.join(" — "));
+  }
+  const additionalInfo = additionalInfoParts.length > 0 ? additionalInfoParts.join("\n") : null;
 
-  // Contract type from top-level record field (passed separately)
-  const contractType = null; // handled in normalizeBoampToTender from top-level
-
-  // Estimated amount - try to extract from description text
+  // === Estimated amount ===
   let estimatedAmount: number | null = null;
-  if (description) {
-    const match = description.match(/([\d\s]+[,.][\d]{2})\s*euro/i) 
-      || description.match(/([\d\s]+)\s*euro/i);
+  const descText = description || "";
+  if (descText) {
+    const match = descText.match(/([\d\s]+[,.][\d]{2})\s*euro/i) 
+      || descText.match(/([\d\s]+)\s*euro/i);
     if (match) {
       const num = parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
       if (!isNaN(num) && num > 0) estimatedAmount = num;
     }
   }
 
-  // Lots
+  // === Lots ===
   let lots: any[] = [];
   const lotsData = natureMarche.lotsMarche;
   if (Array.isArray(lotsData)) {
@@ -136,6 +191,9 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     }));
   }
 
+  // === Internal reference (MAPA: renseignements.idMarche) ===
+  const internalRef = textify(communication.identifiantInterne) || textify(renseignements.idMarche) || null;
+
   return {
     description,
     titreMarche,
@@ -145,12 +203,13 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     buyerAddress,
     buyerContact: Object.keys(buyerContact).length > 0 ? buyerContact : null,
     buyerSiret,
-    contractType,
+    contractType: null, // handled from top-level in normalizeBoampToTender
     awardCriteria,
     participationConditions,
     additionalInfo,
     estimatedAmount,
     lots: lots.length > 0 ? lots : null,
+    internalRef,
   };
 }
 
