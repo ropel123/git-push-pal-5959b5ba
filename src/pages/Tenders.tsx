@@ -98,7 +98,7 @@ const Tenders = () => {
       query = query.eq("region", regionFilter);
     }
     if (statusFilter && statusFilter !== "all") {
-      query = query.eq("status", statusFilter);
+      query = query.eq("status", statusFilter as "open" | "closed" | "awarded" | "cancelled");
     }
     if (procedureFilter && procedureFilter !== "all") {
       query = query.eq("procedure_type", procedureFilter);
