@@ -123,6 +123,18 @@ const TenderDetail = () => {
   const contact = tender.buyer_contact && typeof tender.buyer_contact === "object" ? tender.buyer_contact : null;
   const cpvCodes = tender.cpv_codes ? [...new Set(tender.cpv_codes)] : [];
 
+  // Helper: check if a text field is actually meaningful (not empty JSON)
+  const isDisplayableText = (text: string | null | undefined): boolean => {
+    if (!text || !text.trim()) return false;
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed === "object" && parsed !== null) {
+        return !Object.values(parsed).every((v: any) => v === "" || v === null || v === undefined);
+      }
+    } catch { /* not JSON, it's regular text */ }
+    return true;
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       <Button variant="ghost" size="sm" onClick={() => navigate("/tenders")}>

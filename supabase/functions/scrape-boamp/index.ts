@@ -19,11 +19,21 @@ function dig(obj: any, ...keys: string[]): any {
 }
 
 // Extract text from potentially nested/array values
+// Check if an object has only empty-string values
+function isEmptyObject(obj: any): boolean {
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return false;
+  const values = Object.values(obj);
+  return values.length > 0 && values.every(v => v === "" || v === null || v === undefined || (typeof v === "object" && isEmptyObject(v)));
+}
+
 function textify(val: any): string | null {
   if (!val) return null;
   if (typeof val === "string") return val.trim() || null;
   if (Array.isArray(val)) return val.map(textify).filter(Boolean).join("\n") || null;
-  if (typeof val === "object") return JSON.stringify(val);
+  if (typeof val === "object") {
+    if (isEmptyObject(val)) return null;
+    return JSON.stringify(val);
+  }
   return String(val);
 }
 
