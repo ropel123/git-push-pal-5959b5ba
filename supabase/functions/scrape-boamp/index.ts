@@ -48,7 +48,7 @@ const DEPT_TO_REGION: Record<string, string> = {
   "22": "Bretagne", "29": "Bretagne", "35": "Bretagne", "56": "Bretagne",
   "18": "Centre-Val de Loire", "28": "Centre-Val de Loire", "36": "Centre-Val de Loire",
   "37": "Centre-Val de Loire", "41": "Centre-Val de Loire", "45": "Centre-Val de Loire",
-  "2A": "Corse", "2B": "Corse", "20": "Corse",
+  "2A": "Corse", "2B": "Corse", "20": "Corse", "20A": "Corse", "20B": "Corse",
   "08": "Grand Est", "10": "Grand Est", "51": "Grand Est", "52": "Grand Est",
   "54": "Grand Est", "55": "Grand Est", "57": "Grand Est", "67": "Grand Est", "68": "Grand Est", "88": "Grand Est",
   "02": "Hauts-de-France", "59": "Hauts-de-France", "60": "Hauts-de-France",
