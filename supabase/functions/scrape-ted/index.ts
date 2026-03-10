@@ -45,7 +45,6 @@ function mapFormTypeToStatus(formType: string | null): "open" | "closed" | "canc
 
 function regionFromNuts(nutsCode: string | null): string | null {
   if (!nutsCode) return null;
-  // Try exact then prefix matches (FRL03 → FRL, FR10 → FR1)
   for (let len = nutsCode.length; len >= 2; len--) {
     const prefix = nutsCode.substring(0, len);
     if (NUTS_TO_REGION[prefix]) return NUTS_TO_REGION[prefix];
@@ -128,31 +127,40 @@ function normalizeTedToTender(notice: any) {
   const buyerCity = cleanBrackets(extractField(notice, "buyer-city"));
   const buyerCountry = cleanBrackets(extractField(notice, "buyer-country"));
 
-  // Enriched buyer fields
-  const buyerStreet = cleanBrackets(extractField(notice, "buyer-street-address"));
-  const buyerPostal = cleanBrackets(extractField(notice, "buyer-postal-code"));
+  // Enriched buyer fields (correct API field names)
+  const buyerStreet = cleanBrackets(extractField(notice, "organisation-street-buyer"));
+  const buyerPostal = cleanBrackets(extractField(notice, "buyer-post-code"));
   const buyerEmail = cleanBrackets(extractField(notice, "buyer-email"));
-  const buyerPhone = cleanBrackets(extractField(notice, "buyer-phone"));
-  const buyerUrl = cleanBrackets(extractField(notice, "buyer-url"));
+  const buyerPhone = cleanBrackets(extractField(notice, "organisation-tel-buyer"));
+  const buyerUrl = cleanBrackets(extractField(notice, "buyer-internet-address"));
+  const buyerIdentifier = cleanBrackets(extractField(notice, "buyer-identifier"));
 
-  // NUTS code
-  const nutsRaw = extractField(notice, "place-of-performance-country-sub");
+  // NUTS code (place of performance subdivision at lot level)
+  const nutsRaw = extractField(notice, "place-of-performance-subdiv-lot");
   const nutsCode = cleanBrackets(nutsRaw);
   const region = regionFromNuts(nutsCode);
 
-  // Short description (procedure-level)
-  const shortDesc = extractField(notice, "short-description");
+  // Place of performance city
+  const perfCity = cleanBrackets(extractField(notice, "place-of-performance-city-lot"));
+  const perfPostCode = cleanBrackets(extractField(notice, "place-of-performance-post-code-lot"));
+
+  // Procedure-level description
+  const descProc = extractField(notice, "description-proc");
 
   // ── Award criteria (structured) ──
   const criteriaNames = extractAllFields(notice, "award-criterion-name-lot");
   const criteriaWeights = extractAllFields(notice, "award-criterion-number-weight-lot");
+  const criteriaTypes = extractAllFields(notice, "award-criterion-type-lot");
   let awardCriteria: string | null = null;
 
   if (criteriaNames.length > 0) {
     const lines = criteriaNames.map((name, i) => {
       const cleaned = cleanBrackets(name);
       const weight = criteriaWeights[i] ? cleanBrackets(criteriaWeights[i]) : null;
-      return weight ? `${cleaned} : ${weight}%` : cleaned;
+      const type = criteriaTypes[i] ? cleanBrackets(criteriaTypes[i]) : null;
+      let line = cleaned || type || "Critère";
+      if (weight) line += ` : ${weight}%`;
+      return line;
     });
     awardCriteria = lines.filter(Boolean).join("\n");
   }
@@ -166,23 +174,32 @@ function normalizeTedToTender(notice: any) {
   }
 
   // ── Selection criteria → participation conditions ──
-  const selTypes = extractAllFields(notice, "selection-criteria-type-lot");
-  const selDescs = extractAllFields(notice, "selection-criteria-description-lot");
+  const selNames = extractAllFields(notice, "selection-criterion-name-lot");
+  const selDescs = extractAllFields(notice, "selection-criterion-description-lot");
+  const selTypes = extractAllFields(notice, "selection-criterion-lot");
   let participationConditions: string | null = null;
 
-  if (selTypes.length > 0 || selDescs.length > 0) {
+  if (selNames.length > 0 || selDescs.length > 0 || selTypes.length > 0) {
     const lines: string[] = [];
-    const maxLen = Math.max(selTypes.length, selDescs.length);
+    const maxLen = Math.max(selNames.length, selDescs.length, selTypes.length);
     for (let i = 0; i < maxLen; i++) {
-      const type = selTypes[i] ? cleanBrackets(selTypes[i]) : null;
+      const name = selNames[i] ? cleanBrackets(selNames[i]) : null;
       const desc = selDescs[i] ? cleanBrackets(selDescs[i]) : null;
-      if (type && desc) lines.push(`${type} : ${desc}`);
+      const type = selTypes[i] ? cleanBrackets(selTypes[i]) : null;
+      const label = name || type;
+      if (label && desc) lines.push(`${label} : ${desc}`);
       else if (desc) lines.push(desc);
-      else if (type) lines.push(type);
+      else if (label) lines.push(label);
     }
     if (lines.length > 0) participationConditions = lines.join("\n");
   }
-  // Fallback to old field
+  // Fallback
+  if (!participationConditions) {
+    const selSource = extractField(notice, "selection-criteria-source");
+    if (selSource) {
+      participationConditions = "Critères définis dans les documents de la consultation";
+    }
+  }
   if (!participationConditions) {
     const oldSel = notice["selection-criteria"];
     if (oldSel) {
@@ -193,27 +210,35 @@ function normalizeTedToTender(notice: any) {
 
   // ── Additional info ──
   const additionalInfoLot = extractAllFields(notice, "additional-information-lot");
-  const durationLot = extractField(notice, "duration-lot");
+  const durationLot = extractField(notice, "contract-duration-period-lot");
+  const durationUnit = extractField(notice, "duration-period-unit-lot");
   const frameworkAgreement = extractField(notice, "framework-agreement-lot");
 
   const additionalParts: string[] = [];
   if (additionalInfoLot.length > 0) {
     additionalParts.push(...additionalInfoLot.map(t => cleanBrackets(t)).filter(Boolean) as string[]);
   }
-  if (durationLot) additionalParts.push(`Durée : ${cleanBrackets(durationLot)}`);
+  if (durationLot) {
+    const unit = durationUnit ? ` ${cleanBrackets(durationUnit)}` : "";
+    additionalParts.push(`Durée : ${cleanBrackets(durationLot)}${unit}`);
+  }
   if (frameworkAgreement) additionalParts.push(`Accord-cadre : ${cleanBrackets(frameworkAgreement)}`);
   const additionalInfo = additionalParts.length > 0 ? additionalParts.join("\n") : null;
 
   // ── Winner / award data (for Result notices) ──
-  const winnerName = cleanBrackets(extractField(notice, "winner-chosen-lot"));
-  const contractValueRaw = notice["contract-value"];
+  const winnerName = cleanBrackets(extractField(notice, "organisation-name-tenderer"));
+  const tenderValueRaw = notice["tender-value"];
+  const resultValueRaw = notice["result-value-lot"];
   let awardedAmount: number | null = null;
-  if (contractValueRaw) {
-    const num = Array.isArray(contractValueRaw) ? contractValueRaw[0] : contractValueRaw;
-    const parsed = parseFloat(String(num));
-    if (!isNaN(parsed) && parsed > 0) awardedAmount = parsed;
+  for (const raw of [tenderValueRaw, resultValueRaw]) {
+    if (raw && !awardedAmount) {
+      const num = Array.isArray(raw) ? raw[0] : raw;
+      const parsed = parseFloat(String(num));
+      if (!isNaN(parsed) && parsed > 0) awardedAmount = parsed;
+    }
   }
-  const receivedSubmissionsRaw = notice["received-submissions-count"];
+
+  const receivedSubmissionsRaw = notice["received-submissions-type-val"];
   let numCandidates: number | null = null;
   if (receivedSubmissionsRaw) {
     const num = Array.isArray(receivedSubmissionsRaw) ? receivedSubmissionsRaw[0] : receivedSubmissionsRaw;
@@ -253,17 +278,20 @@ function normalizeTedToTender(notice: any) {
     lots = descs.map((d: string, i: number) => ({ numero: i + 1, description: cleanBrackets(d) }));
   }
 
-  // Description: short description (procedure) + lot descriptions
+  // Description: procedure description + lot descriptions
   const descParts: string[] = [];
-  if (shortDesc) descParts.push(cleanBrackets(shortDesc) || "");
+  if (descProc) descParts.push(cleanBrackets(descProc) || "");
   if (lots.length > 0) {
     const lotDescs = lots.map((l: any) => l.description).filter(Boolean).join("\n\n");
     if (lotDescs) descParts.push(lotDescs);
   }
   const description = descParts.length > 0 ? descParts.join("\n\n") : null;
 
-  // Execution location: prefer city from place-of-performance, fallback to buyer city
-  const executionLocation = cleanBrackets(placeOfPerformance) || buyerCity || null;
+  // Execution location: prefer city from performance, fallback to buyer city
+  const executionParts = [perfCity, perfPostCode].filter(Boolean);
+  const executionLocation = executionParts.length > 0
+    ? executionParts.join(", ")
+    : (cleanBrackets(placeOfPerformance) || buyerCity || null);
 
   // Buyer contact — enriched
   const buyerContact: Record<string, string> = {};
@@ -282,6 +310,13 @@ function normalizeTedToTender(notice: any) {
     ? (CONTRACT_TYPE_MAP[contractNature.toLowerCase()] || contractNature)
     : null;
 
+  // Use buyer-identifier as SIRET/SIREN if it looks like a French one
+  let buyerSiret: string | null = null;
+  if (buyerIdentifier) {
+    const cleaned = buyerIdentifier.replace(/\s/g, "");
+    if (/^\d{9,14}$/.test(cleaned)) buyerSiret = cleaned;
+  }
+
   return {
     tender: {
       title: title || "Sans titre",
@@ -289,7 +324,7 @@ function normalizeTedToTender(notice: any) {
       source: "ted",
       source_url: `https://ted.europa.eu/en/notice/-/${pubNumber}`,
       buyer_name: buyerName,
-      buyer_siret: null,
+      buyer_siret: buyerSiret,
       object: title !== pubNumber ? title : null,
       procedure_type: procedureType,
       department: null,
@@ -311,7 +346,7 @@ function normalizeTedToTender(notice: any) {
       participation_conditions: participationConditions,
       additional_info: additionalInfo,
     },
-    // Award data (only relevant for "Result" notices)
+    // Award data (only for "Result" notices)
     award: (status === "awarded" && winnerName)
       ? {
           winner_name: winnerName,
@@ -366,22 +401,28 @@ Deno.serve(async (req) => {
           "estimated-value-lot", "classification-cpv", "procedure-type",
           "description-lot", "publication-date",
           "place-of-performance", "contract-nature", "buyer-city", "buyer-country",
-          // Enriched buyer
-          "buyer-street-address", "buyer-postal-code", "buyer-email", "buyer-phone", "buyer-url",
-          // Form type & status
+          // Enriched buyer contact
+          "organisation-street-buyer", "buyer-post-code", "buyer-email",
+          "organisation-tel-buyer", "buyer-internet-address", "buyer-identifier",
+          // Form type for status
           "form-type",
-          // NUTS
-          "place-of-performance-country-sub",
+          // NUTS & performance location
+          "place-of-performance-subdiv-lot", "place-of-performance-city-lot",
+          "place-of-performance-post-code-lot",
+          // Procedure description
+          "description-proc",
           // Award criteria (structured)
           "award-criterion-name-lot", "award-criterion-number-weight-lot",
+          "award-criterion-type-lot",
           // Selection criteria
-          "selection-criteria-type-lot", "selection-criteria-description-lot",
-          // Description enriched
-          "short-description",
+          "selection-criterion-name-lot", "selection-criterion-description-lot",
+          "selection-criterion-lot", "selection-criteria-source",
           // Additional lot info
-          "additional-information-lot", "duration-lot", "framework-agreement-lot",
+          "additional-information-lot", "contract-duration-period-lot",
+          "duration-period-unit-lot", "framework-agreement-lot",
           // Award / result data
-          "received-submissions-count", "winner-chosen-lot", "contract-value",
+          "received-submissions-type-val", "organisation-name-tenderer",
+          "tender-value", "result-value-lot",
         ],
         limit: LIMIT,
         page,
@@ -483,7 +524,6 @@ Deno.serve(async (req) => {
 
       totalProcessed += notices.length;
 
-      // Stop if we got fewer than LIMIT (last page) or reached reasonable max
       if (notices.length < LIMIT || totalProcessed >= 2000) break;
       page++;
     }
