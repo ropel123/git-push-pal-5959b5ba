@@ -313,7 +313,13 @@ function normalizeTedToTender(notice: any) {
   // ── Winner / award data ──
   const winnerName = cleanBrackets(extractField(notice, "organisation-name-tenderer"));
   const winnerIdentifier = cleanBrackets(extractField(notice, "organisation-identifier-tenderer"));
-  const contractConclusionDate = extractField(notice, "contract-conclusion-date");
+  const contractConclusionDateRaw = extractField(notice, "contract-conclusion-date");
+  // TED returns dates like "2025-12-19-04:00" — sanitize to valid ISO date
+  let contractConclusionDate: string | null = null;
+  if (contractConclusionDateRaw) {
+    const dateOnly = contractConclusionDateRaw.substring(0, 10); // "2025-12-19"
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) contractConclusionDate = dateOnly;
+  }
   const contractIdentifier = extractField(notice, "contract-identifier");
   const tenderRank = extractField(notice, "tender-rank");
 
