@@ -662,6 +662,7 @@ function normalizeBoampToTender(record: any) {
     award_criteria: rich.awardCriteria,
     participation_conditions: rich.participationConditions,
     additional_info: rich.additionalInfo,
+    dce_url: rich.dceUrl || null,
   };
 }
 
