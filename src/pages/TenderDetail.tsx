@@ -38,6 +38,8 @@ interface Tender {
   award_criteria: string | null;
   participation_conditions: string | null;
   additional_info: string | null;
+  dce_url: string | null;
+  submission_url: string | null;
 }
 
 interface AwardNotice {
