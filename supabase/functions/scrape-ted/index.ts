@@ -35,10 +35,10 @@ const CONTRACT_TYPE_MAP: Record<string, string> = {
 };
 
 // ── form-type → tender status ──
-function mapFormTypeToStatus(formType: string | null): "open" | "closed" | "cancelled" | "awarded" {
-  if (!formType) return "open";
-  const ft = formType.toLowerCase();
-  if (ft.includes("result") || ft.includes("award")) return "awarded";
+function mapFormTypeToStatus(formType: string | null, noticeType: string | null): "open" | "closed" | "cancelled" | "awarded" {
+  const ft = (formType || "").toLowerCase();
+  const nt = (noticeType || "").toLowerCase();
+  if (ft.includes("result") || ft.includes("award") || nt === "can") return "awarded";
   if (ft.includes("cancel")) return "cancelled";
   return "open";
 }
@@ -101,6 +101,20 @@ function extractAllFields(notice: any, field: string): string[] {
   return extractAllText(notice[field]);
 }
 
+function parseNumber(raw: any): number | null {
+  if (!raw) return null;
+  const num = Array.isArray(raw) ? raw[0] : raw;
+  const parsed = parseFloat(String(num));
+  return !isNaN(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseInt2(raw: any): number | null {
+  if (!raw) return null;
+  const num = Array.isArray(raw) ? raw[0] : raw;
+  const parsed = parseInt(String(num), 10);
+  return !isNaN(parsed) && parsed > 0 ? parsed : null;
+}
+
 // ── Main normalizer ──
 
 function normalizeTedToTender(notice: any) {
@@ -111,15 +125,14 @@ function normalizeTedToTender(notice: any) {
   const title = cleanBrackets(titleRaw);
   const buyerName = cleanBrackets(extractField(notice, "buyer-name"));
   const deadlineRaw = extractField(notice, "deadline-receipt-request");
-  const estimatedRaw = notice["estimated-value-lot"];
   const cpvRaw = notice["classification-cpv"];
   const procedureType = extractField(notice, "procedure-type");
-  const descriptionLot = notice["description-lot"];
   const pubDate = extractField(notice, "publication-date");
 
-  // Form type → dynamic status
+  // Form type + notice type → dynamic status
   const formType = extractField(notice, "form-type");
-  const status = mapFormTypeToStatus(formType);
+  const noticeType = extractField(notice, "notice-type");
+  const status = mapFormTypeToStatus(formType, noticeType);
 
   // Location & buyer details
   const placeOfPerformance = extractField(notice, "place-of-performance");
@@ -127,15 +140,17 @@ function normalizeTedToTender(notice: any) {
   const buyerCity = cleanBrackets(extractField(notice, "buyer-city"));
   const buyerCountry = cleanBrackets(extractField(notice, "buyer-country"));
 
-  // Enriched buyer fields (correct API field names)
+  // Enriched buyer fields
   const buyerStreet = cleanBrackets(extractField(notice, "organisation-street-buyer"));
   const buyerPostal = cleanBrackets(extractField(notice, "buyer-post-code"));
   const buyerEmail = cleanBrackets(extractField(notice, "buyer-email"));
   const buyerPhone = cleanBrackets(extractField(notice, "organisation-tel-buyer"));
   const buyerUrl = cleanBrackets(extractField(notice, "buyer-internet-address"));
   const buyerIdentifier = cleanBrackets(extractField(notice, "buyer-identifier"));
+  const buyerLegalType = cleanBrackets(extractField(notice, "buyer-legal-type"));
+  const buyerProfile = cleanBrackets(extractField(notice, "buyer-profile"));
 
-  // NUTS code (place of performance subdivision at lot level)
+  // NUTS code
   const nutsRaw = extractField(notice, "place-of-performance-subdiv-lot");
   const nutsCode = cleanBrackets(nutsRaw);
   const region = regionFromNuts(nutsCode);
@@ -144,27 +159,56 @@ function normalizeTedToTender(notice: any) {
   const perfCity = cleanBrackets(extractField(notice, "place-of-performance-city-lot"));
   const perfPostCode = cleanBrackets(extractField(notice, "place-of-performance-post-code-lot"));
 
-  // Procedure-level description
+  // Descriptions
   const descProc = extractField(notice, "description-proc");
+  const descriptionLot = notice["description-lot"];
+  const additionalInfoProc = extractField(notice, "additional-info-proc");
 
-  // ── Award criteria (structured) ──
+  // ── Lots enrichis ──
+  const lotTitles = extractAllFields(notice, "title-lot");
+  const lotIds = extractAllFields(notice, "internal-identifier-lot");
+  const lotDescs = extractAllText(descriptionLot);
+  const lotOptions = extractAllFields(notice, "option-description-lot");
+  const lotRenewals = extractAllFields(notice, "renewal-description-lot");
+  const lotRenewalMax = extractAllFields(notice, "renewal-maximum-lot");
+
+  const maxLots = Math.max(lotTitles.length, lotDescs.length, 0);
+  let lots: any[] = [];
+  if (maxLots > 0) {
+    lots = Array.from({ length: maxLots }, (_, i) => {
+      const lot: any = { numero: i + 1 };
+      if (lotTitles[i]) lot.titre = cleanBrackets(lotTitles[i]);
+      if (lotIds[i]) lot.identifiant = cleanBrackets(lotIds[i]);
+      if (lotDescs[i]) lot.description = cleanBrackets(lotDescs[i]);
+      if (lotOptions[i]) lot.options = cleanBrackets(lotOptions[i]);
+      if (lotRenewals[i]) lot.reconductions = cleanBrackets(lotRenewals[i]);
+      if (lotRenewalMax[i]) lot.reconductions_max = cleanBrackets(lotRenewalMax[i]);
+      return lot;
+    });
+  }
+
+  // ── Award criteria (structured + descriptions) ──
   const criteriaNames = extractAllFields(notice, "award-criterion-name-lot");
   const criteriaWeights = extractAllFields(notice, "award-criterion-number-weight-lot");
   const criteriaTypes = extractAllFields(notice, "award-criterion-type-lot");
+  const criteriaDescs = extractAllFields(notice, "award-criterion-description-lot");
   let awardCriteria: string | null = null;
 
   if (criteriaNames.length > 0) {
-    const lines = criteriaNames.map((name, i) => {
-      const cleaned = cleanBrackets(name);
+    const maxCrit = Math.max(criteriaNames.length, criteriaDescs.length);
+    const lines = Array.from({ length: maxCrit }, (_, i) => {
+      const name = criteriaNames[i] ? cleanBrackets(criteriaNames[i]) : null;
       const weight = criteriaWeights[i] ? cleanBrackets(criteriaWeights[i]) : null;
       const type = criteriaTypes[i] ? cleanBrackets(criteriaTypes[i]) : null;
-      let line = cleaned || type || "Critère";
-      if (weight) line += ` : ${weight}%`;
+      const desc = criteriaDescs[i] ? cleanBrackets(criteriaDescs[i]) : null;
+
+      let line = name || type || "Critère";
+      if (weight) line += ` (${weight}%)`;
+      if (desc) line += ` : ${desc}`;
       return line;
     });
     awardCriteria = lines.filter(Boolean).join("\n");
   }
-  // Fallback to old field
   if (!awardCriteria) {
     const oldCriteria = notice["award-criteria"];
     if (oldCriteria) {
@@ -173,32 +217,54 @@ function normalizeTedToTender(notice: any) {
     }
   }
 
-  // ── Selection criteria → participation conditions ──
+  // ── Selection criteria + exclusion + financial/performance conditions ──
   const selNames = extractAllFields(notice, "selection-criterion-name-lot");
   const selDescs = extractAllFields(notice, "selection-criterion-description-lot");
   const selTypes = extractAllFields(notice, "selection-criterion-lot");
-  let participationConditions: string | null = null;
+  const exclusionGrounds = extractField(notice, "exclusion-grounds");
+  const exclusionDesc = extractField(notice, "exclusion-grounds-description");
+  const termsFinancial = extractField(notice, "terms-financial-lot");
+  const termPerformance = extractField(notice, "term-performance-lot");
 
+  const conditionParts: string[] = [];
+
+  // Selection criteria
   if (selNames.length > 0 || selDescs.length > 0 || selTypes.length > 0) {
-    const lines: string[] = [];
     const maxLen = Math.max(selNames.length, selDescs.length, selTypes.length);
     for (let i = 0; i < maxLen; i++) {
       const name = selNames[i] ? cleanBrackets(selNames[i]) : null;
       const desc = selDescs[i] ? cleanBrackets(selDescs[i]) : null;
       const type = selTypes[i] ? cleanBrackets(selTypes[i]) : null;
       const label = name || type;
-      if (label && desc) lines.push(`${label} : ${desc}`);
-      else if (desc) lines.push(desc);
-      else if (label) lines.push(label);
+      if (label && desc) conditionParts.push(`${label} : ${desc}`);
+      else if (desc) conditionParts.push(desc);
+      else if (label) conditionParts.push(label);
     }
-    if (lines.length > 0) participationConditions = lines.join("\n");
   }
-  // Fallback
+
+  // Exclusion grounds
+  if (exclusionDesc) {
+    conditionParts.push(`Motifs d'exclusion : ${cleanBrackets(exclusionDesc)}`);
+  } else if (exclusionGrounds) {
+    conditionParts.push(`Motifs d'exclusion : ${cleanBrackets(exclusionGrounds)}`);
+  }
+
+  // Financial terms
+  if (termsFinancial) {
+    conditionParts.push(`Conditions financières : ${cleanBrackets(termsFinancial)}`);
+  }
+
+  // Performance terms
+  if (termPerformance) {
+    conditionParts.push(`Conditions d'exécution : ${cleanBrackets(termPerformance)}`);
+  }
+
+  let participationConditions: string | null = conditionParts.length > 0 ? conditionParts.join("\n") : null;
+
+  // Fallbacks
   if (!participationConditions) {
     const selSource = extractField(notice, "selection-criteria-source");
-    if (selSource) {
-      participationConditions = "Critères définis dans les documents de la consultation";
-    }
+    if (selSource) participationConditions = "Critères définis dans les documents de la consultation";
   }
   if (!participationConditions) {
     const oldSel = notice["selection-criteria"];
@@ -208,43 +274,55 @@ function normalizeTedToTender(notice: any) {
     }
   }
 
-  // ── Additional info ──
+  // ── Additional info (enriched) ──
   const additionalInfoLot = extractAllFields(notice, "additional-information-lot");
   const durationLot = extractField(notice, "contract-duration-period-lot");
   const durationUnit = extractField(notice, "duration-period-unit-lot");
+  const durationStart = extractField(notice, "contract-duration-start-date-lot");
+  const durationEnd = extractField(notice, "contract-duration-end-date-lot");
   const frameworkAgreement = extractField(notice, "framework-agreement-lot");
+  const frameworkMaxValue = extractField(notice, "framework-maximum-value-lot");
+  const documentUrl = extractField(notice, "document-url-lot");
+  const submissionUrl = extractField(notice, "submission-url-lot");
+  const subcontractingDesc = extractField(notice, "subcontracting-description");
+  const subcontractingValue = extractField(notice, "subcontracting-value");
 
   const additionalParts: string[] = [];
   if (additionalInfoLot.length > 0) {
     additionalParts.push(...additionalInfoLot.map(t => cleanBrackets(t)).filter(Boolean) as string[]);
   }
+  if (additionalInfoProc) additionalParts.push(cleanBrackets(additionalInfoProc) || "");
   if (durationLot) {
     const unit = durationUnit ? ` ${cleanBrackets(durationUnit)}` : "";
     additionalParts.push(`Durée : ${cleanBrackets(durationLot)}${unit}`);
   }
+  if (durationStart || durationEnd) {
+    const parts = [];
+    if (durationStart) parts.push(`début : ${cleanBrackets(durationStart)}`);
+    if (durationEnd) parts.push(`fin : ${cleanBrackets(durationEnd)}`);
+    additionalParts.push(`Période : ${parts.join(", ")}`);
+  }
   if (frameworkAgreement) additionalParts.push(`Accord-cadre : ${cleanBrackets(frameworkAgreement)}`);
+  if (frameworkMaxValue) additionalParts.push(`Valeur max accord-cadre : ${cleanBrackets(frameworkMaxValue)}`);
+  if (documentUrl) additionalParts.push(`Documents : ${cleanBrackets(documentUrl)}`);
+  if (submissionUrl) additionalParts.push(`Dépôt des offres : ${cleanBrackets(submissionUrl)}`);
+  if (subcontractingDesc) additionalParts.push(`Sous-traitance : ${cleanBrackets(subcontractingDesc)}`);
+  if (subcontractingValue) additionalParts.push(`Montant sous-traitance : ${cleanBrackets(subcontractingValue)}`);
   const additionalInfo = additionalParts.length > 0 ? additionalParts.join("\n") : null;
 
-  // ── Winner / award data (for Result notices) ──
+  // ── Winner / award data ──
   const winnerName = cleanBrackets(extractField(notice, "organisation-name-tenderer"));
-  const tenderValueRaw = notice["tender-value"];
-  const resultValueRaw = notice["result-value-lot"];
+  const winnerIdentifier = cleanBrackets(extractField(notice, "organisation-identifier-tenderer"));
+  const contractConclusionDate = extractField(notice, "contract-conclusion-date");
+  const contractIdentifier = extractField(notice, "contract-identifier");
+  const tenderRank = extractField(notice, "tender-rank");
+
   let awardedAmount: number | null = null;
-  for (const raw of [tenderValueRaw, resultValueRaw]) {
-    if (raw && !awardedAmount) {
-      const num = Array.isArray(raw) ? raw[0] : raw;
-      const parsed = parseFloat(String(num));
-      if (!isNaN(parsed) && parsed > 0) awardedAmount = parsed;
-    }
+  for (const raw of [notice["tender-value"], notice["result-value-lot"]]) {
+    if (raw && !awardedAmount) awardedAmount = parseNumber(raw);
   }
 
-  const receivedSubmissionsRaw = notice["received-submissions-type-val"];
-  let numCandidates: number | null = null;
-  if (receivedSubmissionsRaw) {
-    const num = Array.isArray(receivedSubmissionsRaw) ? receivedSubmissionsRaw[0] : receivedSubmissionsRaw;
-    const parsed = parseInt(String(num), 10);
-    if (!isNaN(parsed) && parsed > 0) numCandidates = parsed;
-  }
+  const numCandidates = parseInt2(notice["received-submissions-type-val"]);
 
   // Parse deadline
   let deadline: string | null = null;
@@ -252,17 +330,10 @@ function normalizeTedToTender(notice: any) {
     try { deadline = new Date(deadlineRaw).toISOString(); } catch { /* skip */ }
   }
 
-  // Parse estimated amount
-  let estimatedAmount: number | null = null;
-  if (estimatedRaw) {
-    const num = Array.isArray(estimatedRaw) ? estimatedRaw[0] : estimatedRaw;
-    const parsed = parseFloat(String(num));
-    if (!isNaN(parsed) && parsed > 0) estimatedAmount = parsed;
-  }
-  // For awarded notices, use contract value as fallback
-  if (!estimatedAmount && awardedAmount) {
-    estimatedAmount = awardedAmount;
-  }
+  // Parse estimated amount (lot level, then procedure level fallback)
+  let estimatedAmount = parseNumber(notice["estimated-value-lot"]);
+  if (!estimatedAmount) estimatedAmount = parseNumber(notice["estimated-value-proc"]);
+  if (!estimatedAmount && awardedAmount) estimatedAmount = awardedAmount;
 
   // Parse CPV codes
   let cpvCodes: string[] = [];
@@ -271,23 +342,21 @@ function normalizeTedToTender(notice: any) {
     cpvCodes = [...new Set(raw)];
   }
 
-  // Parse lots
-  let lots: any[] = [];
-  if (descriptionLot) {
-    const descs = extractAllText(descriptionLot);
-    lots = descs.map((d: string, i: number) => ({ numero: i + 1, description: cleanBrackets(d) }));
-  }
-
   // Description: procedure description + lot descriptions
   const descParts: string[] = [];
   if (descProc) descParts.push(cleanBrackets(descProc) || "");
   if (lots.length > 0) {
-    const lotDescs = lots.map((l: any) => l.description).filter(Boolean).join("\n\n");
-    if (lotDescs) descParts.push(lotDescs);
+    const lotDescsText = lots.map((l: any) => {
+      const parts = [];
+      if (l.titre) parts.push(`Lot ${l.numero} — ${l.titre}`);
+      if (l.description) parts.push(l.description);
+      return parts.join("\n");
+    }).filter(Boolean).join("\n\n");
+    if (lotDescsText) descParts.push(lotDescsText);
   }
   const description = descParts.length > 0 ? descParts.join("\n\n") : null;
 
-  // Execution location: prefer city from performance, fallback to buyer city
+  // Execution location
   const executionParts = [perfCity, perfPostCode].filter(Boolean);
   const executionLocation = executionParts.length > 0
     ? executionParts.join(", ")
@@ -300,21 +369,30 @@ function normalizeTedToTender(notice: any) {
   if (buyerEmail) buyerContact.email = buyerEmail;
   if (buyerPhone) buyerContact.tel = buyerPhone;
   if (buyerUrl) buyerContact.url = buyerUrl;
+  if (buyerLegalType) buyerContact.type_juridique = buyerLegalType;
+  if (buyerProfile) buyerContact.profil_acheteur = buyerProfile;
 
-  // Buyer address — full
+  // Buyer address
   const addrParts = [buyerStreet, buyerPostal, buyerCity, buyerCountry].filter(Boolean);
   const buyerAddress = addrParts.length > 0 ? addrParts.join(", ") : null;
 
-  // Contract type — normalized to French
+  // Contract type
   const contractType = contractNature
     ? (CONTRACT_TYPE_MAP[contractNature.toLowerCase()] || contractNature)
     : null;
 
-  // Use buyer-identifier as SIRET/SIREN if it looks like a French one
+  // Buyer SIRET
   let buyerSiret: string | null = null;
   if (buyerIdentifier) {
     const cleaned = buyerIdentifier.replace(/\s/g, "");
     if (/^\d{9,14}$/.test(cleaned)) buyerSiret = cleaned;
+  }
+
+  // Winner SIREN
+  let winnerSiren: string | null = null;
+  if (winnerIdentifier) {
+    const cleaned = winnerIdentifier.replace(/\s/g, "");
+    if (/^\d{9,14}$/.test(cleaned)) winnerSiren = cleaned;
   }
 
   return {
@@ -346,13 +424,13 @@ function normalizeTedToTender(notice: any) {
       participation_conditions: participationConditions,
       additional_info: additionalInfo,
     },
-    // Award data (only for "Result" notices)
     award: (status === "awarded" && winnerName)
       ? {
           winner_name: winnerName,
+          winner_siren: winnerSiren,
           awarded_amount: awardedAmount,
           num_candidates: numCandidates,
-          award_date: pubDate || null,
+          award_date: contractConclusionDate || pubDate || null,
         }
       : null,
   };
@@ -401,28 +479,42 @@ Deno.serve(async (req) => {
           "estimated-value-lot", "classification-cpv", "procedure-type",
           "description-lot", "publication-date",
           "place-of-performance", "contract-nature", "buyer-city", "buyer-country",
-          // Enriched buyer contact
+          // Buyer contact enriched
           "organisation-street-buyer", "buyer-post-code", "buyer-email",
           "organisation-tel-buyer", "buyer-internet-address", "buyer-identifier",
-          // Form type for status
-          "form-type",
+          "buyer-legal-type", "buyer-profile",
+          // Form/notice type for status
+          "form-type", "notice-type",
           // NUTS & performance location
           "place-of-performance-subdiv-lot", "place-of-performance-city-lot",
           "place-of-performance-post-code-lot",
           // Procedure description
-          "description-proc",
-          // Award criteria (structured)
+          "description-proc", "additional-info-proc",
+          // Award criteria (structured + descriptions)
           "award-criterion-name-lot", "award-criterion-number-weight-lot",
-          "award-criterion-type-lot",
+          "award-criterion-type-lot", "award-criterion-description-lot",
           // Selection criteria
           "selection-criterion-name-lot", "selection-criterion-description-lot",
           "selection-criterion-lot", "selection-criteria-source",
+          // Exclusion & conditions
+          "exclusion-grounds", "exclusion-grounds-description",
+          "terms-financial-lot", "term-performance-lot",
+          // Lot enrichment
+          "title-lot", "internal-identifier-lot",
+          "estimated-value-proc", "framework-maximum-value-lot",
+          "option-description-lot", "renewal-description-lot", "renewal-maximum-lot",
+          "contract-duration-start-date-lot", "contract-duration-end-date-lot",
           // Additional lot info
           "additional-information-lot", "contract-duration-period-lot",
           "duration-period-unit-lot", "framework-agreement-lot",
+          // Documents & submission
+          "document-url-lot", "submission-url-lot",
           // Award / result data
           "received-submissions-type-val", "organisation-name-tenderer",
+          "organisation-identifier-tenderer",
           "tender-value", "result-value-lot",
+          "contract-conclusion-date", "contract-identifier",
+          "subcontracting-description", "subcontracting-value", "tender-rank",
         ],
         limit: LIMIT,
         page,
@@ -456,6 +548,12 @@ Deno.serve(async (req) => {
       if (page === 1) {
         itemsFound = data.totalNoticeCount || notices.length;
         console.log(`[scrape-ted] Total notices: ${itemsFound}`);
+      }
+
+      // Diagnostic: log sample notice keys on first page
+      if (page === 1 && notices.length > 0) {
+        const sampleKeys = Object.keys(notices[0]).sort();
+        console.log(`[scrape-ted] DIAGNOSTIC — Sample notice has ${sampleKeys.length} keys:`, JSON.stringify(sampleKeys));
       }
 
       if (notices.length === 0) break;
@@ -496,6 +594,7 @@ Deno.serve(async (req) => {
                 awardNotices.push({
                   tender_id: row.id,
                   winner_name: match.award.winner_name,
+                  winner_siren: match.award.winner_siren,
                   awarded_amount: match.award.awarded_amount,
                   num_candidates: match.award.num_candidates,
                   award_date: match.award.award_date,
