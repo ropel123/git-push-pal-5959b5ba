@@ -429,6 +429,8 @@ function normalizeTedToTender(notice: any) {
       award_criteria: awardCriteria,
       participation_conditions: participationConditions,
       additional_info: additionalInfo,
+      dce_url: documentUrl ? cleanBrackets(documentUrl) : null,
+      submission_url: submissionUrl ? cleanBrackets(submissionUrl) : null,
     },
     award: (status === "awarded" && winnerName)
       ? {

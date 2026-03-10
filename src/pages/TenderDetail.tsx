@@ -178,9 +178,25 @@ const TenderDetail = () => {
             )}
           </div>
         </div>
-        <Button onClick={addToPipeline} className="shrink-0">
-          <Plus className="h-4 w-4 mr-1" /> Ajouter au pipeline
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          {tender.dce_url && (
+            <Button asChild variant="outline">
+              <a href={tender.dce_url} target="_blank" rel="noopener noreferrer">
+                <FileDown className="h-4 w-4 mr-1" /> Accéder au DCE
+              </a>
+            </Button>
+          )}
+          {tender.submission_url && (
+            <Button asChild variant="secondary">
+              <a href={tender.submission_url} target="_blank" rel="noopener noreferrer">
+                <Send className="h-4 w-4 mr-1" /> Déposer une offre
+              </a>
+            </Button>
+          )}
+          <Button onClick={addToPipeline}>
+            <Plus className="h-4 w-4 mr-1" /> Pipeline
+          </Button>
+        </div>
       </div>
 
       {/* Description */}
