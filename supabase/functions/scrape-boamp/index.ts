@@ -461,11 +461,12 @@ function parseBoampDonnees(raw: any): Record<string, any> {
   if (tel) buyerContact.tel = tel;
   const contactName = textify(correspondant.nom) || null;
   if (contactName) buyerContact.contact = contactName;
-  const url = textify(communication.urlDocConsul) 
-    || textify(communication.urlProfilAch) 
+  const urlProfilAch = textify(communication.urlProfilAch) 
     || textify(organisme.urlProfilAcheteur) 
     || null;
-  if (url) buyerContact.url = url;
+  if (urlProfilAch) buyerContact.url = urlProfilAch;
+  // DCE URL extracted separately
+  const dceUrl = textify(communication.urlDocConsul) || urlProfilAch || null;
   const ville = organisme.ville || adr.ville || null;
   if (ville) buyerContact.ville = String(ville);
 
