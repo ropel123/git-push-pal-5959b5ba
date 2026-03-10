@@ -622,6 +622,7 @@ function parseBoampDonnees(raw: any): Record<string, any> {
     estimatedAmount,
     lots: lots.length > 0 ? lots : null,
     internalRef,
+    dceUrl,
   };
 }
 

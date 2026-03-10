@@ -304,8 +304,7 @@ function normalizeTedToTender(notice: any) {
   }
   if (frameworkAgreement) additionalParts.push(`Accord-cadre : ${cleanBrackets(frameworkAgreement)}`);
   if (frameworkMaxValue) additionalParts.push(`Valeur max accord-cadre : ${cleanBrackets(frameworkMaxValue)}`);
-  if (documentUrl) additionalParts.push(`Documents : ${cleanBrackets(documentUrl)}`);
-  if (submissionUrl) additionalParts.push(`Dépôt des offres : ${cleanBrackets(submissionUrl)}`);
+  // dce_url and submission_url extracted as dedicated fields
   if (subcontractingDesc) additionalParts.push(`Sous-traitance : ${cleanBrackets(subcontractingDesc)}`);
   if (subcontractingValue) additionalParts.push(`Montant sous-traitance : ${cleanBrackets(subcontractingValue)}`);
   const additionalInfo = additionalParts.length > 0 ? additionalParts.join("\n") : null;
