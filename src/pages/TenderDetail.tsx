@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase } from "lucide-react";
+import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase, FileDown, Send } from "lucide-react";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 
 interface Tender {
@@ -38,6 +38,8 @@ interface Tender {
   award_criteria: string | null;
   participation_conditions: string | null;
   additional_info: string | null;
+  dce_url: string | null;
+  submission_url: string | null;
 }
 
 interface AwardNotice {
@@ -176,9 +178,25 @@ const TenderDetail = () => {
             )}
           </div>
         </div>
-        <Button onClick={addToPipeline} className="shrink-0">
-          <Plus className="h-4 w-4 mr-1" /> Ajouter au pipeline
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          {tender.dce_url && (
+            <Button asChild variant="outline">
+              <a href={tender.dce_url} target="_blank" rel="noopener noreferrer">
+                <FileDown className="h-4 w-4 mr-1" /> Accéder au DCE
+              </a>
+            </Button>
+          )}
+          {tender.submission_url && (
+            <Button asChild variant="secondary">
+              <a href={tender.submission_url} target="_blank" rel="noopener noreferrer">
+                <Send className="h-4 w-4 mr-1" /> Déposer une offre
+              </a>
+            </Button>
+          )}
+          <Button onClick={addToPipeline}>
+            <Plus className="h-4 w-4 mr-1" /> Pipeline
+          </Button>
+        </div>
       </div>
 
       {/* Description */}

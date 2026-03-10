@@ -274,6 +274,7 @@ export type Database = {
           contract_type: string | null
           cpv_codes: string[] | null
           created_at: string | null
+          dce_url: string | null
           deadline: string | null
           department: string | null
           description: string | null
@@ -291,6 +292,7 @@ export type Database = {
           source: string | null
           source_url: string | null
           status: Database["public"]["Enums"]["tender_status"] | null
+          submission_url: string | null
           title: string
           updated_at: string | null
         }
@@ -304,6 +306,7 @@ export type Database = {
           contract_type?: string | null
           cpv_codes?: string[] | null
           created_at?: string | null
+          dce_url?: string | null
           deadline?: string | null
           department?: string | null
           description?: string | null
@@ -321,6 +324,7 @@ export type Database = {
           source?: string | null
           source_url?: string | null
           status?: Database["public"]["Enums"]["tender_status"] | null
+          submission_url?: string | null
           title: string
           updated_at?: string | null
         }
@@ -334,6 +338,7 @@ export type Database = {
           contract_type?: string | null
           cpv_codes?: string[] | null
           created_at?: string | null
+          dce_url?: string | null
           deadline?: string | null
           department?: string | null
           description?: string | null
@@ -351,6 +356,7 @@ export type Database = {
           source?: string | null
           source_url?: string | null
           status?: Database["public"]["Enums"]["tender_status"] | null
+          submission_url?: string | null
           title?: string
           updated_at?: string | null
         }
