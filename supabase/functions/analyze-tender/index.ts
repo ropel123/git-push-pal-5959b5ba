@@ -45,14 +45,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fetch tender data
-    const { data: tender, error: tenderError } = await supabase
-      .from("tenders")
-      .select("*")
-      .eq("id", tender_id)
-      .single();
+    // Fetch tender + profile data
+    const [tenderRes, profileRes] = await Promise.all([
+      supabase.from("tenders").select("*").eq("id", tender_id).single(),
+      supabase.from("profiles").select("*").eq("user_id", user.id).single(),
+    ]);
 
-    if (tenderError || !tender) {
+    const tender = tenderRes.data;
+    const profile = profileRes.data;
+
+    if (tenderRes.error || !tender) {
       return new Response(JSON.stringify({ error: "Appel d'offres introuvable" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
