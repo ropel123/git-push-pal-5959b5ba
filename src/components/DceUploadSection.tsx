@@ -41,7 +41,17 @@ const DceUploadSection = ({ tenderId, uploads, onUploadsChange }: DceUploadSecti
         .from("dce-documents")
         .createSignedUrl(upload.file_path, 3600);
       if (error) throw error;
-      window.open(data.signedUrl, "_blank");
+
+      const response = await fetch(data.signedUrl);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = upload.file_name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err: any) {
       toast({ title: "Erreur de téléchargement", description: err.message, variant: "destructive" });
     } finally {
