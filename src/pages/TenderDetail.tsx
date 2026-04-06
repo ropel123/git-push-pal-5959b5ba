@@ -100,6 +100,7 @@ const TenderDetail = () => {
       if (profileRes.data) setProfile(profileRes.data);
       setLoading(false);
     });
+    fetchDceAndAnalyses();
   }, [id, user]);
 
   const addToPipeline = async () => {
