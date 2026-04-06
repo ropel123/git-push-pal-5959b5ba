@@ -246,37 +246,55 @@ export type Database = {
       }
       profiles: {
         Row: {
+          company_description: string | null
+          company_logo_path: string | null
           company_name: string | null
+          company_references: Json | null
           company_size: string | null
+          company_website: string | null
           created_at: string | null
           id: string
           keywords: string[] | null
           onboarding_completed: boolean | null
+          primary_color: string | null
           regions: string[] | null
+          secondary_color: string | null
           sectors: string[] | null
           siren: string | null
           user_id: string
         }
         Insert: {
+          company_description?: string | null
+          company_logo_path?: string | null
           company_name?: string | null
+          company_references?: Json | null
           company_size?: string | null
+          company_website?: string | null
           created_at?: string | null
           id?: string
           keywords?: string[] | null
           onboarding_completed?: boolean | null
+          primary_color?: string | null
           regions?: string[] | null
+          secondary_color?: string | null
           sectors?: string[] | null
           siren?: string | null
           user_id: string
         }
         Update: {
+          company_description?: string | null
+          company_logo_path?: string | null
           company_name?: string | null
+          company_references?: Json | null
           company_size?: string | null
+          company_website?: string | null
           created_at?: string | null
           id?: string
           keywords?: string[] | null
           onboarding_completed?: boolean | null
+          primary_color?: string | null
           regions?: string[] | null
+          secondary_color?: string | null
           sectors?: string[] | null
           siren?: string | null
           user_id?: string
