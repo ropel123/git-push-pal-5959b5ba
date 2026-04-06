@@ -77,6 +77,16 @@ const TenderDetail = () => {
   const [awards, setAwards] = useState<AwardNotice[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [dceUploads, setDceUploads] = useState<any[]>([]);
+  const [analyses, setAnalyses] = useState<any[]>([]);
+
+  const fetchDceAndAnalyses = () => {
+    if (!id || !user) return;
+    supabase.from("dce_uploads").select("*").eq("tender_id", id).eq("user_id", user.id).order("created_at", { ascending: false })
+      .then(({ data }) => setDceUploads(data || []));
+    supabase.from("tender_analyses").select("*").eq("tender_id", id).eq("user_id", user.id).order("created_at", { ascending: false })
+      .then(({ data }) => setAnalyses(data || []));
+  };
 
   useEffect(() => {
     if (!id) return;
