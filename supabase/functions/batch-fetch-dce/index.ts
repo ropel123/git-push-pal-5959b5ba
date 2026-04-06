@@ -131,21 +131,20 @@ Deno.serve(async (req) => {
       ? (toProcess || []).filter((t: any) => detectPlatform(t.dce_url) === platformFilter)
       : (toProcess || [])
 
-    if (toProcess.length === 0) {
+    if (filtered.length === 0) {
       return new Response(JSON.stringify({
         message: 'No unprocessed tenders found',
-        total_processed: processedIds.size,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    console.log(`Processing ${toProcess.length} tenders...`)
+    console.log(`Processing ${filtered.length} tenders...`)
 
     const results: any[] = []
     const systemUserId = '00000000-0000-0000-0000-000000000000'
 
-    for (const tender of toProcess) {
+    for (const tender of filtered) {
       const platform = detectPlatform(tender.dce_url)
       console.log(`[${platform}] ${tender.id} — ${tender.title?.slice(0, 60)}`)
 
