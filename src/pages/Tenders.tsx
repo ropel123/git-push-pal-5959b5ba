@@ -284,7 +284,7 @@ const Tenders = () => {
               <div className="flex items-center gap-2">
                 <Switch id="dce-filter" checked={dceFilter} onCheckedChange={(v) => { setDceFilter(v); setPage(0); }} />
                 <Label htmlFor="dce-filter" className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <FileText className="h-4 w-4" /> Avec DCE
+                  <FileText className="h-4 w-4" /> DCE auto disponible
                 </Label>
               </div>
             </div>
