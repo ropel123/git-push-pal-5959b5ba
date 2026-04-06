@@ -407,6 +407,25 @@ const TenderDetail = () => {
         </Card>
       )}
 
+      {/* DCE Upload */}
+      {user && id && (
+        <DceUploadSection
+          tenderId={id}
+          uploads={dceUploads}
+          onUploadsChange={fetchDceAndAnalyses}
+        />
+      )}
+
+      {/* AI Analysis */}
+      {user && id && (
+        <TenderAnalysisSection
+          tenderId={id}
+          hasDocuments={dceUploads.length > 0}
+          analyses={analyses}
+          onAnalysesChange={fetchDceAndAnalyses}
+        />
+      )}
+
       {/* Award notices */}
       {awards.length > 0 && (
         <Card className="bg-card border-border">
