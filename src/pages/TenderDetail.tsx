@@ -408,6 +408,15 @@ const TenderDetail = () => {
         </Card>
       )}
 
+      {/* Auto-fetch DCE */}
+      {user && id && tender.dce_url && (
+        <DceAutoFetchButton
+          tenderId={id}
+          dceUrl={tender.dce_url}
+          onSuccess={fetchDceAndAnalyses}
+        />
+      )}
+
       {/* DCE Upload */}
       {user && id && (
         <DceUploadSection
