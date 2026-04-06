@@ -9,7 +9,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Plus, Trash2, Bell, Palette, Upload } from "lucide-react";
+import { Save, Plus, Trash2, Bell, Palette, Upload, FileText, Award } from "lucide-react";
+import MemoirAIChat from "@/components/MemoirAIChat";
 
 interface Alert {
   id: string;
@@ -19,6 +20,14 @@ interface Alert {
   enabled: boolean | null;
 }
 
+interface Reference {
+  title: string;
+  client: string;
+  amount?: string;
+  date?: string;
+  description?: string;
+}
+
 const SettingsPage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -26,6 +35,11 @@ const SettingsPage = () => {
   const [profile, setProfile] = useState({
     company_name: "", siren: "", sectors: "", regions: "", keywords: "", company_size: "",
     company_description: "", company_website: "", primary_color: "#F97316", secondary_color: "#1E293B",
+    company_certifications: "",
+    company_skills: "",
+    company_team: "",
+    company_equipment: "",
+    company_past_work: "",
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -33,32 +47,44 @@ const SettingsPage = () => {
   const [newAlertName, setNewAlertName] = useState("");
   const [newAlertKeywords, setNewAlertKeywords] = useState("");
   const [newAlertFrequency, setNewAlertFrequency] = useState("daily");
+  const [references, setReferences] = useState<Reference[]>([]);
+  const [newRef, setNewRef] = useState<Reference>({ title: "", client: "", amount: "", date: "", description: "" });
+
+  const loadProfile = async () => {
+    if (!user) return;
+    const { data } = await supabase.from("profiles").select("*").eq("user_id", user.id).single();
+    if (data) {
+      setProfile({
+        company_name: data.company_name ?? "",
+        siren: data.siren ?? "",
+        sectors: (data.sectors as string[])?.join(", ") ?? "",
+        regions: (data.regions as string[])?.join(", ") ?? "",
+        keywords: (data.keywords as string[])?.join(", ") ?? "",
+        company_size: data.company_size ?? "",
+        company_description: (data as any).company_description ?? "",
+        company_website: (data as any).company_website ?? "",
+        primary_color: (data as any).primary_color ?? "#F97316",
+        secondary_color: (data as any).secondary_color ?? "#1E293B",
+        company_certifications: ((data as any).company_certifications as string[])?.join(", ") ?? "",
+        company_skills: (data as any).company_skills ?? "",
+        company_team: (data as any).company_team ?? "",
+        company_equipment: (data as any).company_equipment ?? "",
+        company_past_work: (data as any).company_past_work ?? "",
+      });
+      if ((data as any).company_logo_path) {
+        supabase.storage.from("company-assets").createSignedUrl((data as any).company_logo_path, 3600)
+          .then(({ data: urlData }) => {
+            if (urlData?.signedUrl) setLogoPreview(urlData.signedUrl);
+          });
+      }
+      const refs = (data as any).company_references;
+      if (Array.isArray(refs)) setReferences(refs);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("profiles").select("*").eq("user_id", user.id).single().then(({ data }) => {
-      if (data) {
-        setProfile({
-          company_name: data.company_name ?? "",
-          siren: data.siren ?? "",
-          sectors: (data.sectors as string[])?.join(", ") ?? "",
-          regions: (data.regions as string[])?.join(", ") ?? "",
-          keywords: (data.keywords as string[])?.join(", ") ?? "",
-          company_size: data.company_size ?? "",
-          company_description: (data as any).company_description ?? "",
-          company_website: (data as any).company_website ?? "",
-          primary_color: (data as any).primary_color ?? "#F97316",
-          secondary_color: (data as any).secondary_color ?? "#1E293B",
-        });
-        // Load logo preview
-        if ((data as any).company_logo_path) {
-          supabase.storage.from("company-assets").createSignedUrl((data as any).company_logo_path, 3600)
-            .then(({ data: urlData }) => {
-              if (urlData?.signedUrl) setLogoPreview(urlData.signedUrl);
-            });
-        }
-      }
-    });
+    loadProfile();
     fetchAlerts();
   }, [user]);
 
@@ -100,6 +126,12 @@ const SettingsPage = () => {
       company_website: profile.company_website || null,
       primary_color: profile.primary_color,
       secondary_color: profile.secondary_color,
+      company_certifications: profile.company_certifications.split(",").map((s) => s.trim()).filter(Boolean),
+      company_skills: profile.company_skills || null,
+      company_team: profile.company_team || null,
+      company_equipment: profile.company_equipment || null,
+      company_past_work: profile.company_past_work || null,
+      company_references: references,
       ...(logoPath ? { company_logo_path: logoPath } : {}),
       onboarding_completed: true,
     }).eq("user_id", user.id);
@@ -110,6 +142,16 @@ const SettingsPage = () => {
       toast({ title: "Profil sauvegardé ✓" });
     }
     setLoading(false);
+  };
+
+  const addReference = () => {
+    if (!newRef.title.trim() || !newRef.client.trim()) return;
+    setReferences([...references, { ...newRef }]);
+    setNewRef({ title: "", client: "", amount: "", date: "", description: "" });
+  };
+
+  const removeReference = (index: number) => {
+    setReferences(references.filter((_, i) => i !== index));
   };
 
   const addAlert = async () => {
@@ -169,6 +211,124 @@ const SettingsPage = () => {
           <div className="space-y-2">
             <Label>Description de l'entreprise</Label>
             <Textarea value={profile.company_description} onChange={(e) => setProfile({ ...profile, company_description: e.target.value })} placeholder="Décrivez votre entreprise..." rows={3} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Memoir technique */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="text-foreground flex items-center gap-2">
+            <FileText className="h-5 w-5" /> Mémoire technique
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="p-4 rounded-lg bg-primary/5 border border-primary/10 space-y-3">
+            <p className="text-sm text-foreground">
+              Laissez notre IA vous interviewer pour construire un mémoire technique complet et exhaustif. 
+              Ces informations seront utilisées pour personnaliser vos analyses et générer des documents de réponse aux appels d'offres.
+            </p>
+            <MemoirAIChat onMemoirSaved={loadProfile} />
+          </div>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Award className="h-4 w-4 text-muted-foreground" />
+                Certifications <span className="text-xs text-muted-foreground">(séparées par des virgules)</span>
+              </Label>
+              <Input
+                value={profile.company_certifications}
+                onChange={(e) => setProfile({ ...profile, company_certifications: e.target.value })}
+                placeholder="ISO 9001, Qualibat, RGE, MASE..."
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Compétences clés</Label>
+              <Textarea
+                value={profile.company_skills}
+                onChange={(e) => setProfile({ ...profile, company_skills: e.target.value })}
+                placeholder="Décrivez vos compétences et savoir-faire..."
+                rows={4}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Moyens humains</Label>
+              <Textarea
+                value={profile.company_team}
+                onChange={(e) => setProfile({ ...profile, company_team: e.target.value })}
+                placeholder="Effectifs, profils clés, formations..."
+                rows={4}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Moyens matériels et techniques</Label>
+              <Textarea
+                value={profile.company_equipment}
+                onChange={(e) => setProfile({ ...profile, company_equipment: e.target.value })}
+                placeholder="Équipements, logiciels, véhicules..."
+                rows={4}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Travaux et projets réalisés</Label>
+              <Textarea
+                value={profile.company_past_work}
+                onChange={(e) => setProfile({ ...profile, company_past_work: e.target.value })}
+                placeholder="Décrivez vos réalisations marquantes..."
+                rows={6}
+              />
+            </div>
+          </div>
+
+          {/* References */}
+          <div className="space-y-3 border-t border-border pt-4">
+            <Label className="text-base font-semibold">Références entreprise</Label>
+            {references.length > 0 && (
+              <div className="space-y-2">
+                {references.map((ref, i) => (
+                  <div key={i} className="flex items-start gap-3 p-3 rounded-md bg-secondary/50">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">{ref.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {ref.client}
+                        {ref.amount && ` · ${ref.amount}`}
+                        {ref.date && ` · ${ref.date}`}
+                      </p>
+                      {ref.description && <p className="text-xs text-muted-foreground mt-1">{ref.description}</p>}
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => removeReference(i)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Titre du projet</Label>
+                <Input value={newRef.title} onChange={(e) => setNewRef({ ...newRef, title: e.target.value })} placeholder="Construction école..." />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Client</Label>
+                <Input value={newRef.client} onChange={(e) => setNewRef({ ...newRef, client: e.target.value })} placeholder="Mairie de..." />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Montant</Label>
+                <Input value={newRef.amount} onChange={(e) => setNewRef({ ...newRef, amount: e.target.value })} placeholder="500 000 €" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Date</Label>
+                <Input value={newRef.date} onChange={(e) => setNewRef({ ...newRef, date: e.target.value })} placeholder="2024" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Description (optionnel)</Label>
+              <Input value={newRef.description} onChange={(e) => setNewRef({ ...newRef, description: e.target.value })} placeholder="Détails du projet..." />
+            </div>
+            <Button variant="outline" size="sm" onClick={addReference} disabled={!newRef.title.trim() || !newRef.client.trim()} className="gap-2">
+              <Plus className="h-4 w-4" /> Ajouter une référence
+            </Button>
           </div>
         </CardContent>
       </Card>
