@@ -91,6 +91,44 @@ export type Database = {
           },
         ]
       }
+      dce_uploads: {
+        Row: {
+          created_at: string | null
+          file_name: string
+          file_path: string
+          file_size: number | null
+          id: string
+          tender_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          file_name: string
+          file_path: string
+          file_size?: number | null
+          id?: string
+          tender_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          file_name?: string
+          file_path?: string
+          file_size?: number | null
+          id?: string
+          tender_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dce_uploads_tender_id_fkey"
+            columns: ["tender_id"]
+            isOneToOne: false
+            referencedRelation: "tenders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pipeline_comments: {
         Row: {
           content: string
@@ -262,6 +300,47 @@ export type Database = {
           status?: string
         }
         Relationships: []
+      }
+      tender_analyses: {
+        Row: {
+          analysis_type: string
+          created_at: string | null
+          id: string
+          model_used: string | null
+          result: string | null
+          tender_id: string
+          tokens_used: number | null
+          user_id: string
+        }
+        Insert: {
+          analysis_type: string
+          created_at?: string | null
+          id?: string
+          model_used?: string | null
+          result?: string | null
+          tender_id: string
+          tokens_used?: number | null
+          user_id: string
+        }
+        Update: {
+          analysis_type?: string
+          created_at?: string | null
+          id?: string
+          model_used?: string | null
+          result?: string | null
+          tender_id?: string
+          tokens_used?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tender_analyses_tender_id_fkey"
+            columns: ["tender_id"]
+            isOneToOne: false
+            referencedRelation: "tenders"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       tenders: {
         Row: {
