@@ -87,31 +87,15 @@ const Tenders = () => {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    // If DCE filter is active, first get tender IDs that have DCE uploads
-    let dceIds: string[] | null = null;
-    if (dceFilter) {
-      const { data: dceData } = await supabase
-        .from("dce_uploads")
-        .select("tender_id");
-      if (dceData && dceData.length > 0) {
-        dceIds = [...new Set(dceData.map((d) => d.tender_id))];
-      } else {
-        // No DCE uploads exist, return empty
-        setTenders([]);
-        setTotalCount(0);
-        setLoading(false);
-        return;
-      }
-    }
-
     let query = supabase
       .from("tenders")
       .select("*", { count: "exact" })
       .order("publication_date", { ascending: false })
       .range(from, to);
 
-    if (dceIds) {
-      query = query.in("id", dceIds);
+    // Filter tenders that have a dce_url (auto-fetch available)
+    if (dceFilter) {
+      query = query.not("dce_url", "is", null).neq("dce_url", "");
     }
 
     // Server-side filters
