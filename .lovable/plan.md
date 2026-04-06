@@ -1,23 +1,23 @@
 
 
-# Ajouter le telechargement des fichiers DCE
+# Fix DCE file download — blocked by browser
 
-## Probleme
+## Problem
 
-Les fichiers DCE uploades (manuellement ou automatiquement) s'affichent dans la liste mais ne sont pas cliquables/telechargeables. Il manque une fonction de telechargement.
+When clicking to download a DCE file, `window.open(signedUrl, "_blank")` opens a new tab to the Supabase storage URL. Chrome (or an ad blocker extension) blocks this as `ERR_BLOCKED_BY_CLIENT` because the URL pattern triggers content-blocking rules.
 
 ## Solution
 
-Modifier `DceUploadSection.tsx` pour rendre chaque fichier cliquable avec un lien de telechargement.
+Replace `window.open()` with a programmatic download: fetch the signed URL as a blob, create a temporary `<a>` element with a `download` attribute, and trigger a click. This downloads the file directly without opening a new tab, bypassing browser/extension blocking.
 
 ## Implementation
 
-**Fichier : `src/components/DceUploadSection.tsx`**
+**File: `src/components/DceUploadSection.tsx`**
 
-1. Ajouter une fonction `downloadFile` qui utilise `supabase.storage.from("dce-documents").createSignedUrl(filePath, 3600)` pour generer une URL signee temporaire (1h)
-2. Ouvrir l'URL dans un nouvel onglet avec `window.open(url, '_blank')`
-3. Rendre le nom du fichier cliquable (lien style) et ajouter une icone de telechargement (FileDown) a cote du bouton supprimer
-4. Ajouter un indicateur de chargement pendant la generation de l'URL
-
-Le bucket `dce-documents` est probablement prive (pas public), donc les signed URLs sont la bonne approche — elles fonctionnent sans modifier les politiques RLS du bucket.
+1. In `downloadFile`, after obtaining the signed URL:
+   - `fetch()` the signed URL to get a blob
+   - Create an object URL from the blob
+   - Create a temporary `<a>` element with `href=objectURL` and `download=filename`
+   - Programmatically click it, then revoke the object URL
+2. Keep the loading spinner during the entire download process (not just URL generation)
 
