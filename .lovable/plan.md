@@ -1,94 +1,70 @@
 
 
-# Refonte UI Analyses IA + Branding Onboarding + Generation de documents
+# Agent IA pour construire le memoire technique entreprise
 
-Ce plan couvre 3 chantiers interconnectes : ameliorer l'affichage des analyses, enrichir le profil entreprise avec le branding, et permettre la generation de PDF/PPTX de reponse aux appels d'offres.
+## Concept
 
----
+Ajouter un assistant IA conversationnel dans la page Parametres qui guide l'utilisateur pour remplir son memoire technique de maniere exhaustive. L'agent pose des questions une par une (comme un entretien), et a la fin, il genere et sauvegarde automatiquement toutes les informations dans le profil.
 
-## Chantier 1 — Refonte UI de la section Analyse IA
+## Ce qui change
 
-**Fichier : `src/components/TenderAnalysisSection.tsx`**
+### 1. Migration SQL — nouveaux champs memoire technique sur `profiles`
 
-Probleme actuel : les resultats sont affiches en texte brut dans un bloc scrollable, l'historique est cache derriere un toggle, et le rendu markdown n'est pas supporte.
+Ajouter les colonnes :
+- `company_certifications text[]` — certifications (ISO 9001, Qualibat, RGE, etc.)
+- `company_skills text` — competences cles (texte libre/markdown)
+- `company_team text` — moyens humains (effectifs, profils cles)
+- `company_equipment text` — moyens materiels et techniques
+- `company_past_work text` — travaux et projets realises (texte long)
 
-Modifications :
-1. **Tabs par type d'analyse** : remplacer la liste plate par des onglets (Analyse rapide / Memoire technique / Recommandations) avec un compteur de resultats par tab
-2. **Rendu Markdown** : installer `react-markdown` et rendre le contenu avec formatage (titres, listes, gras) au lieu du `whitespace-pre-wrap`
-3. **Resultat en pleine page** : cliquer sur une analyse passee l'ouvre dans un Dialog plein ecran (pas juste un `line-clamp-3`)
-4. **Actions sur chaque analyse** : Copier, Telecharger en .txt, Generer un document (lien vers chantier 3)
-5. **Suppression de l'historique cache** : toutes les analyses sont visibles directement dans leur tab respective, triees par date
+### 2. Edge function `generate-memoir` — agent conversationnel
 
----
+Nouvelle edge function qui fonctionne comme un agent :
+- Recoit l'historique de conversation + le profil actuel de l'entreprise
+- Le system prompt demande a l'IA de jouer le role d'un consultant qui interviewe l'entreprise pour construire un memoire technique complet
+- L'IA pose des questions ciblees une par une : secteur, certifications, effectifs, equipements, references, clients principaux, chiffre d'affaires, methodes qualite, engagements RSE, etc.
+- Quand l'IA estime avoir assez d'informations, elle genere un JSON structure avec tous les champs du profil remplis via tool calling
+- Le client recoit le JSON et sauvegarde dans `profiles`
 
-## Chantier 2 — Enrichir l'onboarding avec le branding entreprise
+L'agent utilise le streaming (SSE) pour une experience conversationnelle fluide.
 
-**Migration SQL** : ajouter des colonnes a la table `profiles` :
-- `company_logo_path text` — chemin vers le logo dans le bucket storage
-- `company_description text` — description courte de l'entreprise
-- `company_website text` — site web
-- `primary_color text` — couleur principale (hex)
-- `secondary_color text` — couleur secondaire (hex)
-- `company_references jsonb DEFAULT '[]'` — references/projets passes (titre, client, montant, date)
+### 3. UI — composant `MemoirAIChat` dans SettingsPage
 
-**Bucket storage** : creer un bucket `company-assets` (prive) pour stocker logos et documents de l'entreprise.
+Nouvelle carte "Memoire technique" dans la page Parametres avec :
+- Un bouton "Construire mon memoire avec l'IA" qui ouvre un chat en Dialog/Sheet
+- Interface de chat : messages utilisateur/assistant, input en bas, streaming des reponses
+- Rendu markdown des reponses de l'IA (react-markdown)
+- A la fin de l'entretien, l'IA propose un resume et un bouton "Sauvegarder" qui met a jour le profil
+- Possibilite de voir/editer manuellement les champs generes avant sauvegarde
 
-**Fichier : `src/pages/Onboarding.tsx`** — ajouter une etape 5 "Identite visuelle" :
-- Upload du logo (drag & drop vers `company-assets`)
-- Couleurs primaire/secondaire (color picker)
-- Description de l'entreprise (textarea)
-- Site web (input URL)
+Sous le chat, affichage des champs actuels du memoire (certifications, competences, moyens, etc.) editables manuellement.
 
-**Fichier : `src/pages/SettingsPage.tsx`** — permettre de modifier ces champs apres l'onboarding.
+### 4. Injection dans les analyses et documents
 
----
+- Modifier `analyze-tender` pour inclure le memoire technique dans le contexte envoye a l'IA (competences, certifications, moyens, references) — les analyses deviennent personnalisees
+- Modifier `generate-tender-document` pour alimenter les sections du memoire technique et de la presentation avec les donnees reelles de l'entreprise au lieu de placeholders
 
-## Chantier 3 — Generation de documents de reponse (PDF + PPTX)
+### 5. Gestion des references entreprise
 
-### 3a. Edge function `generate-tender-document`
+Exposer le champ `company_references` (JSONB, existe deja en base) dans la carte memoire technique :
+- Liste des references existantes (titre, client, montant, date)
+- Mini formulaire pour ajouter/supprimer une reference
+- L'agent IA peut aussi collecter les references pendant l'entretien
 
-**Fichier : `supabase/functions/generate-tender-document/index.ts`**
+## Fichiers concernes
 
-Cette fonction :
-1. Recoit `{ tender_id, document_type: "pdf" | "pptx", template: "memoire_technique" | "presentation" }`
-2. Recupere les donnees du tender, le profil entreprise (logo, couleurs, description, references), et les analyses IA existantes
-3. Appelle Lovable AI (gemini-2.5-flash) pour generer le contenu structure (JSON) adapte au template choisi
-4. Retourne le contenu structure au client
-
-### 3b. Generation cote client
-
-**Nouveaux fichiers :**
-- `src/lib/generatePdf.ts` — utilise `jspdf` ou appelle une edge function dediee pour creer le PDF avec le branding
-- `src/lib/generatePptx.ts` — utilise `pptxgenjs` pour creer la presentation PowerPoint
-
-Les documents incluront :
-- Page de garde avec logo, nom de l'entreprise, titre du marche
-- Couleurs de la charte graphique appliquees
-- Sections structurees (comprehension du besoin, methodologie, moyens, planning, references)
-- Les analyses IA pre-remplissent le contenu
-
-### 3c. UI — Bouton "Generer un document"
-
-**Fichier : `src/components/TenderAnalysisSection.tsx`** (ou nouveau composant `TenderDocumentGenerator.tsx`)
-
-- Bouton "Generer un document de reponse" dans la section analyse
-- Dialog de configuration : choix du format (PDF/PPTX), choix du template, options (inclure references, lots specifiques)
-- Barre de progression pendant la generation
-- Telechargement automatique du fichier genere
-
----
+- **Migration SQL** : ajout colonnes memoire technique
+- **`supabase/functions/generate-memoir/index.ts`** : nouvel edge function agent conversationnel avec streaming
+- **`src/components/MemoirAIChat.tsx`** : composant chat IA
+- **`src/pages/SettingsPage.tsx`** : ajout carte memoire technique + bouton agent IA + champs editables + gestion references
+- **`supabase/functions/analyze-tender/index.ts`** : injection du profil entreprise dans le prompt
+- **`supabase/functions/generate-tender-document/index.ts`** : injection des donnees memoire dans la generation
 
 ## Ordre d'implementation
 
-1. **Migration SQL** — colonnes branding sur `profiles` + bucket `company-assets`
-2. **Onboarding enrichi** — etape 5 identite visuelle
-3. **Refonte UI analyses** — tabs, markdown, actions
-4. **Edge function generation** — `generate-tender-document`
-5. **Generation PDF/PPTX client** — librairies + UI
-
-## Dependances npm a installer
-
-- `react-markdown` — rendu markdown des analyses
-- `pptxgenjs` — generation PowerPoint cote client
-- `jspdf` — generation PDF cote client (ou alternative serveur)
+1. Migration SQL (colonnes memoire)
+2. Edge function `generate-memoir` (agent streaming)
+3. Composant `MemoirAIChat` + integration dans SettingsPage
+4. Champs manuels + gestion references dans SettingsPage
+5. Injection memoire dans `analyze-tender` et `generate-tender-document`
 
