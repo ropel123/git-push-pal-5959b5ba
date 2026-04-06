@@ -152,6 +152,7 @@ const Tenders = () => {
     setRegionFilter(f.regionFilter ?? "");
     setStatusFilter(f.statusFilter ?? "");
     setProcedureFilter(f.procedureFilter ?? "");
+    setDceFilter(f.dceFilter ?? false);
     setShowFilters(true);
     setPage(0);
     toast({ title: `Recherche "${s.name}" appliquée` });
