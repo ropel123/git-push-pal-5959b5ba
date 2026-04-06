@@ -112,6 +112,25 @@ ${tender.cpv_codes && tender.cpv_codes.length > 0 ? `Codes CPV: ${tender.cpv_cod
       }
     }
 
+    // Add company context from memoir
+    if (profile) {
+      const companyParts = [];
+      if (profile.company_name) companyParts.push(`Nom: ${profile.company_name}`);
+      if (profile.company_description) companyParts.push(`Description: ${profile.company_description}`);
+      if (profile.sectors?.length) companyParts.push(`Secteurs: ${(profile.sectors as string[]).join(", ")}`);
+      if (profile.company_certifications?.length) companyParts.push(`Certifications: ${(profile.company_certifications as string[]).join(", ")}`);
+      if (profile.company_skills) companyParts.push(`Compétences: ${profile.company_skills}`);
+      if (profile.company_team) companyParts.push(`Moyens humains: ${profile.company_team}`);
+      if (profile.company_equipment) companyParts.push(`Moyens matériels: ${profile.company_equipment}`);
+      if (profile.company_past_work) companyParts.push(`Travaux réalisés: ${profile.company_past_work}`);
+      if (profile.company_references && Array.isArray(profile.company_references) && (profile.company_references as any[]).length > 0) {
+        companyParts.push(`Références: ${JSON.stringify(profile.company_references)}`);
+      }
+      if (companyParts.length > 0) {
+        tenderContext += `\n\nPROFIL DE L'ENTREPRISE CANDIDATE :\n${companyParts.join("\n")}`;
+      }
+    }
+
     // System prompts per analysis type
     const systemPrompts: Record<string, string> = {
       quick: `Tu es un expert en marchés publics français. Analyse l'appel d'offres ci-dessous et fournis:
