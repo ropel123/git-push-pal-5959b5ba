@@ -7,6 +7,7 @@ import SolutionSection from "@/components/SolutionSection";
 import TargetSection from "@/components/TargetSection";
 import WhySection from "@/components/WhySection";
 import ProcessSection from "@/components/ProcessSection";
+import PricingSection from "@/components/PricingSection";
 import FAQSection from "@/components/FAQSection";
 import CTASection from "@/components/CTASection";
 import HoverFooter from "@/components/HoverFooter";
