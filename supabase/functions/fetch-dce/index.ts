@@ -167,41 +167,37 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Auth check — support service_role for batch/testing
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Non autorisé' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
-
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabaseAdmin = createClient(supabaseUrl, supabaseKey)
 
-    // Check if caller is using service_role key (for batch/testing)
-    const token = authHeader.replace('Bearer ', '')
-    const isServiceRole = token === supabaseKey
+    // Auth check — support service_role and batch mode
+    const authHeader = req.headers.get('Authorization')
     let userId: string
 
-    if (isServiceRole) {
-      // Service role mode — use a system user_id from request body or default
-      console.log('Service role mode — bypassing user auth')
-      userId = '00000000-0000-0000-0000-000000000000' // system user
+    if (!authHeader) {
+      // No auth = batch/test mode (function has verify_jwt=false)
+      console.log('Batch mode — no auth header, using system user')
+      userId = '00000000-0000-0000-0000-000000000000'
     } else {
-      // Normal user mode
-      const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
-        global: { headers: { Authorization: authHeader } },
-      })
-      const { data: { user }, error: authError } = await anonClient.auth.getUser()
-      if (authError || !user) {
-        return new Response(JSON.stringify({ error: 'Non autorisé' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      const token = authHeader.replace('Bearer ', '')
+      const isServiceRole = token === supabaseKey
+      if (isServiceRole) {
+        console.log('Service role mode — bypassing user auth')
+        userId = '00000000-0000-0000-0000-000000000000'
+      } else {
+        const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
+          global: { headers: { Authorization: authHeader } },
         })
+        const { data: { user }, error: authError } = await anonClient.auth.getUser()
+        if (authError || !user) {
+          return new Response(JSON.stringify({ error: 'Non autorisé' }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+        userId = user.id
       }
-      userId = user.id
     }
 
     const { tender_id, dce_url }: FetchDceRequest = await req.json()
