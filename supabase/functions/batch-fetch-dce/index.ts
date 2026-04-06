@@ -114,32 +114,9 @@ Deno.serve(async (req) => {
       // No body = defaults
     }
 
-    // Get the last processed tender_id to use as cursor
-    const { data: lastProcessed } = await supabase
-      .from('dce_downloads')
-      .select('tender_id')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    // Fetch unprocessed tenders using a NOT IN subquery approach
-    // We fetch more than needed and filter, using ordering for consistency
-    const { data: allProcessedIds } = await supabase
-      .from('dce_downloads')
-      .select('tender_id')
-      .limit(10000)
-
-    const processedSet = new Set((allProcessedIds || []).map((d: any) => d.tender_id))
-
-    // Fetch a batch of tenders with dce_url, ordered by id for deterministic pagination
-    const fetchLimit = Math.min(limit * 5, 50) // Fetch more to filter
-    const { data: tenders, error: queryError } = await supabase
-      .from('tenders')
-      .select('id, dce_url, title')
-      .not('dce_url', 'is', null)
-      .not('dce_url', 'eq', '')
-      .order('id')
-      .limit(fetchLimit)
+    // Use RPC to get unprocessed tenders efficiently (LEFT JOIN in SQL)
+    const { data: toProcess, error: queryError } = await supabase
+      .rpc('get_unprocessed_tenders', { _limit: limit, _platform_filter: platformFilter })
 
     if (queryError) {
       console.error('Query error:', queryError)
@@ -149,14 +126,10 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Filter out already processed and optionally by platform
-    const toProcess = (tenders || [])
-      .filter((t: any) => !processedSet.has(t.id))
-      .filter((t: any) => {
-        if (!platformFilter) return true
-        return detectPlatform(t.dce_url) === platformFilter
-      })
-      .slice(0, limit)
+    // Filter by platform if needed (RPC doesn't filter by platform yet)
+    const filtered = platformFilter
+      ? (toProcess || []).filter((t: any) => detectPlatform(t.dce_url) === platformFilter)
+      : (toProcess || [])
 
     if (toProcess.length === 0) {
       return new Response(JSON.stringify({

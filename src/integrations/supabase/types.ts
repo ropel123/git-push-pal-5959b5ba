@@ -506,6 +506,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_unprocessed_tenders: {
+        Args: { _limit?: number; _platform_filter?: string }
+        Returns: {
+          dce_url: string
+          id: string
+          title: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
