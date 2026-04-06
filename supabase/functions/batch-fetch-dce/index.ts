@@ -109,27 +109,37 @@ Deno.serve(async (req) => {
     try {
       const body = await req.json()
       platformFilter = body.platform_filter || null
-      limit = Math.min(body.limit || BATCH_SIZE, 10) // Max 10 per call
+      limit = Math.min(body.limit || BATCH_SIZE, 10)
     } catch {
       // No body = defaults
     }
 
-    // Find tenders with dce_url that haven't been processed yet
-    let query = supabase
+    // Get the last processed tender_id to use as cursor
+    const { data: lastProcessed } = await supabase
+      .from('dce_downloads')
+      .select('tender_id')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    // Fetch unprocessed tenders using a NOT IN subquery approach
+    // We fetch more than needed and filter, using ordering for consistency
+    const { data: allProcessedIds } = await supabase
+      .from('dce_downloads')
+      .select('tender_id')
+      .limit(10000)
+
+    const processedSet = new Set((allProcessedIds || []).map((d: any) => d.tender_id))
+
+    // Fetch a batch of tenders with dce_url, ordered by id for deterministic pagination
+    const fetchLimit = Math.min(limit * 5, 50) // Fetch more to filter
+    const { data: tenders, error: queryError } = await supabase
       .from('tenders')
       .select('id, dce_url, title')
       .not('dce_url', 'is', null)
       .not('dce_url', 'eq', '')
-      .limit(limit)
-
-    // Get already processed tender IDs
-    const { data: processed } = await supabase
-      .from('dce_downloads')
-      .select('tender_id')
-
-    const processedIds = new Set((processed || []).map((d: any) => d.tender_id))
-
-    const { data: tenders, error: queryError } = await query
+      .order('id')
+      .limit(fetchLimit)
 
     if (queryError) {
       console.error('Query error:', queryError)
@@ -141,7 +151,7 @@ Deno.serve(async (req) => {
 
     // Filter out already processed and optionally by platform
     const toProcess = (tenders || [])
-      .filter((t: any) => !processedIds.has(t.id))
+      .filter((t: any) => !processedSet.has(t.id))
       .filter((t: any) => {
         if (!platformFilter) return true
         return detectPlatform(t.dce_url) === platformFilter
