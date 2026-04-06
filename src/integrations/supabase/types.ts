@@ -91,6 +91,45 @@ export type Database = {
           },
         ]
       }
+      dce_downloads: {
+        Row: {
+          created_at: string | null
+          enriched_data: Json | null
+          error_message: string | null
+          file_path: string | null
+          id: string
+          platform: string
+          status: string
+          tender_id: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          enriched_data?: Json | null
+          error_message?: string | null
+          file_path?: string | null
+          id?: string
+          platform: string
+          status?: string
+          tender_id: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          enriched_data?: Json | null
+          error_message?: string | null
+          file_path?: string | null
+          id?: string
+          platform?: string
+          status?: string
+          tender_id?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       dce_uploads: {
         Row: {
           created_at: string | null
@@ -357,6 +396,7 @@ export type Database = {
           deadline: string | null
           department: string | null
           description: string | null
+          enriched_data: Json | null
           estimated_amount: number | null
           execution_location: string | null
           id: string
@@ -389,6 +429,7 @@ export type Database = {
           deadline?: string | null
           department?: string | null
           description?: string | null
+          enriched_data?: Json | null
           estimated_amount?: number | null
           execution_location?: string | null
           id?: string
@@ -421,6 +462,7 @@ export type Database = {
           deadline?: string | null
           department?: string | null
           description?: string | null
+          enriched_data?: Json | null
           estimated_amount?: number | null
           execution_location?: string | null
           id?: string
