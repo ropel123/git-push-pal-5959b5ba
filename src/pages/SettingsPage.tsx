@@ -131,7 +131,7 @@ const SettingsPage = () => {
       company_team: profile.company_team || null,
       company_equipment: profile.company_equipment || null,
       company_past_work: profile.company_past_work || null,
-      company_references: references,
+      company_references: references as any,
       ...(logoPath ? { company_logo_path: logoPath } : {}),
       onboarding_completed: true,
     }).eq("user_id", user.id);
