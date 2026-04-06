@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Upload, Trash2, FileText, File, Loader2 } from "lucide-react";
+import { Upload, Trash2, FileText, File, Loader2, FileDown } from "lucide-react";
 
 interface DceFile {
   id: string;
