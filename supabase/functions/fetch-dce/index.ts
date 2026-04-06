@@ -251,7 +251,7 @@ Deno.serve(async (req) => {
     const uploadedFiles: string[] = []
     if (result.files && result.files.length > 0) {
       for (let i = 0; i < result.files.length; i++) {
-        const filePath = `${user.id}/${tender_id}/auto_${Date.now()}_${i}.pdf`
+        const filePath = `${userId}/${tender_id}/auto_${Date.now()}_${i}.pdf`
         const { error: uploadError } = await supabaseAdmin.storage
           .from('dce-documents')
           .upload(filePath, result.files[i], {
