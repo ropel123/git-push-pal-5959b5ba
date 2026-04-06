@@ -32,6 +32,22 @@ const DceUploadSection = ({ tenderId, uploads, onUploadsChange }: DceUploadSecti
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const downloadFile = async (upload: DceFile) => {
+    setDownloadingId(upload.id);
+    try {
+      const { data, error } = await supabase.storage
+        .from("dce-documents")
+        .createSignedUrl(upload.file_path, 3600);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank");
+    } catch (err: any) {
+      toast({ title: "Erreur de téléchargement", description: err.message, variant: "destructive" });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const uploadFile = async (file: File) => {
     if (!user) return;
