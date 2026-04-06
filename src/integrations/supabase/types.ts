@@ -246,11 +246,16 @@ export type Database = {
       }
       profiles: {
         Row: {
+          company_certifications: string[] | null
           company_description: string | null
+          company_equipment: string | null
           company_logo_path: string | null
           company_name: string | null
+          company_past_work: string | null
           company_references: Json | null
           company_size: string | null
+          company_skills: string | null
+          company_team: string | null
           company_website: string | null
           created_at: string | null
           id: string
@@ -264,11 +269,16 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          company_certifications?: string[] | null
           company_description?: string | null
+          company_equipment?: string | null
           company_logo_path?: string | null
           company_name?: string | null
+          company_past_work?: string | null
           company_references?: Json | null
           company_size?: string | null
+          company_skills?: string | null
+          company_team?: string | null
           company_website?: string | null
           created_at?: string | null
           id?: string
@@ -282,11 +292,16 @@ export type Database = {
           user_id: string
         }
         Update: {
+          company_certifications?: string[] | null
           company_description?: string | null
+          company_equipment?: string | null
           company_logo_path?: string | null
           company_name?: string | null
+          company_past_work?: string | null
           company_references?: Json | null
           company_size?: string | null
+          company_skills?: string | null
+          company_team?: string | null
           company_website?: string | null
           created_at?: string | null
           id?: string

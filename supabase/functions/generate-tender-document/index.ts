@@ -77,6 +77,11 @@ ENTREPRISE :
 - Nom : ${profile?.company_name || "Non renseigné"}
 - Description : ${profile?.company_description || "Non renseignée"}
 - Secteurs : ${(profile?.sectors as string[])?.join(", ") || "Non renseignés"}
+- Certifications : ${(profile as any)?.company_certifications?.length ? (profile as any).company_certifications.join(", ") : "Non renseignées"}
+- Compétences : ${(profile as any)?.company_skills || "Non renseignées"}
+- Moyens humains : ${(profile as any)?.company_team || "Non renseignés"}
+- Moyens matériels : ${(profile as any)?.company_equipment || "Non renseignés"}
+- Travaux réalisés : ${(profile as any)?.company_past_work || "Non renseignés"}
 
 ANALYSES IA EXISTANTES :
 ${analysisTexts || "Aucune analyse disponible"}
