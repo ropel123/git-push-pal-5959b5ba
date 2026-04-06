@@ -57,6 +57,7 @@ const Tenders = () => {
   const [statusFilter, setStatusFilter] = useState("");
   const [procedureFilter, setProcedureFilter] = useState("");
   const [dceFilter, setDceFilter] = useState(false);
+  const [profile, setProfile] = useState<any>(null);
   const [searchName, setSearchName] = useState("");
   const [savingSearch, setSavingSearch] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
