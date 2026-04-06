@@ -164,16 +164,29 @@ const DceUploadSection = ({ tenderId, uploads, onUploadsChange }: DceUploadSecti
           <div className="space-y-2">
             {uploads.map((upload) => (
               <div key={upload.id} className="flex items-center justify-between p-2 rounded-md bg-secondary/50 text-sm">
-                <div className="flex items-center gap-2 min-w-0">
-                  <File className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="truncate text-foreground">{upload.file_name}</span>
+                <button
+                  className="flex items-center gap-2 min-w-0 hover:underline text-left"
+                  onClick={() => downloadFile(upload)}
+                  disabled={downloadingId === upload.id}
+                >
+                  {downloadingId === upload.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
+                  ) : (
+                    <File className="h-4 w-4 text-muted-foreground shrink-0" />
+                  )}
+                  <span className="truncate text-primary">{upload.file_name}</span>
                   {upload.file_size && (
                     <span className="text-xs text-muted-foreground shrink-0">{formatFileSize(upload.file_size)}</span>
                   )}
+                </button>
+                <div className="flex items-center shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => downloadFile(upload)} disabled={downloadingId === upload.id}>
+                    <FileDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteFile(upload)}>
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                  </Button>
                 </div>
-                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => deleteFile(upload)}>
-                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                </Button>
               </div>
             ))}
           </div>
