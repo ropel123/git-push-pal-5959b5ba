@@ -272,7 +272,7 @@ const Tenders = () => {
       {showFilters && (
         <Card className="bg-card border-border">
           <CardContent className="pt-4 space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-4">
               <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(0); }}>
                 <SelectTrigger><SelectValue placeholder="Région" /></SelectTrigger>
                 <SelectContent>
@@ -297,6 +297,12 @@ const Tenders = () => {
                   {procedures.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <div className="flex items-center gap-2">
+                <Switch id="dce-filter" checked={dceFilter} onCheckedChange={(v) => { setDceFilter(v); setPage(0); }} />
+                <Label htmlFor="dce-filter" className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <FileText className="h-4 w-4" /> Avec DCE
+                </Label>
+              </div>
             </div>
             <div className="flex gap-2 items-center flex-wrap">
               <Input placeholder="Nom de la recherche" value={searchName} onChange={(e) => setSearchName(e.target.value)} className="max-w-xs" />
