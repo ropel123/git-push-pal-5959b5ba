@@ -10,6 +10,7 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase, FileDown, Send } from "lucide-react";
 import DceUploadSection from "@/components/DceUploadSection";
+import DceAutoFetchButton from "@/components/DceAutoFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 
@@ -405,6 +406,15 @@ const TenderDetail = () => {
             <p className="text-sm text-foreground whitespace-pre-line">{tender.additional_info}</p>
           </CardContent>
         </Card>
+      )}
+
+      {/* Auto-fetch DCE */}
+      {user && id && tender.dce_url && (
+        <DceAutoFetchButton
+          tenderId={id}
+          dceUrl={tender.dce_url}
+          onSuccess={fetchDceAndAnalyses}
+        />
       )}
 
       {/* DCE Upload */}
