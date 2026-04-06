@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.fetch-dce]
 verify_jwt = false
+
+[functions.batch-fetch-dce]
+verify_jwt = false
