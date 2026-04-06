@@ -1,23 +1,24 @@
 
+# Ajouter un filtre "DCE disponible" sur la page Appels d'offres
 
-# Fix DCE file download — blocked by browser
+## Contexte
 
-## Problem
-
-When clicking to download a DCE file, `window.open(signedUrl, "_blank")` opens a new tab to the Supabase storage URL. Chrome (or an ad blocker extension) blocks this as `ERR_BLOCKED_BY_CLIENT` because the URL pattern triggers content-blocking rules.
-
-## Solution
-
-Replace `window.open()` with a programmatic download: fetch the signed URL as a blob, create a temporary `<a>` element with a `download` attribute, and trigger a click. This downloads the file directly without opening a new tab, bypassing browser/extension blocking.
+L'utilisateur veut pouvoir filtrer les appels d'offres pour ne voir que ceux qui ont des documents DCE (uploadés manuellement ou téléchargés automatiquement).
 
 ## Implementation
 
-**File: `src/components/DceUploadSection.tsx`**
+**Fichier : `src/pages/Tenders.tsx`**
 
-1. In `downloadFile`, after obtaining the signed URL:
-   - `fetch()` the signed URL to get a blob
-   - Create an object URL from the blob
-   - Create a temporary `<a>` element with `href=objectURL` and `download=filename`
-   - Programmatically click it, then revoke the object URL
-2. Keep the loading spinner during the entire download process (not just URL generation)
+1. Ajouter un état `dceFilter` (boolean toggle) — "Avec DCE uniquement"
+2. Quand le filtre est actif, faire une requête préalable sur `dce_uploads` pour récupérer les `tender_id` distincts qui ont des fichiers, puis filtrer les tenders avec `.in("id", tenderIds)`
+3. Alternativement (plus performant) : créer une vue SQL ou utiliser un filtre côté client. La meilleure approche est de joindre via une sous-requête.
 
+**Approche retenue** : Utiliser un filtre en 2 étapes dans `fetchTenders` :
+- Si `dceFilter` est actif, d'abord récupérer les `tender_id` depuis `dce_uploads` (SELECT DISTINCT tender_id), puis ajouter `.in("id", tenderIds)` à la requête principale
+- Ajouter un bouton toggle/switch dans la barre de filtres avec une icône `FileText`
+
+4. Ajouter une icône `FileText` sur chaque carte de tender qui a des DCE (petit badge visuel) — optionnel mais utile pour repérer rapidement
+
+**UI** : Ajouter dans la zone de filtres (grid md:grid-cols-3 → md:grid-cols-4) un Select ou un Switch "DCE disponible" avec les options : Tous / Avec DCE uniquement.
+
+**Sauvegarde** : Inclure `dceFilter` dans les filtres sauvegardés et dans `applySavedSearch`.
