@@ -10,6 +10,7 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase, FileDown, Send } from "lucide-react";
 import DceUploadSection from "@/components/DceUploadSection";
+import DceAutoFetchButton from "@/components/DceAutoFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 
