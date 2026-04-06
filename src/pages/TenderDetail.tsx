@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase, FileDown, Send } from "lucide-react";
+import DceUploadSection from "@/components/DceUploadSection";
+import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 
 interface Tender {
@@ -75,6 +77,16 @@ const TenderDetail = () => {
   const [awards, setAwards] = useState<AwardNotice[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [dceUploads, setDceUploads] = useState<any[]>([]);
+  const [analyses, setAnalyses] = useState<any[]>([]);
+
+  const fetchDceAndAnalyses = () => {
+    if (!id || !user) return;
+    supabase.from("dce_uploads").select("*").eq("tender_id", id).eq("user_id", user.id).order("created_at", { ascending: false })
+      .then(({ data }) => setDceUploads(data || []));
+    supabase.from("tender_analyses").select("*").eq("tender_id", id).eq("user_id", user.id).order("created_at", { ascending: false })
+      .then(({ data }) => setAnalyses(data || []));
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -88,6 +100,7 @@ const TenderDetail = () => {
       if (profileRes.data) setProfile(profileRes.data);
       setLoading(false);
     });
+    fetchDceAndAnalyses();
   }, [id, user]);
 
   const addToPipeline = async () => {
@@ -392,6 +405,25 @@ const TenderDetail = () => {
             <p className="text-sm text-foreground whitespace-pre-line">{tender.additional_info}</p>
           </CardContent>
         </Card>
+      )}
+
+      {/* DCE Upload */}
+      {user && id && (
+        <DceUploadSection
+          tenderId={id}
+          uploads={dceUploads}
+          onUploadsChange={fetchDceAndAnalyses}
+        />
+      )}
+
+      {/* AI Analysis */}
+      {user && id && (
+        <TenderAnalysisSection
+          tenderId={id}
+          hasDocuments={dceUploads.length > 0}
+          analyses={analyses}
+          onAnalysesChange={fetchDceAndAnalyses}
+        />
       )}
 
       {/* Award notices */}
