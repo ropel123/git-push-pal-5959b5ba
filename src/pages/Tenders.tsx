@@ -183,7 +183,7 @@ const Tenders = () => {
   const saveSearch = async () => {
     if (!user || !searchName.trim()) return;
     setSavingSearch(true);
-    const filters = { search, regionFilter, statusFilter, procedureFilter };
+    const filters = { search, regionFilter, statusFilter, procedureFilter, dceFilter };
     await supabase.from("saved_searches").insert({ user_id: user.id, name: searchName.trim(), filters });
     toast({ title: "Recherche sauvegardée ✓" });
     setSearchName("");
