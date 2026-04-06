@@ -220,7 +220,7 @@ Deno.serve(async (req) => {
       .from('dce_downloads')
       .insert({
         tender_id,
-        user_id: user.id,
+        user_id: userId,
         platform,
         status: 'processing',
       })
