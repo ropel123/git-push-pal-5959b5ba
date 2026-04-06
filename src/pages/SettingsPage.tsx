@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Plus, Trash2, Bell } from "lucide-react";
+import { Save, Plus, Trash2, Bell, Palette, Upload } from "lucide-react";
 
 interface Alert {
   id: string;
@@ -24,7 +25,10 @@ const SettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState({
     company_name: "", siren: "", sectors: "", regions: "", keywords: "", company_size: "",
+    company_description: "", company_website: "", primary_color: "#F97316", secondary_color: "#1E293B",
   });
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [newAlertName, setNewAlertName] = useState("");
   const [newAlertKeywords, setNewAlertKeywords] = useState("");
@@ -41,7 +45,18 @@ const SettingsPage = () => {
           regions: (data.regions as string[])?.join(", ") ?? "",
           keywords: (data.keywords as string[])?.join(", ") ?? "",
           company_size: data.company_size ?? "",
+          company_description: (data as any).company_description ?? "",
+          company_website: (data as any).company_website ?? "",
+          primary_color: (data as any).primary_color ?? "#F97316",
+          secondary_color: (data as any).secondary_color ?? "#1E293B",
         });
+        // Load logo preview
+        if ((data as any).company_logo_path) {
+          supabase.storage.from("company-assets").createSignedUrl((data as any).company_logo_path, 3600)
+            .then(({ data: urlData }) => {
+              if (urlData?.signedUrl) setLogoPreview(urlData.signedUrl);
+            });
+        }
       }
     });
     fetchAlerts();
@@ -53,9 +68,27 @@ const SettingsPage = () => {
     if (data) setAlerts(data as Alert[]);
   };
 
+  const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setLogoPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
   const handleSave = async () => {
     if (!user) return;
     setLoading(true);
+
+    let logoPath: string | undefined;
+    if (logoFile) {
+      const ext = logoFile.name.split(".").pop();
+      const path = `${user.id}/logo.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from("company-assets").upload(path, logoFile, { upsert: true });
+      if (!uploadErr) logoPath = path;
+    }
+
     const { error } = await supabase.from("profiles").update({
       company_name: profile.company_name || null,
       siren: profile.siren || null,
@@ -63,8 +96,14 @@ const SettingsPage = () => {
       regions: profile.regions.split(",").map((s) => s.trim()).filter(Boolean),
       keywords: profile.keywords.split(",").map((s) => s.trim()).filter(Boolean),
       company_size: profile.company_size || null,
+      company_description: profile.company_description || null,
+      company_website: profile.company_website || null,
+      primary_color: profile.primary_color,
+      secondary_color: profile.secondary_color,
+      ...(logoPath ? { company_logo_path: logoPath } : {}),
       onboarding_completed: true,
     }).eq("user_id", user.id);
+
     if (error) {
       toast({ title: "Erreur", description: error.message, variant: "destructive" });
     } else {
@@ -76,19 +115,14 @@ const SettingsPage = () => {
   const addAlert = async () => {
     if (!user || !newAlertName.trim()) return;
     const { error } = await supabase.from("alerts").insert({
-      user_id: user.id,
-      name: newAlertName.trim(),
+      user_id: user.id, name: newAlertName.trim(),
       filters: { keywords: newAlertKeywords.split(",").map((s) => s.trim()).filter(Boolean) },
-      frequency: newAlertFrequency,
-      enabled: true,
+      frequency: newAlertFrequency, enabled: true,
     });
     if (error) {
       toast({ title: "Erreur", description: error.message, variant: "destructive" });
     } else {
-      toast({ title: "Alerte créée ✓" });
-      setNewAlertName("");
-      setNewAlertKeywords("");
-      fetchAlerts();
+      toast({ title: "Alerte créée ✓" }); setNewAlertName(""); setNewAlertKeywords(""); fetchAlerts();
     }
   };
 
@@ -127,6 +161,50 @@ const SettingsPage = () => {
               <Label>Taille entreprise</Label>
               <Input value={profile.company_size} onChange={(e) => setProfile({ ...profile, company_size: e.target.value })} placeholder="PME, ETI..." />
             </div>
+            <div className="space-y-2">
+              <Label>Site web</Label>
+              <Input value={profile.company_website} onChange={(e) => setProfile({ ...profile, company_website: e.target.value })} placeholder="https://..." type="url" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Description de l'entreprise</Label>
+            <Textarea value={profile.company_description} onChange={(e) => setProfile({ ...profile, company_description: e.target.value })} placeholder="Décrivez votre entreprise..." rows={3} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Branding */}
+      <Card className="bg-card border-border">
+        <CardHeader><CardTitle className="text-foreground flex items-center gap-2"><Palette className="h-5 w-5" /> Identité visuelle</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Logo</Label>
+            <div className="flex items-center gap-4">
+              {logoPreview && (
+                <img src={logoPreview} alt="Logo" className="h-14 w-14 object-contain rounded-md border border-border" />
+              )}
+              <label className="flex items-center gap-2 px-4 py-2 rounded-md border border-dashed border-border cursor-pointer hover:bg-secondary/50 transition-colors">
+                <Upload className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">{logoFile ? logoFile.name : "Changer le logo"}</span>
+                <input type="file" accept="image/*" className="hidden" onChange={handleLogoSelect} />
+              </label>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Couleur principale</Label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={profile.primary_color} onChange={(e) => setProfile({ ...profile, primary_color: e.target.value })} className="h-9 w-12 rounded border border-border cursor-pointer" />
+                <Input value={profile.primary_color} onChange={(e) => setProfile({ ...profile, primary_color: e.target.value })} className="font-mono text-sm" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Couleur secondaire</Label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={profile.secondary_color} onChange={(e) => setProfile({ ...profile, secondary_color: e.target.value })} className="h-9 w-12 rounded border border-border cursor-pointer" />
+                <Input value={profile.secondary_color} onChange={(e) => setProfile({ ...profile, secondary_color: e.target.value })} className="font-mono text-sm" />
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -155,13 +233,12 @@ const SettingsPage = () => {
         {loading ? "Enregistrement..." : "Enregistrer"}
       </Button>
 
-      {/* Alerts management */}
+      {/* Alerts */}
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="text-foreground flex items-center gap-2"><Bell className="h-5 w-5" /> Alertes</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Existing alerts */}
           {alerts.length > 0 && (
             <div className="space-y-2">
               {alerts.map((alert) => (
@@ -183,8 +260,6 @@ const SettingsPage = () => {
               ))}
             </div>
           )}
-
-          {/* New alert form */}
           <div className="border-t border-border pt-4 space-y-3">
             <p className="text-sm font-medium text-foreground">Nouvelle alerte</p>
             <div className="grid gap-3 md:grid-cols-2">
