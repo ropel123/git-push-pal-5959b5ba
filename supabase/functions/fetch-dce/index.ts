@@ -264,7 +264,7 @@ Deno.serve(async (req) => {
           // Also create a dce_uploads record
           await supabaseAdmin.from('dce_uploads').insert({
             tender_id,
-            user_id: user.id,
+            user_id: userId,
             file_name: `DCE_auto_${i + 1}.pdf`,
             file_path: filePath,
             file_size: result.files[i].byteLength,
