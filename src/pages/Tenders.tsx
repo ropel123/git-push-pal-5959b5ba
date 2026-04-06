@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -54,6 +56,7 @@ const Tenders = () => {
   const [regionFilter, setRegionFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [procedureFilter, setProcedureFilter] = useState("");
+  const [dceFilter, setDceFilter] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [searchName, setSearchName] = useState("");
   const [savingSearch, setSavingSearch] = useState(false);
@@ -84,11 +87,32 @@ const Tenders = () => {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
+    // If DCE filter is active, first get tender IDs that have DCE uploads
+    let dceIds: string[] | null = null;
+    if (dceFilter) {
+      const { data: dceData } = await supabase
+        .from("dce_uploads")
+        .select("tender_id");
+      if (dceData && dceData.length > 0) {
+        dceIds = [...new Set(dceData.map((d) => d.tender_id))];
+      } else {
+        // No DCE uploads exist, return empty
+        setTenders([]);
+        setTotalCount(0);
+        setLoading(false);
+        return;
+      }
+    }
+
     let query = supabase
       .from("tenders")
       .select("*", { count: "exact" })
       .order("publication_date", { ascending: false })
       .range(from, to);
+
+    if (dceIds) {
+      query = query.in("id", dceIds);
+    }
 
     // Server-side filters
     if (search.trim()) {
@@ -108,7 +132,7 @@ const Tenders = () => {
     if (data) setTenders(data);
     if (count !== null) setTotalCount(count);
     setLoading(false);
-  }, [page, search, regionFilter, statusFilter, procedureFilter]);
+  }, [page, search, regionFilter, statusFilter, procedureFilter, dceFilter]);
 
   // Debounced fetch on filter/page change
   useEffect(() => {
@@ -128,6 +152,7 @@ const Tenders = () => {
     setRegionFilter(f.regionFilter ?? "");
     setStatusFilter(f.statusFilter ?? "");
     setProcedureFilter(f.procedureFilter ?? "");
+    setDceFilter(f.dceFilter ?? false);
     setShowFilters(true);
     setPage(0);
     toast({ title: `Recherche "${s.name}" appliquée` });
@@ -158,7 +183,7 @@ const Tenders = () => {
   const saveSearch = async () => {
     if (!user || !searchName.trim()) return;
     setSavingSearch(true);
-    const filters = { search, regionFilter, statusFilter, procedureFilter };
+    const filters = { search, regionFilter, statusFilter, procedureFilter, dceFilter };
     await supabase.from("saved_searches").insert({ user_id: user.id, name: searchName.trim(), filters });
     toast({ title: "Recherche sauvegardée ✓" });
     setSearchName("");
@@ -247,7 +272,7 @@ const Tenders = () => {
       {showFilters && (
         <Card className="bg-card border-border">
           <CardContent className="pt-4 space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-4">
               <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(0); }}>
                 <SelectTrigger><SelectValue placeholder="Région" /></SelectTrigger>
                 <SelectContent>
@@ -272,13 +297,19 @@ const Tenders = () => {
                   {procedures.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <div className="flex items-center gap-2">
+                <Switch id="dce-filter" checked={dceFilter} onCheckedChange={(v) => { setDceFilter(v); setPage(0); }} />
+                <Label htmlFor="dce-filter" className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <FileText className="h-4 w-4" /> Avec DCE
+                </Label>
+              </div>
             </div>
             <div className="flex gap-2 items-center flex-wrap">
               <Input placeholder="Nom de la recherche" value={searchName} onChange={(e) => setSearchName(e.target.value)} className="max-w-xs" />
               <Button variant="secondary" size="sm" onClick={saveSearch} disabled={savingSearch || !searchName.trim()}>
                 <Save className="h-4 w-4 mr-1" /> Sauvegarder
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setSearch(""); setPage(0); }}>
+              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setDceFilter(false); setSearch(""); setPage(0); }}>
                 Réinitialiser
               </Button>
             </div>
