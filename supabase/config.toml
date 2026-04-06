@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.scrape-ted]
 verify_jwt = false
+
+[functions.fetch-dce]
+verify_jwt = false
