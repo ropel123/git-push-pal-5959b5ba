@@ -1,136 +1,116 @@
 
 
-# Audit technique des plateformes DCE + Plan d'integration IA
+# Audit technique : Telechargement automatique des DCE + Agent IA
 
-## Audit des plateformes DCE dans la base
+## Analyse des plateformes DCE en base
 
-Sur **13 027 AO** en base, **6 524** (50%) ont une `dce_url`. Voici la repartition par plateforme :
+Sur **13 027 AO**, **5 232** ont une `dce_url` exploitable (avec un identifiant de consultation). Repartition :
 
 ```text
-Plateforme              | AO    | % du total DCE
-------------------------|-------|---------------
-MPI/AWS (marches-publics.info) | 1 845 | 28%
-PLACE (marches-publics.gouv.fr)| 1 159 | 18%
-AchatPublic             |   851 | 13%
-Marches-securises.fr    |   479 |  7%
-e-marchespublics.com    |   472 |  7%
-Maximilien              |   258 |  4%
-SafeTender              |   104 |  2%
-Xmarches                |    67 |  1%
-Autres (megalis, klekoon, demat-ampa, marchespublics596280...) | 1 289 | 20%
+Plateforme                          | AO    | Auth requise | Acces anonyme DCE
+------------------------------------|-------|--------------|-------------------
+MPI/AWS (marches-publics.info)      | 1 800 | Oui + CAPTCHA| Oui ("mode anonyme")
+PLACE (marches-publics.gouv.fr)     | 1 083 | Oui          | RC telechargeable sans auth
+AchatPublic                         |   785 | Oui          | "Pieces de marche" visible, download = auth
+e-marchespublics.com                |    99 | Oui          | Boutons "Dossier"/"RC" visibles, download = auth
+Marches-securises.fr                |   404 | Oui          | Non (URLs generiques sans ID)
+Maximilien                          |   246 | Oui          | Non
+Xmarches                            |    62 | Oui          | Non
+demat-ampa, megalis, ternum, etc.   |   753 | Oui          | Non
 ```
 
-### Constat technique par plateforme
+### Constats cles
 
-**Toutes ces plateformes exigent une inscription gratuite** pour telecharger les DCE. Aucune ne propose de lien direct vers un ZIP/PDF sans authentification. Le telechargement automatique est donc **impossible sans simuler une session authentifiee** (Puppeteer/Playwright), ce qui pose des problemes de :
-- Maintenance (chaque plateforme a son propre formulaire)
-- Legalite (scraping de contenu protege)
-- CAPTCHAs et rate-limiting
+1. **MPI/AWS** : A un lien "retirer le DCE en mode anonyme" — potentiellement exploitable sans authentification
+2. **PLACE** : Propose un lien direct `Telecharger le RC` (Reglement de Consultation) en acces libre — l'URL est constructible : `marches-publics.gouv.fr/index.php?page=Entreprise.EntrepriseDownloadReglement&id={base64_id}&orgAcronyme={acro}`
+3. **AchatPublic** : La page de detail est accessible sans auth (description, Q&R visibles), mais le telechargement des pieces necessite une session
+4. **e-marchespublics** : Idem, la page de detail est ouverte mais le dossier est protege
+5. **Beaucoup d'URLs sont generiques** (juste le domaine, sans ID de consultation) — inexploitables
 
-### Strategie recommandee : Upload manuel du DCE par l'utilisateur
+## Strategie d'implementation : Agent DCE hybride
 
-Au lieu de tenter le telechargement automatique (complexe, fragile, couteux), la strategie pragmatique est :
+### Architecture proposee
 
-1. **Rediriger l'utilisateur** vers la plateforme DCE (bouton existant "Acceder au DCE")
-2. **L'utilisateur telecharge le DCE** lui-meme sur la plateforme (inscription gratuite)
-3. **L'utilisateur uploade le DCE chez nous** via un formulaire d'upload
-4. **L'IA analyse le DCE** et genere la proposition
-
----
-
-## Plan d'implementation
-
-### Phase 1 — Infrastructure de stockage des DCE uploades
-
-**Migration SQL** : Creer un bucket Supabase Storage `dce-documents` et une table `dce_uploads` pour tracker les fichiers :
-
-```sql
--- Bucket storage
-INSERT INTO storage.buckets (id, name, public) VALUES ('dce-documents', 'dce-documents', false);
-
--- Table de suivi
-CREATE TABLE dce_uploads (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tender_id uuid REFERENCES tenders(id) NOT NULL,
-  user_id uuid NOT NULL,
-  file_name text NOT NULL,
-  file_path text NOT NULL,
-  file_size bigint,
-  created_at timestamptz DEFAULT now()
-);
-ALTER TABLE dce_uploads ENABLE ROW LEVEL SECURITY;
--- RLS : users voient leurs propres uploads
+```text
+┌──────────────────────────────────────────┐
+│            Frontend (TenderDetail)        │
+│  [Telecharger DCE automatiquement]       │
+│  [Uploader manuellement]  (fallback)     │
+└────────────────┬─────────────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────────────┐
+│     Edge Function: fetch-dce             │
+│                                          │
+│  1. Detecte la plateforme (regex URL)    │
+│  2. Route vers le bon "adapter"          │
+│  3. Tente le telechargement              │
+│  4. Si echec → renvoie "manual_required" │
+│  5. Si OK → stocke dans Storage          │
+└──────────────────────────────────────────┘
 ```
 
-Policies RLS sur le bucket et la table pour que chaque user accede uniquement a ses fichiers.
+### Phase 1 — Adapteurs par plateforme (Edge Function `fetch-dce`)
 
-### Phase 2 — UI d'upload dans TenderDetail
+Chaque plateforme a un adapteur qui tente de recuperer le DCE sans interaction humaine :
 
-Ajouter dans `TenderDetail.tsx` :
-- Un bouton **"Uploader le DCE"** (icone Upload) a cote du bouton "Acceder au DCE"
-- Un dropzone qui accepte PDF/ZIP/DOCX (max 50MB)
-- Affichage des fichiers deja uploades pour cet AO
-- Possibilite de supprimer un fichier uploade
+**Adapteur PLACE (marches-publics.gouv.fr)** — Priorite haute (18% des DCE)
+- Le RC est telechargeable via un lien direct constructible a partir de l'ID
+- On extrait l'`id` et `orgAcronyme` de l'URL, on encode l'id en base64, et on fetch le PDF directement
+- Aucune auth necessaire pour le RC
 
-### Phase 3 — Edge function `analyze-tender` (IA via OpenRouter)
+**Adapteur MPI/AWS (marches-publics.info)** — Priorite haute (28% des DCE)
+- Mode anonyme disponible : on scrape la page pour trouver le lien "retirer le DCE en mode anonyme"
+- Utilise Firecrawl pour naviguer la page et extraire le lien de telechargement
+- CAPTCHA present = risque d'echec, fallback vers upload manuel
 
-Creer `supabase/functions/analyze-tender/index.ts` :
-- Recoit : `tender_id`, `user_id`, `analysis_type`
-- Recupere les infos du tender + les fichiers DCE uploades depuis Storage
-- Parse les PDFs (extraction texte)
-- Appelle OpenRouter (`anthropic/claude-sonnet-4`) avec un prompt structure
-- Types d'analyse :
-  - **Analyse rapide** : resume, go/no-go, points cles
-  - **Memoire technique** : brouillon structure complet
-  - **Recommandations** : strategie de reponse
-- Stocke le resultat dans `tender_analyses`
+**Adapteur AchatPublic** — Priorite moyenne (13%)
+- Scrape la page de detail pour extraire les metadonnees enrichies (description, Q&R, lots)
+- Telechargement DCE = auth requise → fallback upload manuel
+- Mais on enrichit le tender avec les infos scraped
 
-**Table `tender_analyses`** :
-```sql
-CREATE TABLE tender_analyses (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tender_id uuid REFERENCES tenders(id) NOT NULL,
-  user_id uuid NOT NULL,
-  analysis_type text NOT NULL,
-  result text,
-  model_used text,
-  tokens_used integer,
-  created_at timestamptz DEFAULT now()
-);
-```
+**Adapteur generique (Firecrawl)** — Pour toutes les autres plateformes
+- Utilise Firecrawl pour scraper la page du DCE
+- Extrait le maximum d'informations textuelles (description detaillee, lots, criteres)
+- Tente de trouver des liens de telechargement directs
+- Si aucun lien direct → fallback upload manuel
 
-### Phase 4 — UI d'analyse IA dans TenderDetail
+### Phase 2 — Table et stockage
 
-- Bouton **"Analyser avec l'IA"** (visible quand des DCE sont uploades ou que l'AO a assez d'infos)
-- Modal avec choix du type d'analyse
-- Affichage du resultat en markdown (avec ReactMarkdown)
-- Boutons copier / telecharger en PDF
-- Historique des analyses precedentes
+**Migration SQL** :
+- Table `dce_downloads` pour tracker les tentatives de telechargement automatique (statut, plateforme, erreur)
+- Utilise le bucket `dce-documents` existant
 
-### Phase 5 — Systeme de paiement (service 490€)
+### Phase 3 — UI dans TenderDetail
 
-- Page `/services` avec les packs (deja prevue dans PricingSection)
-- Table `service_requests` pour les demandes payantes
-- Integration Stripe pour le paiement
-- Workflow : paiement → l'equipe recoit la demande → revue du dossier IA → livraison
+- Bouton **"Recuperer le DCE"** qui appelle `fetch-dce`
+- Etats : "En cours..." → "Telecharge !" ou "Non disponible automatiquement, uploadez manuellement"
+- Affichage du resultat (fichiers recuperes vs. infos enrichies)
+- Fallback vers le composant `DceUploadSection` existant
 
-## Secret requis
+### Phase 4 — Enrichissement des donnees tender
 
-- `OPENROUTER_API_KEY` : a ajouter via l'outil secrets avant de coder l'edge function
+Meme quand le DCE n'est pas telechargeable, l'agent peut enrichir les donnees :
+- Scraper la description complete, les lots detailles, les Q&R publiques
+- Stocker ces infos supplementaires dans un champ `enriched_data` (JSONB) sur le tender
+- Utiliser ces donnees enrichies pour l'analyse IA (meilleure qualite de memoire technique)
 
-## Fichiers crees/modifies
+## Prerequis
 
-- Migration SQL (bucket + 2 tables + RLS)
-- `supabase/functions/analyze-tender/index.ts` (nouveau)
-- `src/pages/TenderDetail.tsx` (upload DCE + bouton IA + affichage resultats)
-- `src/lib/api/analyze.ts` (nouveau — client API pour l'edge function)
+1. **Connecteur Firecrawl** : a activer via `standard_connectors--connect` pour le scraping des plateformes complexes
+2. **Table `dce_downloads`** : migration DB pour tracker les telechargements automatiques
 
-## Ordre d'execution
+## Fichiers a creer/modifier
 
-1. Migration DB (bucket + tables)
-2. UI upload DCE dans TenderDetail
-3. Ajouter secret OPENROUTER_API_KEY
-4. Edge function analyze-tender
-5. UI analyse IA dans TenderDetail
-6. (Plus tard) Paiement Stripe + systeme coaching
+- `supabase/functions/fetch-dce/index.ts` — nouvelle Edge Function avec adapteurs par plateforme
+- `src/components/DceAutoFetchButton.tsx` — bouton de telechargement automatique
+- `src/pages/TenderDetail.tsx` — integration du bouton
+- Migration SQL pour `dce_downloads` + colonne `enriched_data` sur `tenders`
+
+## Limites et risques
+
+- **CAPTCHA** : MPI/AWS a des CAPTCHAs — le mode anonyme peut ne pas marcher a 100%
+- **Rate limiting** : les plateformes peuvent bloquer si trop de requetes
+- **URLs generiques** : ~20% des `dce_url` sont juste un domaine sans ID = inexploitables
+- **Legalite** : le scraping de contenu public est legal en France (droit a la copie privee), mais le contournement d'auth est plus discutable — on se limite aux acces publics/anonymes
 
