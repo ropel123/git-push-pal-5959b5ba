@@ -6,10 +6,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, Send, Loader2, Save, Sparkles } from "lucide-react";
+import { Bot, Send, Loader2, Save, Sparkles, Paperclip, X, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Attachment = { name: string; url: string };
+type Message = { role: "user" | "assistant"; content: string; attachments?: Attachment[] };
 
 interface MemoirData {
   company_certifications?: string[];
@@ -26,6 +27,8 @@ interface MemoirAIChatProps {
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-memoir`;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ACCEPTED_TYPES = ".pdf,.jpg,.jpeg,.png,.docx,.xlsx";
 
 export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
   const { user } = useAuth();
@@ -36,8 +39,11 @@ export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [memoirData, setMemoirData] = useState<MemoirData | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -51,18 +57,64 @@ export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
     }
   }, [open]);
 
+  const uploadFiles = async (files: File[]): Promise<Attachment[]> => {
+    if (!user || files.length === 0) return [];
+    const attachments: Attachment[] = [];
+
+    for (const file of files) {
+      const path = `memoir-attachments/${user.id}/${Date.now()}_${file.name}`;
+      const { error } = await supabase.storage.from("company-assets").upload(path, file);
+      if (error) {
+        console.error("Upload error:", error);
+        toast({ title: "Erreur upload", description: `${file.name}: ${error.message}`, variant: "destructive" });
+        continue;
+      }
+      const { data: urlData } = await supabase.storage.from("company-assets").createSignedUrl(path, 3600 * 24 * 7);
+      if (urlData?.signedUrl) {
+        attachments.push({ name: file.name, url: urlData.signedUrl });
+      }
+    }
+    return attachments;
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const valid = files.filter((f) => {
+      if (f.size > MAX_FILE_SIZE) {
+        toast({ title: "Fichier trop volumineux", description: `${f.name} dépasse 10 MB`, variant: "destructive" });
+        return false;
+      }
+      return true;
+    });
+    setPendingFiles((prev) => [...prev, ...valid]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const sendToAI = async (msgs: Message[]) => {
     setIsLoading(true);
     let assistantContent = "";
 
     try {
+      // Strip attachments from messages sent to AI, inject as text markers
+      const apiMessages = msgs.map((m) => {
+        if (m.attachments?.length) {
+          const attachmentText = m.attachments.map((a) => `\n[Pièce jointe : ${a.name}]`).join("");
+          return { role: m.role, content: m.content + attachmentText };
+        }
+        return { role: m.role, content: m.content };
+      });
+
       const resp = await fetch(CHAT_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
-        body: JSON.stringify({ messages: msgs }),
+        body: JSON.stringify({ messages: apiMessages }),
       });
 
       if (!resp.ok) {
@@ -101,7 +153,6 @@ export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
             const parsed = JSON.parse(jsonStr);
             const delta = parsed.choices?.[0]?.delta;
 
-            // Handle streamed content
             const content = delta?.content;
             if (content) {
               assistantContent += content;
@@ -114,7 +165,6 @@ export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
               });
             }
 
-            // Handle tool calls
             if (delta?.tool_calls) {
               hasToolCall = true;
               for (const tc of delta.tool_calls) {
@@ -161,7 +211,6 @@ export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
         }
       }
 
-      // If tool call was made, parse memoir data
       if (hasToolCall && toolCallArgs) {
         try {
           const data = JSON.parse(toolCallArgs) as MemoirData;
@@ -179,9 +228,22 @@ export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
     setIsLoading(false);
   };
 
-  const handleSend = () => {
-    if (!input.trim() || isLoading) return;
-    const userMsg: Message = { role: "user", content: input.trim() };
+  const handleSend = async () => {
+    if ((!input.trim() && pendingFiles.length === 0) || isLoading) return;
+
+    let attachments: Attachment[] = [];
+    if (pendingFiles.length > 0) {
+      setUploading(true);
+      attachments = await uploadFiles(pendingFiles);
+      setUploading(false);
+      setPendingFiles([]);
+    }
+
+    const userMsg: Message = {
+      role: "user",
+      content: input.trim() || (attachments.length > 0 ? "Voici mes documents." : ""),
+      attachments: attachments.length > 0 ? attachments : undefined,
+    };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
@@ -247,7 +309,25 @@ export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
                   ) : (
-                    <p>{msg.content}</p>
+                    <>
+                      <p>{msg.content}</p>
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {msg.attachments.map((att, j) => (
+                            <a
+                              key={j}
+                              href={att.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1.5 text-xs opacity-80 hover:opacity-100 underline"
+                            >
+                              <FileText className="h-3 w-3" />
+                              {att.name}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -279,22 +359,58 @@ export default function MemoirAIChat({ onMemoirSaved }: MemoirAIChatProps) {
           </div>
         )}
 
+        {/* Pending files chips */}
+        {pendingFiles.length > 0 && (
+          <div className="mx-6 mb-1 flex flex-wrap gap-2">
+            {pendingFiles.map((file, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1.5 bg-muted text-foreground text-xs rounded-full px-3 py-1"
+              >
+                <FileText className="h-3 w-3" />
+                {file.name.length > 25 ? file.name.slice(0, 22) + "..." : file.name}
+                <button onClick={() => removePendingFile(i)} className="hover:text-destructive">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Input */}
         <div className="px-6 pb-6 pt-2 border-t border-border">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_TYPES}
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
           <form
             onSubmit={(e) => { e.preventDefault(); handleSend(); }}
             className="flex gap-2"
           >
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || uploading}
+              title="Joindre un fichier"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
             <Input
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Votre réponse..."
-              disabled={isLoading}
+              disabled={isLoading || uploading}
               autoFocus
             />
-            <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
-              <Send className="h-4 w-4" />
+            <Button type="submit" size="icon" disabled={isLoading || uploading || (!input.trim() && pendingFiles.length === 0)}>
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </form>
         </div>
