@@ -1,74 +1,73 @@
 
 
-# Enrichir l'assistant de chiffrage avec le profil complet + analyses
+# Audit UI complet — Corrections des dimensions et du scroll
 
-## Problème
+## Problèmes identifiés
 
-Le contexte envoyé à l'IA dans `generate-pricing-strategy` est incomplet. Il manque :
-- **Certifications** (ISO, Qualibat, etc.)
-- **Références / projets passés** (avec montants, clients)
-- **Expériences passées** (`company_past_work`)
-- **Description de l'entreprise**
-- **Taille, SIREN, régions, mots-clés**
-- **Conditions de participation** et **localisation d'exécution** côté tender
-- **Données DCE enrichies** si disponibles
+### 1. Layout principal sans contrainte de hauteur
+`AppLayout.tsx` : le `SidebarInset` n'a pas de `h-screen` ni `overflow-hidden`. Le contenu déborde et crée un scroll sur le `body` entier (sidebar + contenu scrollent ensemble). C'est la cause principale du "scroll dans tous les sens".
 
-L'IA ne peut pas bien guider la personne si elle ne connaît pas le profil complet.
+### 2. Zone de contenu sans scroll isolé
+Le `div.flex-1.p-3` qui entoure `<Outlet />` n'a pas `overflow-y-auto`. Résultat : le scroll est global au lieu d'être limité à la zone de contenu (la sidebar devrait rester fixe).
 
-## Changements
+### 3. Pipeline : 6 colonnes forcées sur xl
+`Pipeline.tsx` utilise `xl:grid-cols-6` pour 6 étapes. Sur un écran 1311px (ton viewport), ça crée un scroll horizontal. Les colonnes sont trop étroites pour être lisibles.
 
-### 1. Enrichir le contexte prompt (`generate-pricing-strategy/index.ts`)
+### 4. Tenders : titres tronqués / débordent
+Les titres d'AO débordent de leur carte (visible sur la capture). `truncate` est utilisé mais le conteneur n'a pas de `max-w` ou `overflow-hidden` effectif.
 
-**Aussi fetcher les DCE enrichies** pour cet AO (table `dce_downloads` avec `enriched_data`).
+### 5. TenderDetail / Settings : `max-w-4xl` sans centrage
+Les pages détail et paramètres utilisent `max-w-4xl` mais sans `mx-auto`, donc le contenu colle à gauche sur grand écran.
 
-**Section ENTREPRISE complétée** avec tous les champs du profil :
+### 6. Settings : onglets trop serrés sur mobile
+`grid-cols-4` pour les tabs même en mobile → texte coupé.
 
-```
-ENTREPRISE :
-- Nom : ...
-- SIREN : ...
-- Taille : ...
-- Description : ...
-- Secteurs : ...
-- Régions : ...
-- Mots-clés : ...
-- Compétences : ...
-- Certifications : ...
-- Moyens humains : ...
-- Moyens matériels : ...
-- Expériences passées : ...
-- Références projets : [JSON des références avec client, montant, description]
-```
+---
 
-**Section APPEL D'OFFRES complétée** avec les champs manquants :
+## Corrections prévues
 
-```
-- Conditions de participation : ...
-- Lieu d'exécution : ...
-- Type de contrat : ...
-- Type de procédure : ...
-- Codes CPV : ...
-```
+### A. Layout principal (`AppLayout.tsx`)
+- Ajouter `h-screen overflow-hidden` sur le wrapper `SidebarProvider`
+- Ajouter `h-full flex flex-col overflow-hidden` sur `SidebarInset`
+- Ajouter `overflow-y-auto` sur le conteneur de `<Outlet />` → scroll uniquement dans la zone de contenu, sidebar fixe
 
-**Section DCE** (si des documents enrichis existent) :
+### B. Pipeline (`Pipeline.tsx`)
+- Changer `xl:grid-cols-6` → `lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6`
+- Ajouter un scroll horizontal propre avec `overflow-x-auto` en fallback
+- Réduire `min-h-[200px]` → `min-h-[120px]`
 
-```
-DONNÉES DCE ENRICHIES :
-[contenu enriched_data des DCE téléchargées]
-```
+### C. Tenders (`Tenders.tsx`)
+- Ajouter `overflow-hidden` sur le conteneur de titre dans chaque carte
+- Limiter la largeur avec `max-w-full` sur le `h3`
 
-### 2. Enrichir le system prompt
+### D. TenderDetail (`TenderDetail.tsx`)
+- Ajouter `mx-auto` au `max-w-4xl` existant
 
-Ajouter des instructions pour que l'IA :
-- Exploite activement les références similaires pour calibrer les prix
-- Compare les certifications détenues vs celles potentiellement requises
-- Utilise la taille de l'entreprise et les expériences passées pour ajuster les marges
-- Mentionne les forces du profil comme arguments commerciaux dans le `pricing_arguments`
+### E. Settings (`SettingsPage.tsx`)
+- Ajouter `mx-auto` au `max-w-4xl` existant
+- Tabs : passer de `grid-cols-4` fixe à responsive `grid-cols-2 sm:grid-cols-4`
 
-### 3. Redéployer la fonction
+### F. Dashboard (`Dashboard.tsx`)
+- Ajouter `max-w-7xl mx-auto` pour centrer sur grands écrans
 
-Un seul fichier modifié : `supabase/functions/generate-pricing-strategy/index.ts`, puis déploiement.
+### G. Awards (`Awards.tsx`)
+- Ajouter `max-w-5xl mx-auto` pour centrer
 
-## Fichier modifié
-- `supabase/functions/generate-pricing-strategy/index.ts`
+---
+
+## Fichiers modifiés
+- `src/components/AppLayout.tsx` — fix layout principal (scroll isolé)
+- `src/pages/Pipeline.tsx` — grille responsive
+- `src/pages/Tenders.tsx` — overflow titres
+- `src/pages/TenderDetail.tsx` — centrage
+- `src/pages/SettingsPage.tsx` — centrage + tabs responsive
+- `src/pages/Dashboard.tsx` — centrage
+- `src/pages/Awards.tsx` — centrage
+
+## Résultat attendu
+- La sidebar reste toujours visible et fixe
+- Seul le contenu principal scrolle verticalement
+- Plus de scroll horizontal involontaire
+- Les titres ne débordent plus
+- Le contenu est centré sur grands écrans
 
