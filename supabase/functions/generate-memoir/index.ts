@@ -98,12 +98,133 @@ IMPORTANT :
 - Explique régulièrement pourquoi tu poses ces questions (impact sur la notation)
 - Valorise les réponses de l'utilisateur et montre-lui comment elles seront utilisées dans le mémoire`;
 
+const SAVE_MEMOIR_TOOL = {
+  type: "function",
+  function: {
+    name: "save_memoir",
+    description: "Sauvegarde le mémoire technique structuré de l'entreprise une fois toutes les informations collectées et confirmées par l'utilisateur",
+    parameters: {
+      type: "object",
+      properties: {
+        company_certifications: {
+          type: "array",
+          items: { type: "string" },
+          description: "Liste des certifications (ISO 9001, Qualibat, RGE, MASE, etc.)",
+        },
+        company_skills: {
+          type: "string",
+          description: "Compétences clés et savoir-faire en markdown",
+        },
+        company_team: {
+          type: "string",
+          description: "Description des moyens humains en markdown",
+        },
+        company_equipment: {
+          type: "string",
+          description: "Moyens matériels et techniques en markdown",
+        },
+        company_past_work: {
+          type: "string",
+          description: "Description détaillée des travaux et projets réalisés en markdown",
+        },
+        company_references: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              client: { type: "string" },
+              amount: { type: "string" },
+              date: { type: "string" },
+              description: { type: "string" },
+            },
+            required: ["title", "client"],
+          },
+          description: "Références de projets réalisés",
+        },
+        company_description: {
+          type: "string",
+          description: "Description enrichie de l'entreprise",
+        },
+      },
+      required: ["company_skills", "company_team"],
+      additionalProperties: false,
+    },
+  },
+};
+
+function buildProfileContext(profile: Record<string, unknown> | null): string {
+  if (!profile) return "";
+  const parts: string[] = [];
+  if (profile.company_name) parts.push(`Nom: ${profile.company_name}`);
+  if (profile.company_description) parts.push(`Description: ${profile.company_description}`);
+  if ((profile.sectors as string[] | null)?.length) parts.push(`Secteurs: ${(profile.sectors as string[]).join(", ")}`);
+  if (profile.company_size) parts.push(`Taille: ${profile.company_size}`);
+  if ((profile.company_certifications as string[] | null)?.length) parts.push(`Certifications: ${(profile.company_certifications as string[]).join(", ")}`);
+  if (profile.company_skills) parts.push(`Compétences: ${profile.company_skills}`);
+  if (profile.company_team) parts.push(`Équipe: ${profile.company_team}`);
+  if (profile.company_equipment) parts.push(`Équipements: ${profile.company_equipment}`);
+  if (profile.company_past_work) parts.push(`Travaux: ${profile.company_past_work}`);
+  if (profile.company_references && Array.isArray(profile.company_references) && (profile.company_references as unknown[]).length > 0) {
+    parts.push(`Références: ${JSON.stringify(profile.company_references)}`);
+  }
+  if (parts.length === 0) return "";
+  return `\n\nINFORMATIONS DÉJÀ CONNUES SUR L'ENTREPRISE :\n${parts.join("\n")}\n\nTiens compte de ces informations et ne redemande pas ce qui est déjà renseigné. Approfondis plutôt ce qui manque.`;
+}
+
+interface AIProvider {
+  url: string;
+  key: string;
+  model: string;
+  name: string;
+  extraHeaders: Record<string, string>;
+}
+
+function getOpenRouterProvider(apiKey: string): AIProvider {
+  return {
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    key: apiKey,
+    model: "anthropic/claude-sonnet-4",
+    name: "openrouter",
+    extraHeaders: {
+      "HTTP-Referer": "https://lovable.dev",
+      "X-Title": "Memoir AI Agent",
+    },
+  };
+}
+
+function getLovableProvider(apiKey: string): AIProvider {
+  return {
+    url: "https://ai.gateway.lovable.dev/v1/chat/completions",
+    key: apiKey,
+    model: "google/gemini-2.5-pro",
+    name: "lovable",
+    extraHeaders: {},
+  };
+}
+
+async function callAI(provider: AIProvider, body: Record<string, unknown>): Promise<Response> {
+  console.log(`[memoir] Calling provider=${provider.name} model=${provider.model}`);
+  const resp = await fetch(provider.url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${provider.key}`,
+      "Content-Type": "application/json",
+      ...provider.extraHeaders,
+    },
+    body: JSON.stringify({ model: provider.model, ...body }),
+  });
+  console.log(`[memoir] provider=${provider.name} status=${resp.status}`);
+  return resp;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Non autorisé" }), {
@@ -124,6 +245,7 @@ serve(async (req) => {
       });
     }
 
+    // Parse input
     const { messages } = await req.json();
     if (!messages || !Array.isArray(messages)) {
       return new Response(JSON.stringify({ error: "messages requis" }), {
@@ -132,7 +254,7 @@ serve(async (req) => {
       });
     }
 
-    // Fetch current profile to give context
+    // Fetch profile context
     const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: profile } = await supabase
       .from("profiles")
@@ -140,125 +262,58 @@ serve(async (req) => {
       .eq("user_id", user.id)
       .single();
 
-    let profileContext = "";
-    if (profile) {
-      const parts = [];
-      if (profile.company_name) parts.push(`Nom: ${profile.company_name}`);
-      if (profile.company_description) parts.push(`Description: ${profile.company_description}`);
-      if (profile.sectors?.length) parts.push(`Secteurs: ${(profile.sectors as string[]).join(", ")}`);
-      if (profile.company_size) parts.push(`Taille: ${profile.company_size}`);
-      if (profile.company_certifications?.length) parts.push(`Certifications: ${(profile.company_certifications as string[]).join(", ")}`);
-      if (profile.company_skills) parts.push(`Compétences: ${profile.company_skills}`);
-      if (profile.company_team) parts.push(`Équipe: ${profile.company_team}`);
-      if (profile.company_equipment) parts.push(`Équipements: ${profile.company_equipment}`);
-      if (profile.company_past_work) parts.push(`Travaux: ${profile.company_past_work}`);
-      if (profile.company_references && Array.isArray(profile.company_references) && (profile.company_references as any[]).length > 0) {
-        parts.push(`Références: ${JSON.stringify(profile.company_references)}`);
-      }
-      if (parts.length > 0) {
-        profileContext = `\n\nINFORMATIONS DÉJÀ CONNUES SUR L'ENTREPRISE :\n${parts.join("\n")}\n\nTiens compte de ces informations et ne redemande pas ce qui est déjà renseigné. Approfondis plutôt ce qui manque.`;
-      }
-    }
+    const profileContext = buildProfileContext(profile);
 
-    // Use OpenRouter with Claude, fallback to Lovable AI Gateway
+    // Build request body (shared between providers)
+    const requestBody = {
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT + profileContext },
+        ...messages,
+      ],
+      stream: true,
+      tools: [SAVE_MEMOIR_TOOL],
+    };
+
+    // Determine providers
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-    let apiUrl: string;
-    let apiKey: string;
-    let model: string;
-    const extraHeaders: Record<string, string> = {};
-
-    if (OPENROUTER_API_KEY) {
-      apiUrl = "https://openrouter.ai/api/v1/chat/completions";
-      apiKey = OPENROUTER_API_KEY;
-      model = "anthropic/claude-3-5-sonnet-20241022";
-      extraHeaders["HTTP-Referer"] = "https://lovable.dev";
-      extraHeaders["X-Title"] = "Memoir AI Agent";
-    } else if (LOVABLE_API_KEY) {
-      apiUrl = "https://ai.gateway.lovable.dev/v1/chat/completions";
-      apiKey = LOVABLE_API_KEY;
-      model = "google/gemini-3-flash-preview";
-    } else {
+    if (!OPENROUTER_API_KEY && !LOVABLE_API_KEY) {
       return new Response(JSON.stringify({ error: "Aucune clé API configurée (OPENROUTER_API_KEY ou LOVABLE_API_KEY)" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiResponse = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        ...extraHeaders,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT + profileContext },
-          ...messages,
-        ],
-        stream: true,
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "save_memoir",
-              description: "Sauvegarde le mémoire technique structuré de l'entreprise une fois toutes les informations collectées et confirmées par l'utilisateur",
-              parameters: {
-                type: "object",
-                properties: {
-                  company_certifications: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "Liste des certifications (ISO 9001, Qualibat, RGE, MASE, etc.)",
-                  },
-                  company_skills: {
-                    type: "string",
-                    description: "Compétences clés et savoir-faire en markdown",
-                  },
-                  company_team: {
-                    type: "string",
-                    description: "Description des moyens humains en markdown",
-                  },
-                  company_equipment: {
-                    type: "string",
-                    description: "Moyens matériels et techniques en markdown",
-                  },
-                  company_past_work: {
-                    type: "string",
-                    description: "Description détaillée des travaux et projets réalisés en markdown",
-                  },
-                  company_references: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        title: { type: "string" },
-                        client: { type: "string" },
-                        amount: { type: "string" },
-                        date: { type: "string" },
-                        description: { type: "string" },
-                      },
-                      required: ["title", "client"],
-                    },
-                    description: "Références de projets réalisés",
-                  },
-                  company_description: {
-                    type: "string",
-                    description: "Description enrichie de l'entreprise",
-                  },
-                },
-                required: ["company_skills", "company_team"],
-                additionalProperties: false,
-              },
-            },
-          },
-        ],
-      }),
-    });
+    // Try OpenRouter first, fallback to Lovable AI on failure
+    let aiResponse: Response | null = null;
 
+    if (OPENROUTER_API_KEY) {
+      const provider = getOpenRouterProvider(OPENROUTER_API_KEY);
+      aiResponse = await callAI(provider, requestBody);
+
+      // If OpenRouter fails with a non-recoverable error, fallback
+      if (!aiResponse.ok && [400, 404, 422].includes(aiResponse.status)) {
+        const errText = await aiResponse.text();
+        console.warn(`[memoir] OpenRouter failed (${aiResponse.status}): ${errText}. Falling back to Lovable AI.`);
+        aiResponse = null; // trigger fallback
+      }
+    }
+
+    // Fallback to Lovable AI
+    if (!aiResponse && LOVABLE_API_KEY) {
+      const provider = getLovableProvider(LOVABLE_API_KEY);
+      aiResponse = await callAI(provider, requestBody);
+    }
+
+    if (!aiResponse) {
+      return new Response(JSON.stringify({ error: "Aucun provider AI disponible" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Handle remaining errors (rate limit, payment, etc.)
     if (!aiResponse.ok) {
       const status = aiResponse.status;
       if (status === 429) {
@@ -274,19 +329,19 @@ serve(async (req) => {
         });
       }
       const errText = await aiResponse.text();
-      console.error("AI error:", status, errText);
-      return new Response(JSON.stringify({ error: "Erreur IA" }), {
+      console.error(`[memoir] AI error: ${status} ${errText}`);
+      return new Response(JSON.stringify({ error: `Erreur IA (${status})` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Stream the response back
+    // Stream response back
     return new Response(aiResponse.body, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {
-    console.error("generate-memoir error:", e);
+    console.error("[memoir] error:", e);
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Erreur inconnue" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
