@@ -150,7 +150,7 @@ const Pipeline = () => {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 overflow-x-auto">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-4 overflow-x-auto">
         {STAGES.map((stage) => {
           const stageItems = items.filter((i) => i.stage === stage.key);
           return (
@@ -159,7 +159,7 @@ const Pipeline = () => {
                 <Badge variant="outline" className={stage.color}>{stage.label}</Badge>
                 <span className="text-xs text-muted-foreground">{stageItems.length}</span>
               </div>
-              <div className="space-y-2 min-h-[200px]">
+              <div className="space-y-2 min-h-[120px]">
                 {stageItems.map((item) => (
                   <Card key={item.id} className="bg-card border-border">
                     <CardContent className="p-3 space-y-2">

@@ -82,7 +82,7 @@ const Dashboard = () => {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Tableau de bord</h1>
         <p className="text-muted-foreground">Vue d'ensemble de votre activité</p>
