@@ -126,6 +126,7 @@ const TenderDetail = () => {
       toast({ title: "Erreur", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "Ajouté au pipeline ✓" });
+      fetchPipelineItem();
     }
   };
 
