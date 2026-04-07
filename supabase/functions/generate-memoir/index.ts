@@ -172,7 +172,7 @@ serve(async (req) => {
     if (OPENROUTER_API_KEY) {
       apiUrl = "https://openrouter.ai/api/v1/chat/completions";
       apiKey = OPENROUTER_API_KEY;
-      model = "anthropic/claude-sonnet-4-20250514";
+      model = "anthropic/claude-3.5-sonnet";
       extraHeaders["HTTP-Referer"] = "https://lovable.dev";
       extraHeaders["X-Title"] = "Memoir AI Agent";
     } else if (LOVABLE_API_KEY) {
