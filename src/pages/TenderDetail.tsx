@@ -445,6 +445,17 @@ const TenderDetail = () => {
         />
       )}
 
+
+      {/* Pricing Chat - visible when in pipeline */}
+      {user && id && pipelineItem && (
+        <PricingChat
+          tenderId={id}
+          pipelineItemId={pipelineItem.id}
+          existingPricing={pipelineItem.pricing_strategy as any}
+          onPricingSaved={fetchPipelineItem}
+        />
+      )}
+
       {/* Award notices */}
       {awards.length > 0 && (
         <Card className="bg-card border-border">
