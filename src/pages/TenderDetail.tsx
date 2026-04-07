@@ -12,6 +12,7 @@ import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, Exte
 import DceUploadSection from "@/components/DceUploadSection";
 import DceAutoFetchButton from "@/components/DceAutoFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
+import PricingChat from "@/components/PricingChat";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 
 interface Tender {
