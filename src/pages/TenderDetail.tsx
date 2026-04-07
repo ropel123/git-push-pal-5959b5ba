@@ -452,6 +452,14 @@ const TenderDetail = () => {
         />
       )}
 
+      {/* Hint: add to pipeline to unlock pricing */}
+      {user && id && !pipelineItem && (
+        <Card className="bg-muted/50 border-dashed border-border">
+          <CardContent className="py-4 text-center text-sm text-muted-foreground">
+            💡 Ajoutez cet appel d'offres à votre pipeline pour accéder à l'assistant de chiffrage IA
+          </CardContent>
+        </Card>
+      )}
 
       {/* Pricing Chat - visible when in pipeline */}
       {user && id && pipelineItem && (
