@@ -12,6 +12,7 @@ import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, Exte
 import DceUploadSection from "@/components/DceUploadSection";
 import DceAutoFetchButton from "@/components/DceAutoFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
+import PricingChat from "@/components/PricingChat";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 
 interface Tender {
@@ -80,6 +81,7 @@ const TenderDetail = () => {
   const [loading, setLoading] = useState(true);
   const [dceUploads, setDceUploads] = useState<any[]>([]);
   const [analyses, setAnalyses] = useState<any[]>([]);
+  const [pipelineItem, setPipelineItem] = useState<any>(null);
 
   const fetchDceAndAnalyses = () => {
     if (!id || !user) return;
@@ -87,6 +89,12 @@ const TenderDetail = () => {
       .then(({ data }) => setDceUploads(data || []));
     supabase.from("tender_analyses").select("*").eq("tender_id", id).eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setAnalyses(data || []));
+  };
+
+  const fetchPipelineItem = () => {
+    if (!id || !user) return;
+    supabase.from("pipeline_items").select("*").eq("tender_id", id).eq("user_id", user.id).maybeSingle()
+      .then(({ data }) => setPipelineItem(data));
   };
 
   useEffect(() => {
@@ -102,6 +110,7 @@ const TenderDetail = () => {
       setLoading(false);
     });
     fetchDceAndAnalyses();
+    fetchPipelineItem();
   }, [id, user]);
 
   const addToPipeline = async () => {
@@ -433,6 +442,17 @@ const TenderDetail = () => {
           hasDocuments={dceUploads.length > 0}
           analyses={analyses}
           onAnalysesChange={fetchDceAndAnalyses}
+        />
+      )}
+
+
+      {/* Pricing Chat - visible when in pipeline */}
+      {user && id && pipelineItem && (
+        <PricingChat
+          tenderId={id}
+          pipelineItemId={pipelineItem.id}
+          existingPricing={pipelineItem.pricing_strategy as any}
+          onPricingSaved={fetchPipelineItem}
         />
       )}
 

@@ -206,6 +206,7 @@ export type Database = {
           created_at: string | null
           id: string
           notes: string | null
+          pricing_strategy: Json | null
           score: number | null
           stage: Database["public"]["Enums"]["pipeline_stage"] | null
           tender_id: string
@@ -217,6 +218,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           notes?: string | null
+          pricing_strategy?: Json | null
           score?: number | null
           stage?: Database["public"]["Enums"]["pipeline_stage"] | null
           tender_id: string
@@ -228,6 +230,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           notes?: string | null
+          pricing_strategy?: Json | null
           score?: number | null
           stage?: Database["public"]["Enums"]["pipeline_stage"] | null
           tender_id?: string
