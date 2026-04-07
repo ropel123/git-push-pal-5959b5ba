@@ -312,7 +312,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     if (!user || !memoirData) return;
     setSaving(true);
 
-    const updateData: Record<string, unknown> = {};
+    const updateData: Record<string, any> = {};
     if (memoirData.company_name) updateData.company_name = memoirData.company_name;
     if (memoirData.siren) updateData.siren = memoirData.siren;
     if (memoirData.company_size) updateData.company_size = memoirData.company_size;
@@ -332,7 +332,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
       updateData.onboarding_completed = true;
     }
 
-    const { error } = await supabase.from("profiles").update(updateData).eq("user_id", user.id);
+    const { error } = await supabase.from("profiles").update(updateData as any).eq("user_id", user.id);
 
     if (error) {
       toast({ title: "Erreur", description: error.message, variant: "destructive" });

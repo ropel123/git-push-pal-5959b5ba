@@ -8,10 +8,11 @@ const corsHeaders = {
 
 const systemPrompt = `Tu es un expert en chiffrage et stratégie commerciale pour les marchés publics français. Tu aides les entreprises à construire leur réponse commerciale (prix, marges, décomposition par lots/postes).
 
-Tu as accès aux informations suivantes :
-- Les données de l'appel d'offres (titre, objet, critères, lots, montant estimé)
-- Les analyses IA déjà réalisées sur cet AO
-- Le profil de l'entreprise (compétences, moyens, références)
+Tu as accès aux informations COMPLÈTES suivantes :
+- Les données détaillées de l'appel d'offres (titre, objet, critères, lots, montant estimé, conditions, DCE)
+- Les analyses IA déjà réalisées sur cet AO (analyse rapide, mémoire technique, recommandations)
+- Le profil COMPLET de l'entreprise (compétences, moyens, certifications, références, expériences passées)
+- Les données DCE enrichies si disponibles
 
 Ton rôle :
 1. Analyser la structure de l'AO et identifier les postes de coûts
@@ -19,10 +20,14 @@ Ton rôle :
 3. Proposer une stratégie de prix compétitive en tenant compte des critères d'attribution
 4. Aider à décomposer le prix par lots si nécessaire
 5. Conseiller sur les marges en fonction du contexte concurrentiel
+6. **Exploiter activement les références et projets passés similaires** pour calibrer les prix suggérés
+7. **Comparer les certifications détenues par l'entreprise** avec celles potentiellement requises ou valorisées dans l'AO
+8. **Adapter les marges** en fonction de la taille de l'entreprise, de son expérience dans ce type de marché et de sa capacité (moyens humains/matériels)
+9. **Construire des arguments commerciaux** (pricing_arguments) en mettant en avant les forces concrètes du profil : certifications, références similaires, moyens dédiés, expérience terrain
 
 Sois conversationnel et pose les questions une par une. Quand tu as suffisamment d'informations, utilise le tool save_pricing pour sauvegarder la stratégie commerciale.
 
-IMPORTANT : N'invente jamais de prix. Demande toujours à l'utilisateur ses coûts réels. Tu peux suggérer des fourchettes basées sur le marché mais l'utilisateur valide toujours.`;
+IMPORTANT : N'invente jamais de prix. Demande toujours à l'utilisateur ses coûts réels. Tu peux suggérer des fourchettes basées sur le marché et les références passées similaires, mais l'utilisateur valide toujours.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -42,20 +47,31 @@ serve(async (req) => {
     const { messages, tender_id, pipeline_item_id } = await req.json();
     if (!tender_id) throw new Error("tender_id requis");
 
-    // Fetch context data
-    const [tenderRes, profileRes, analysesRes] = await Promise.all([
+    // Fetch context data including DCE downloads
+    const [tenderRes, profileRes, analysesRes, dceRes] = await Promise.all([
       supabase.from("tenders").select("*").eq("id", tender_id).single(),
       supabase.from("profiles").select("*").eq("user_id", user.id).single(),
       supabase.from("tender_analyses").select("*").eq("tender_id", tender_id).eq("user_id", user.id).order("created_at", { ascending: false }),
+      supabase.from("dce_downloads").select("enriched_data").eq("tender_id", tender_id).eq("user_id", user.id).not("enriched_data", "is", null),
     ]);
 
     const tender = tenderRes.data;
     const profile = profileRes.data;
     const analyses = analysesRes.data || [];
+    const dceData = dceRes.data || [];
 
     if (!tender) throw new Error("Tender introuvable");
 
     const analysisTexts = analyses.map((a: any) => `[${a.analysis_type}]\n${a.result || ""}`).join("\n\n---\n\n");
+
+    const dceTexts = dceData
+      .filter((d: any) => d.enriched_data)
+      .map((d: any) => JSON.stringify(d.enriched_data))
+      .join("\n\n---\n\n");
+
+    const referencesJson = profile?.company_references
+      ? JSON.stringify(profile.company_references)
+      : "Aucune référence renseignée";
 
     const contextPrompt = `CONTEXTE DE L'APPEL D'OFFRES :
 - Titre : ${tender.title}
@@ -65,16 +81,34 @@ serve(async (req) => {
 - Critères d'attribution : ${tender.award_criteria || "Non précisés"}
 - Lots : ${tender.lots && Array.isArray(tender.lots) && tender.lots.length > 0 ? JSON.stringify(tender.lots) : "Marché global (pas de lots)"}
 - Description : ${tender.description || "Non disponible"}
+- Conditions de participation : ${tender.participation_conditions || "Non précisées"}
+- Lieu d'exécution : ${tender.execution_location || "Non précisé"}
+- Type de contrat : ${tender.contract_type || "Non précisé"}
+- Type de procédure : ${tender.procedure_type || "Non précisé"}
+- Codes CPV : ${tender.cpv_codes && tender.cpv_codes.length > 0 ? tender.cpv_codes.join(", ") : "Non renseignés"}
+- Département : ${tender.department || "Non précisé"}
+- Région : ${tender.region || "Non précisée"}
+- Date limite : ${tender.deadline || "Non précisée"}
 
-ENTREPRISE :
+ENTREPRISE (PROFIL COMPLET) :
 - Nom : ${profile?.company_name || "Non renseigné"}
+- SIREN : ${profile?.siren || "Non renseigné"}
+- Taille : ${profile?.company_size || "Non renseignée"}
+- Description : ${profile?.company_description || "Non renseignée"}
 - Secteurs : ${(profile?.sectors as string[])?.join(", ") || "Non renseignés"}
-- Compétences : ${(profile as any)?.company_skills || "Non renseignées"}
-- Moyens humains : ${(profile as any)?.company_team || "Non renseignés"}
-- Moyens matériels : ${(profile as any)?.company_equipment || "Non renseignés"}
+- Régions : ${(profile?.regions as string[])?.join(", ") || "Non renseignées"}
+- Mots-clés : ${(profile?.keywords as string[])?.join(", ") || "Non renseignés"}
+- Compétences : ${profile?.company_skills || "Non renseignées"}
+- Certifications : ${(profile?.company_certifications as string[])?.join(", ") || "Aucune"}
+- Moyens humains : ${profile?.company_team || "Non renseignés"}
+- Moyens matériels : ${profile?.company_equipment || "Non renseignés"}
+- Expériences passées : ${profile?.company_past_work || "Non renseignées"}
+- Références projets : ${referencesJson}
 
-ANALYSES IA :
-${analysisTexts || "Aucune analyse disponible"}`;
+ANALYSES IA EXISTANTES :
+${analysisTexts || "Aucune analyse disponible"}
+
+${dceTexts ? `DONNÉES DCE ENRICHIES :\n${dceTexts}` : ""}`;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY non configurée");
@@ -142,7 +176,7 @@ ${analysisTexts || "Aucune analyse disponible"}`;
                     },
                     description: "Prix par lot si applicable",
                   },
-                  pricing_arguments: { type: "string", description: "Argumentaire justifiant le prix proposé" },
+                  pricing_arguments: { type: "string", description: "Argumentaire justifiant le prix proposé, en mettant en avant les forces du profil entreprise (certifications, références similaires, moyens)" },
                 },
                 required: ["global_price", "strategy_summary", "cost_breakdown"],
                 additionalProperties: false,
