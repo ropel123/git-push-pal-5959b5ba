@@ -217,9 +217,15 @@ const TenderDetail = () => {
               </a>
             </Button>
           )}
-          <Button onClick={addToPipeline}>
-            <Plus className="h-4 w-4 mr-1" /> Pipeline
-          </Button>
+          {pipelineItem ? (
+            <Button variant="outline" disabled className="opacity-70">
+              ✓ Dans le pipeline
+            </Button>
+          ) : (
+            <Button onClick={addToPipeline}>
+              <Plus className="h-4 w-4 mr-1" /> Pipeline
+            </Button>
+          )}
         </div>
       </div>
 
