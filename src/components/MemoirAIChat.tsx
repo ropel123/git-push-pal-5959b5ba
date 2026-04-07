@@ -312,7 +312,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     if (!user || !memoirData) return;
     setSaving(true);
 
-    const updateData: Record<string, unknown> = {};
+    const updateData: Record<string, any> = {};
     if (memoirData.company_name) updateData.company_name = memoirData.company_name;
     if (memoirData.siren) updateData.siren = memoirData.siren;
     if (memoirData.company_size) updateData.company_size = memoirData.company_size;
