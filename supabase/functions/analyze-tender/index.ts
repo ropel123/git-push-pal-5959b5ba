@@ -135,41 +135,43 @@ ${tender.cpv_codes && tender.cpv_codes.length > 0 ? `Codes CPV: ${tender.cpv_cod
     const systemPrompts: Record<string, string> = {
       quick: `Tu es un expert en marchés publics français. Analyse l'appel d'offres ci-dessous et fournis:
 1. **Résumé** (3-5 phrases)
-2. **Recommandation Go/No-Go** avec justification
-3. **Points clés** à retenir (5-7 points)
-4. **Risques identifiés**
-5. **Estimation de la charge de travail** pour répondre
+2. **Matching entreprise / AO** : Compare les exigences de l'AO avec le profil de l'entreprise candidate. Indique le taux de correspondance sur : compétences, certifications requises vs détenues, zone géographique, références similaires, capacité financière. Si des certifications ou compétences manquent, liste-les explicitement.
+3. **Recommandation Go/No-Go** avec justification basée sur le matching
+4. **Points clés** à retenir (5-7 points)
+5. **Risques identifiés**
+6. **Estimation de la charge de travail** pour répondre
 
-Sois concis et actionnable.`,
+Sois concis et actionnable. Base ton analyse sur les données réelles du profil de l'entreprise fourni ci-dessous.`,
 
-      technical: `Tu es un expert en rédaction de mémoires techniques pour les marchés publics français. 
-À partir des informations de l'appel d'offres, génère un **brouillon structuré de mémoire technique** comprenant:
+      technical: `Tu es un expert en rédaction de mémoires techniques pour les marchés publics français.
+À partir des informations de l'appel d'offres ET du profil de l'entreprise candidate, génère un **brouillon structuré de mémoire technique** comprenant:
 
-1. **Page de garde** (titre du marché, candidat, date)
-2. **Présentation de l'entreprise** (à personnaliser)
+1. **Page de garde** (titre du marché, nom de l'entreprise candidate, date)
+2. **Présentation de l'entreprise** — utilise les informations réelles du profil (description, certifications, compétences). Ne mets [À COMPLÉTER] que pour les données absentes du profil.
 3. **Compréhension du besoin** (reformulation du cahier des charges)
-4. **Méthodologie proposée** (approche technique détaillée)
-5. **Moyens humains** (profils proposés)
-6. **Moyens matériels et logistiques**
+4. **Méthodologie proposée** (approche technique détaillée, en lien avec les compétences de l'entreprise)
+5. **Moyens humains** — utilise les données réelles du profil si disponibles (équipe, compétences)
+6. **Moyens matériels et logistiques** — utilise les données réelles du profil si disponibles
 7. **Planning prévisionnel**
-8. **Démarche qualité et environnementale**
-9. **Références similaires** (à compléter)
+8. **Démarche qualité et environnementale** — mentionne les certifications réelles détenues
+9. **Références similaires** — utilise les références réelles du profil. Mets en avant celles qui sont similaires à l'AO.
 10. **Valeur ajoutée et engagements**
 
-Rédige chaque section avec du contenu réaliste et des placeholders [À COMPLÉTER] pour les informations spécifiques de l'entreprise.`,
+IMPORTANT : Utilise les données réelles du profil de l'entreprise pour pré-remplir chaque section. Ne mets [À COMPLÉTER] que pour les informations absentes du profil.`,
 
       strategy: `Tu es un consultant senior en stratégie de réponse aux marchés publics français. Analyse cet appel d'offres et fournis:
 
 1. **Analyse stratégique du marché** (contexte, enjeux, concurrence probable)
-2. **Points de différenciation** possibles
-3. **Stratégie de prix** recommandée
-4. **Critères d'attribution** : comment maximiser le score sur chaque critère
-5. **Pièges à éviter**
-6. **Argumentaire clé** à développer
-7. **Alliances/sous-traitance** potentielles
-8. **Calendrier de réponse** recommandé
+2. **Forces et faiblesses de l'entreprise candidate** par rapport à cet AO — analyse les compétences, certifications, références et moyens du profil vs les exigences de l'AO. Identifie les gaps de compétences ou certifications manquantes.
+3. **Points de différenciation** possibles basés sur le profil réel de l'entreprise
+4. **Stratégie de prix** recommandée (en tenant compte de la taille de l'entreprise et du montant estimé)
+5. **Critères d'attribution** : comment maximiser le score sur chaque critère avec les atouts de l'entreprise
+6. **Pièges à éviter**
+7. **Argumentaire clé** à développer en s'appuyant sur les références et compétences réelles
+8. **Alliances/sous-traitance** potentielles pour combler les éventuels gaps identifiés
+9. **Calendrier de réponse** recommandé
 
-Sois stratégique et orienté vers la victoire.`,
+Sois stratégique et orienté vers la victoire. Base ton analyse sur le profil réel de l'entreprise.`,
     };
 
     const systemPrompt = systemPrompts[analysis_type] || systemPrompts.quick;
