@@ -1,50 +1,58 @@
 
 
-# Matching mémoire technique ↔ analyses IA + scoring enrichi
+# Filtrage intelligent des appels d'offres par profil entreprise
 
-## Résumé
+## Problème
 
-Deux améliorations :
-1. **Prompts IA enrichis** : les 3 types d'analyse (rapide, mémoire technique, stratégie) utilisent déjà les données profil, mais les prompts ne demandent pas explicitement de faire le matching. On met à jour les prompts pour que l'IA compare activement les exigences de l'AO aux compétences/certifications/références de l'entreprise.
-2. **Scoring enrichi** : le `computeScore` actuel n'utilise que keywords/regions/CPV/montant. On ajoute des critères basés sur les données du mémoire IA (certifications, compétences, références).
+Actuellement, la page Tenders affiche TOUS les appels d'offres sans distinction. Pour une entreprise de BTP en Île-de-France, elle voit aussi les marchés informatiques en Bretagne — inutile et bruyant.
 
-## Changements
+## Solution
 
-### 1. Enrichir les prompts d'analyse (`analyze-tender/index.ts`)
+Appliquer automatiquement les filtres du profil (secteurs, régions, mots-clés) au chargement de la page, avec un toggle "Voir tous les AO" pour désactiver le filtre si besoin.
 
-Les 3 prompts sont mis à jour pour inclure des instructions de matching explicites :
+## Fonctionnement
 
-- **Analyse rapide** : ajouter "Compare les exigences de l'AO avec le profil de l'entreprise candidate. Indique le taux de correspondance sur : compétences, certifications requises vs détenues, zone géographique, références similaires, capacité financière."
-- **Mémoire technique** : remplacer les `[À COMPLÉTER]` par les vraies données du profil quand disponibles (compétences, moyens humains/matériels, certifications, références). L'IA rédige directement avec les infos de l'entreprise au lieu de mettre des placeholders.
-- **Stratégie** : ajouter "Analyse les forces et faiblesses de l'entreprise candidate par rapport à cet AO. Identifie les gaps de compétences ou certifications manquantes."
+### 1. Filtre par défaut au chargement
 
-### 2. Enrichir le scoring (`src/lib/scoring.ts`)
+Quand le profil est chargé, on applique automatiquement :
+- **Régions** du profil → filtre `region` (multi-régions avec `.in()`)
+- **Mots-clés** du profil → recherche textuelle combinée sur `title`, `object`, `buyer_name`
+- **Secteurs** → matching sur les CPV codes ou le texte de l'AO
 
-Ajouter 3 nouveaux critères au scoring (redistribution des poids) :
+Un état `smartFilter: boolean` (défaut `true`) contrôle si le filtrage intelligent est actif.
 
-- **Certifications** (poids 10) : si l'AO mentionne des certifications (ISO, Qualibat, etc.) dans son texte et que le profil les a → points
-- **Compétences** (poids 10) : matching texte entre `company_skills` et le texte de l'AO
-- **Références** (poids 5) : si des références existent dans le profil, bonus de crédibilité
+### 2. Toggle "Filtrage intelligent"
 
-Nouveaux poids : Keywords 25, Région 20, CPV 15, Montant 10, Certifications 10, Compétences 15, Références 5 = 100
+Un switch bien visible en haut de page : "Appels d'offres pour mon entreprise" (activé par défaut). Quand désactivé, on retrouve tous les AO comme avant.
 
-L'interface `ProfileForScoring` est étendue avec `company_certifications`, `company_skills`, `company_references`.
+### 3. Tri par score
 
-### 3. Passer le profil complet au scoring
+Quand le filtrage intelligent est actif, les résultats sont triés par score de pertinence (descendant) plutôt que par date de publication, pour montrer les plus pertinents en premier.
 
-**Fichier** : `src/pages/TenderDetail.tsx` (et partout où `computeScore` est appelé)
+### 4. Indicateur visuel
 
-S'assurer que le profil passé à `computeScore` inclut les nouveaux champs du mémoire.
+Un badge ou bandeau indiquant "Filtré selon votre profil (3 régions, 5 mots-clés)" pour que l'utilisateur comprenne pourquoi il voit ces résultats.
 
-## Fichiers modifiés
-- `supabase/functions/analyze-tender/index.ts` — prompts enrichis avec instructions de matching
-- `src/lib/scoring.ts` — nouveaux critères + nouvelles pondérations
-- `src/pages/TenderDetail.tsx` — passer profil complet au scoring
-- `src/pages/Tenders.tsx` — idem si scoring utilisé dans la liste
+## Changements techniques
+
+**Fichier** : `src/pages/Tenders.tsx`
+
+- Ajouter état `smartFilter` (boolean, défaut `true`)
+- Attendre que `profile` soit chargé avant le premier fetch
+- Dans `fetchTenders` : si `smartFilter` est actif ET que le profil a des données :
+  - Filtrer par régions du profil avec `.in("region", profile.regions)`
+  - Construire un `.or()` avec les mots-clés du profil pour matcher `title.ilike` / `object.ilike`
+  - Ces filtres s'ajoutent aux filtres manuels (pas de remplacement)
+- Ajouter un Switch "Filtrage intelligent" dans le header
+- Ajouter un petit texte explicatif sous le titre indiquant les critères actifs
+- Trier côté client par score quand `smartFilter` est actif (le scoring est déjà calculé)
+
+**Aucune migration DB nécessaire** — tout se fait côté requête client.
 
 ## Résultat attendu
-- Les analyses IA mentionnent explicitement les correspondances entre l'entreprise et l'AO
-- Le mémoire technique est pré-rédigé avec les vraies infos de l'entreprise
-- Le score de pertinence prend en compte les certifications, compétences et références
-- Plus le mémoire IA est rempli, plus le scoring et les analyses sont pertinents
+
+- Par défaut, l'utilisateur voit uniquement les AO qui correspondent à son profil
+- Il peut désactiver le filtre en un clic pour voir tout
+- Les filtres manuels (région, statut, procédure) restent utilisables en complément
+- Plus le profil est renseigné, plus le filtrage est précis
 
