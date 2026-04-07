@@ -91,6 +91,12 @@ const TenderDetail = () => {
       .then(({ data }) => setAnalyses(data || []));
   };
 
+  const fetchPipelineItem = () => {
+    if (!id || !user) return;
+    supabase.from("pipeline_items").select("*").eq("tender_id", id).eq("user_id", user.id).maybeSingle()
+      .then(({ data }) => setPipelineItem(data));
+  };
+
   useEffect(() => {
     if (!id) return;
     Promise.all([
@@ -104,6 +110,7 @@ const TenderDetail = () => {
       setLoading(false);
     });
     fetchDceAndAnalyses();
+    fetchPipelineItem();
   }, [id, user]);
 
   const addToPipeline = async () => {
