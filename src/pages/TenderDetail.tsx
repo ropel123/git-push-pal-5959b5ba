@@ -81,6 +81,7 @@ const TenderDetail = () => {
   const [loading, setLoading] = useState(true);
   const [dceUploads, setDceUploads] = useState<any[]>([]);
   const [analyses, setAnalyses] = useState<any[]>([]);
+  const [pipelineItem, setPipelineItem] = useState<any>(null);
 
   const fetchDceAndAnalyses = () => {
     if (!id || !user) return;
