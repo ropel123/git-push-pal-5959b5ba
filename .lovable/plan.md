@@ -1,39 +1,55 @@
 
+Objectif: corriger le 500 sur `generate-memoir` sans toucher à l’UI.
 
-# Passer l'agent memoir sur OpenRouter
+Constat confirmé
+- La cause est déjà visible dans les logs Edge Function :
+  `AI error: 404 {"error":{"message":"No endpoints found for anthropic/claude-3-5-sonnet-20241022.","code":404}}`
+- Le code actuel utilise encore ce modèle dans `supabase/functions/generate-memoir/index.ts` ligne ~175.
+- Comme `OPENROUTER_API_KEY` est bien configurée, la branche OpenRouter est toujours prise, donc le fallback Lovable n’est jamais utilisé.
 
-## Ce qui change
+Plan de correction
+1. Corriger le modèle OpenRouter
+- Remplacer `anthropic/claude-3-5-sonnet-20241022` par un identifiant OpenRouter valide et actuellement supporté.
+- Éviter les IDs “supposés” ou datés sans vérification.
 
-Modifier `supabase/functions/generate-memoir/index.ts` pour appeler l'API OpenRouter au lieu du gateway Lovable AI. OpenRouter est compatible avec l'API OpenAI, donc le streaming SSE et le tool calling `save_memoir` restent identiques.
+2. Rendre l’erreur explicite côté backend
+- Ajouter une gestion dédiée pour les erreurs `404` OpenRouter.
+- Retourner une erreur claire du type :
+  - `Model OpenRouter introuvable`
+  - et inclure si possible le message provider pour éviter le faux diagnostic “Erreur IA” générique.
+- Garder aussi les cas `402` et `429` déjà présents.
 
-## Prerequis
+3. Ajouter un vrai fallback runtime
+- Si OpenRouter répond `404`, `400` ou autre erreur non récupérable liée au modèle/provider, basculer automatiquement sur `LOVABLE_API_KEY` avec un modèle Lovable AI stable.
+- Cela évite qu’un mauvais slug casse tout le chat.
+- Le fallback ne doit pas dépendre de l’absence de secret, mais aussi de l’échec de l’appel OpenRouter.
 
-Tu devras fournir ta cle API OpenRouter. Tu peux la creer sur [openrouter.ai/keys](https://openrouter.ai/keys). Elle sera stockee comme secret Supabase `OPENROUTER_API_KEY`.
+4. Ne pas changer le contrat frontend
+- Garder le streaming SSE tel quel dans `MemoirAIChat.tsx`.
+- Garder le format `tools` / `tool_calls` pour `save_memoir`.
+- Aucune modification UX nécessaire pour corriger ce bug.
 
-## Modifications
+5. Améliorer l’observabilité
+- Logger clairement :
+  - provider utilisé (`openrouter` ou `lovable`)
+  - modèle tenté
+  - code HTTP retourné
+- Sans exposer les secrets.
+- Cela permettra de diagnostiquer immédiatement un prochain incident.
 
-### 1. Ajouter le secret `OPENROUTER_API_KEY`
+Validation prévue
+- Ouvrir le chat mémoire et vérifier que le premier message assistant arrive sans 500.
+- Vérifier que le streaming fonctionne toujours token par token.
+- Vérifier qu’un `tool_call` éventuel est toujours parsé côté client.
+- Vérifier qu’en cas d’échec OpenRouter, le fallback Lovable AI répond bien.
 
-Via l'outil de gestion des secrets Supabase.
+Détails techniques
+- Fichier principal à modifier : `supabase/functions/generate-memoir/index.ts`
+- Le frontend `src/components/MemoirAIChat.tsx` semble correct pour lire un flux SSE OpenAI-compatible.
+- `supabase/config.toml` ne montre pas d’entrée spécifique pour `generate-memoir`, mais ce n’est pas la cause du bug actuel.
+- Le problème n’est pas l’auth, ni CORS, ni le parsing client : le backend reçoit un `404 model not found` du provider.
 
-### 2. Modifier `supabase/functions/generate-memoir/index.ts`
-
-- Remplacer l'URL `https://ai.gateway.lovable.dev/v1/chat/completions` par `https://openrouter.ai/api/v1/chat/completions`
-- Remplacer `LOVABLE_API_KEY` par `OPENROUTER_API_KEY` dans le header Authorization
-- Changer le modele vers `anthropic/claude-sonnet-4-20250514` (ou tout autre modele disponible sur OpenRouter — configurable)
-- Enrichir le prompt systeme pour tirer parti de la puissance de Claude : sous-questions plus detaillees, minimum 12 echanges, relances systematiques
-- Tout le reste (streaming SSE, tool calling `save_memoir`, sauvegarde profil) reste identique
-
-### 3. Aucun changement UI
-
-Le composant `MemoirAIChat.tsx` reste tel quel — seul le backend change.
-
-## Cout
-
-Facture par OpenRouter selon le modele choisi. Claude Sonnet ~$3/M tokens input, $15/M output. Une conversation memoir complete coute environ $0.05-0.15.
-
-## Fichiers concernes
-
-- `supabase/functions/generate-memoir/index.ts` — appel OpenRouter + prompt enrichi
-- Secret `OPENROUTER_API_KEY` a ajouter
-
+Résultat attendu
+- Plus de `500 {"error":"Erreur IA"}` au lancement du chat.
+- Le chat mémoire fonctionne via OpenRouter si le modèle est valide.
+- Si OpenRouter casse ou change de slug, l’app continue à fonctionner grâce au fallback.
