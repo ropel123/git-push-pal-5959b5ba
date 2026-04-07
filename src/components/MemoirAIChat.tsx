@@ -332,7 +332,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
       updateData.onboarding_completed = true;
     }
 
-    const { error } = await supabase.from("profiles").update(updateData).eq("user_id", user.id);
+    const { error } = await supabase.from("profiles").update(updateData as any).eq("user_id", user.id);
 
     if (error) {
       toast({ title: "Erreur", description: error.message, variant: "destructive" });
