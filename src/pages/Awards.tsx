@@ -42,7 +42,7 @@ const Awards = () => {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-5xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Avis d'attribution</h1>
         <p className="text-muted-foreground">{filtered.length} résultat(s)</p>

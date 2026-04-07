@@ -52,10 +52,10 @@ const AppLayout = () => {
   const pageTitle = PAGE_TITLES[location.pathname] ?? "";
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="h-screen overflow-hidden">
       <AppSidebar />
-      <SidebarInset>
-        <header className="flex h-14 items-center justify-between gap-2 border-b border-border px-4">
+      <SidebarInset className="h-full flex flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
           <div className="flex items-center gap-2">
             <SidebarTrigger />
             {pageTitle && <span className="text-sm font-medium text-foreground hidden sm:block">{pageTitle}</span>}
@@ -65,7 +65,7 @@ const AppLayout = () => {
             <ThemeToggle />
           </div>
         </header>
-        <div className="flex-1 p-3 sm:p-4 md:p-6">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
           <Outlet />
         </div>
       </SidebarInset>

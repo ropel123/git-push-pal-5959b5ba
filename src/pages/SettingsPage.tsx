@@ -210,7 +210,7 @@ const SettingsPage = () => {
       </div>
 
       <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
           <TabsTrigger value="profile" className="gap-2 text-xs sm:text-sm">
             <Building2 className="h-4 w-4 hidden sm:block" />
             Profil
