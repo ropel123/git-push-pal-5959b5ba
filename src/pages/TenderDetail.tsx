@@ -126,6 +126,7 @@ const TenderDetail = () => {
       toast({ title: "Erreur", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "Ajouté au pipeline ✓" });
+      fetchPipelineItem();
     }
   };
 
@@ -216,9 +217,15 @@ const TenderDetail = () => {
               </a>
             </Button>
           )}
-          <Button onClick={addToPipeline}>
-            <Plus className="h-4 w-4 mr-1" /> Pipeline
-          </Button>
+          {pipelineItem ? (
+            <Button variant="outline" disabled className="opacity-70">
+              ✓ Dans le pipeline
+            </Button>
+          ) : (
+            <Button onClick={addToPipeline}>
+              <Plus className="h-4 w-4 mr-1" /> Pipeline
+            </Button>
+          )}
         </div>
       </div>
 
@@ -445,6 +452,14 @@ const TenderDetail = () => {
         />
       )}
 
+      {/* Hint: add to pipeline to unlock pricing */}
+      {user && id && !pipelineItem && (
+        <Card className="bg-muted/50 border-dashed border-border">
+          <CardContent className="py-4 text-center text-sm text-muted-foreground">
+            💡 Ajoutez cet appel d'offres à votre pipeline pour accéder à l'assistant de chiffrage IA
+          </CardContent>
+        </Card>
+      )}
 
       {/* Pricing Chat - visible when in pipeline */}
       {user && id && pipelineItem && (
