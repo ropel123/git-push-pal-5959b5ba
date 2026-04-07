@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight, FileText, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -29,6 +29,9 @@ interface Tender {
   status: string | null;
   procedure_type: string | null;
   cpv_codes: string[] | null;
+  description?: string | null;
+  award_criteria?: string | null;
+  participation_conditions?: string | null;
 }
 
 interface SavedSearch {
@@ -57,7 +60,9 @@ const Tenders = () => {
   const [statusFilter, setStatusFilter] = useState("");
   const [procedureFilter, setProcedureFilter] = useState("");
   const [dceFilter, setDceFilter] = useState(false);
+  const [smartFilter, setSmartFilter] = useState(true);
   const [profile, setProfile] = useState<any>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [searchName, setSearchName] = useState("");
   const [savingSearch, setSavingSearch] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
@@ -70,9 +75,9 @@ const Tenders = () => {
     if (user) {
       supabase.from("profiles").select("*").eq("user_id", user.id).single().then(({ data }) => {
         if (data) setProfile(data);
+        setProfileLoaded(true);
       });
       fetchSavedSearches();
-      // Fetch distinct procedures for filter dropdown
       supabase.from("tenders").select("procedure_type").not("procedure_type", "is", null).then(({ data }) => {
         if (data) {
           const unique = [...new Set(data.map((d) => d.procedure_type).filter(Boolean))] as string[];
@@ -82,7 +87,21 @@ const Tenders = () => {
     }
   }, [user]);
 
+  // Smart filter metadata
+  const smartFilterInfo = useMemo(() => {
+    if (!profile || !smartFilter) return null;
+    const regions = profile.regions ?? [];
+    const keywords = profile.keywords ?? [];
+    const hasData = regions.length > 0 || keywords.length > 0;
+    if (!hasData) return null;
+    const parts: string[] = [];
+    if (regions.length > 0) parts.push(`${regions.length} région${regions.length > 1 ? "s" : ""}`);
+    if (keywords.length > 0) parts.push(`${keywords.length} mot${keywords.length > 1 ? "s" : ""}-clé${keywords.length > 1 ? "s" : ""}`);
+    return parts.join(", ");
+  }, [profile, smartFilter]);
+
   const fetchTenders = useCallback(async () => {
+    if (!profileLoaded) return;
     setLoading(true);
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -93,12 +112,28 @@ const Tenders = () => {
       .order("publication_date", { ascending: false })
       .range(from, to);
 
-    // Filter tenders that have a dce_url (auto-fetch available)
+    // Smart filter: apply profile regions & keywords
+    if (smartFilter && profile) {
+      const regions = profile.regions ?? [];
+      const keywords = profile.keywords ?? [];
+
+      if (regions.length > 0) {
+        query = query.in("region", regions);
+      }
+
+      if (keywords.length > 0) {
+        const orClauses = keywords.flatMap((kw: string) => [
+          `title.ilike.%${kw}%`,
+          `object.ilike.%${kw}%`,
+        ]);
+        query = query.or(orClauses.join(","));
+      }
+    }
+
     if (dceFilter) {
       query = query.not("dce_url", "is", null).neq("dce_url", "");
     }
 
-    // Server-side filters
     if (search.trim()) {
       query = query.or(`title.ilike.%${search.trim()}%,buyer_name.ilike.%${search.trim()}%,object.ilike.%${search.trim()}%`);
     }
@@ -113,12 +148,20 @@ const Tenders = () => {
     }
 
     const { data, count } = await query;
-    if (data) setTenders(data);
+    let results = data ?? [];
+
+    // Sort by score when smart filter is active
+    if (smartFilter && profile && results.length > 0) {
+      results = results
+        .map((t) => ({ ...t, _score: computeScore(t, profile) }))
+        .sort((a, b) => b._score - a._score);
+    }
+
+    setTenders(results);
     if (count !== null) setTotalCount(count);
     setLoading(false);
-  }, [page, search, regionFilter, statusFilter, procedureFilter, dceFilter]);
+  }, [page, search, regionFilter, statusFilter, procedureFilter, dceFilter, smartFilter, profile, profileLoaded]);
 
-  // Debounced fetch on filter/page change
   useEffect(() => {
     const timeout = setTimeout(() => fetchTenders(), 300);
     return () => clearTimeout(timeout);
@@ -215,7 +258,13 @@ const Tenders = () => {
           <h1 className="text-2xl font-bold text-foreground">Appels d'offres</h1>
           <p className="text-muted-foreground">{totalCount} résultat(s) — page {page + 1}/{totalPages || 1}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center flex-wrap">
+          {/* Smart filter toggle */}
+          <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-1.5">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <Label htmlFor="smart-filter" className="text-sm cursor-pointer whitespace-nowrap">Mon entreprise</Label>
+            <Switch id="smart-filter" checked={smartFilter} onCheckedChange={(v) => { setSmartFilter(v); setPage(0); }} />
+          </div>
           {savedSearches.length > 0 && (
             <Popover>
               <PopoverTrigger asChild>
@@ -242,6 +291,20 @@ const Tenders = () => {
           </Button>
         </div>
       </div>
+
+      {/* Smart filter indicator */}
+      {smartFilter && smartFilterInfo && (
+        <div className="flex items-center gap-2 text-sm text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2">
+          <Sparkles className="h-4 w-4 shrink-0" />
+          <span>Filtré selon votre profil ({smartFilterInfo}) — triés par pertinence</span>
+        </div>
+      )}
+      {smartFilter && profile && !(profile.regions?.length || profile.keywords?.length) && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 border border-border rounded-lg px-3 py-2">
+          <Sparkles className="h-4 w-4 shrink-0" />
+          <span>Complétez votre profil (régions, mots-clés) dans Paramètres pour activer le filtrage intelligent.</span>
+        </div>
+      )}
 
       <div className="flex gap-3">
         <div className="relative flex-1">
@@ -308,7 +371,9 @@ const Tenders = () => {
           <CardContent className="py-12 text-center text-muted-foreground">
             <Search className="h-12 w-12 mx-auto mb-4 opacity-30" />
             <p className="text-lg font-medium">Aucun appel d'offres trouvé</p>
-            <p className="text-sm mt-1">Modifiez vos filtres ou attendez de nouveaux imports.</p>
+            <p className="text-sm mt-1">
+              {smartFilter ? "Essayez de désactiver le filtrage intelligent ou modifiez vos filtres." : "Modifiez vos filtres ou attendez de nouveaux imports."}
+            </p>
           </CardContent>
         </Card>
       ) : (
