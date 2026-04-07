@@ -11,6 +11,15 @@ const SYSTEM_PROMPT = `Tu es un expert en appels d'offres et tu échanges avec u
 
 Tu dois mener un entretien conversationnel, simple, fluide et professionnel, afin de récolter des informations solides, concrètes et directement utilisables.
 
+IMPORTANT — DÉBUT DE L'ENTRETIEN :
+Commence par accueillir brièvement le dirigeant, puis demande-lui :
+1. Le nom de son entreprise
+2. Son numéro SIREN
+3. La taille de l'entreprise (nombre de salariés)
+4. Son site web (si il en a un)
+
+Si l'utilisateur fournit un site web, appelle immédiatement le tool "analyze_website" pour récupérer le contenu du site. Utilise ces informations pour pré-remplir ta compréhension de l'entreprise (description, compétences, certifications visibles, références, etc.) et pose des questions plus ciblées.
+
 Ta façon d'agir :
 - pose une question à la fois,
 - fais parler le dirigeant avec des questions simples,
@@ -57,16 +66,53 @@ Pour chaque thème :
 - une trame de mémoire technique,
 - une première version rédigée des principales rubriques.
 
+Quand tu as suffisamment d'informations, appelle le tool "save_memoir" pour sauvegarder le mémoire technique ET les informations d'entreprise collectées. Inclus tous les champs possibles : nom, SIREN, taille, secteurs, régions, mots-clés, site web, description, certifications, compétences, équipe, équipements, travaux passés, références.
+
 Commence maintenant par accueillir le dirigeant brièvement, puis pose la première question sur son entreprise.`;
 
 const SAVE_MEMOIR_TOOL = {
   type: "function",
   function: {
     name: "save_memoir",
-    description: "Sauvegarde le mémoire technique structuré de l'entreprise une fois toutes les informations collectées et confirmées par l'utilisateur",
+    description: "Sauvegarde le mémoire technique structuré ET les informations d'entreprise une fois toutes les informations collectées et confirmées par l'utilisateur",
     parameters: {
       type: "object",
       properties: {
+        company_name: {
+          type: "string",
+          description: "Nom de l'entreprise",
+        },
+        siren: {
+          type: "string",
+          description: "Numéro SIREN de l'entreprise",
+        },
+        company_size: {
+          type: "string",
+          description: "Taille de l'entreprise (ex: 1-9, 10-49, 50-249, 250-999, 1000+)",
+        },
+        sectors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Secteurs d'activité de l'entreprise",
+        },
+        regions: {
+          type: "array",
+          items: { type: "string" },
+          description: "Zones géographiques ciblées",
+        },
+        keywords: {
+          type: "array",
+          items: { type: "string" },
+          description: "Mots-clés métier pour le scoring des appels d'offres",
+        },
+        company_website: {
+          type: "string",
+          description: "URL du site web de l'entreprise",
+        },
+        company_description: {
+          type: "string",
+          description: "Description enrichie de l'entreprise",
+        },
         company_certifications: {
           type: "array",
           items: { type: "string" },
@@ -103,12 +149,27 @@ const SAVE_MEMOIR_TOOL = {
           },
           description: "Références de projets réalisés",
         },
-        company_description: {
-          type: "string",
-          description: "Description enrichie de l'entreprise",
-        },
       },
       required: ["company_skills", "company_team"],
+      additionalProperties: false,
+    },
+  },
+};
+
+const ANALYZE_WEBSITE_TOOL = {
+  type: "function",
+  function: {
+    name: "analyze_website",
+    description: "Analyse le site web de l'entreprise pour extraire des informations utiles (description, compétences, certifications, références, etc.)",
+    parameters: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "URL du site web à analyser",
+        },
+      },
+      required: ["url"],
       additionalProperties: false,
     },
   },
@@ -131,6 +192,63 @@ function buildProfileContext(profile: Record<string, unknown> | null): string {
   }
   if (parts.length === 0) return "";
   return `\n\nINFORMATIONS DÉJÀ CONNUES SUR L'ENTREPRISE :\n${parts.join("\n")}\n\nTiens compte de ces informations et ne redemande pas ce qui est déjà renseigné. Approfondis plutôt ce qui manque.`;
+}
+
+function stripHtmlToText(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, "")
+    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, "")
+    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#?\w+;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 8000);
+}
+
+async function fetchWebsiteContent(url: string): Promise<string> {
+  let formattedUrl = url.trim();
+  if (!formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
+    formattedUrl = `https://${formattedUrl}`;
+  }
+  
+  // Try Firecrawl first if available
+  const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
+  if (firecrawlKey) {
+    try {
+      console.log(`[memoir] Using Firecrawl to scrape ${formattedUrl}`);
+      const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${firecrawlKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url: formattedUrl, formats: ["markdown"], onlyMainContent: true }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const markdown = data.data?.markdown || data.markdown;
+        if (markdown) return markdown.slice(0, 8000);
+      }
+    } catch (e) {
+      console.warn("[memoir] Firecrawl failed, falling back to direct fetch:", e);
+    }
+  }
+
+  // Fallback: direct fetch
+  console.log(`[memoir] Direct fetch for ${formattedUrl}`);
+  const resp = await fetch(formattedUrl, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; MemoirBot/1.0)" },
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const html = await resp.text();
+  return stripHtmlToText(html);
 }
 
 interface AIProvider {
@@ -185,7 +303,6 @@ serve(async (req) => {
   }
 
   try {
-    // Auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Non autorisé" }), {
@@ -206,8 +323,7 @@ serve(async (req) => {
       });
     }
 
-    // Parse input
-    const { messages } = await req.json();
+    const { messages, analyze_website_url } = await req.json();
     if (!messages || !Array.isArray(messages)) {
       return new Response(JSON.stringify({ error: "messages requis" }), {
         status: 400,
@@ -215,7 +331,21 @@ serve(async (req) => {
       });
     }
 
-    // Fetch profile context
+    // Handle analyze_website tool call from client
+    if (analyze_website_url) {
+      try {
+        const content = await fetchWebsiteContent(analyze_website_url);
+        return new Response(JSON.stringify({ website_content: content }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: `Impossible d'analyser le site: ${e instanceof Error ? e.message : "Erreur"}` }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: profile } = await supabase
       .from("profiles")
@@ -225,43 +355,37 @@ serve(async (req) => {
 
     const profileContext = buildProfileContext(profile);
 
-    // Build request body (shared between providers)
     const requestBody = {
       messages: [
         { role: "system", content: SYSTEM_PROMPT + profileContext },
         ...messages,
       ],
       stream: true,
-      tools: [SAVE_MEMOIR_TOOL],
+      tools: [SAVE_MEMOIR_TOOL, ANALYZE_WEBSITE_TOOL],
     };
 
-    // Determine providers
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
     if (!OPENROUTER_API_KEY && !LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "Aucune clé API configurée (OPENROUTER_API_KEY ou LOVABLE_API_KEY)" }), {
+      return new Response(JSON.stringify({ error: "Aucune clé API configurée" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Try OpenRouter first, fallback to Lovable AI on failure
     let aiResponse: Response | null = null;
 
     if (OPENROUTER_API_KEY) {
       const provider = getOpenRouterProvider(OPENROUTER_API_KEY);
       aiResponse = await callAI(provider, requestBody);
-
-      // If OpenRouter fails with a non-recoverable error, fallback
       if (!aiResponse.ok && [400, 404, 422].includes(aiResponse.status)) {
         const errText = await aiResponse.text();
-        console.warn(`[memoir] OpenRouter failed (${aiResponse.status}): ${errText}. Falling back to Lovable AI.`);
-        aiResponse = null; // trigger fallback
+        console.warn(`[memoir] OpenRouter failed (${aiResponse.status}): ${errText}. Falling back.`);
+        aiResponse = null;
       }
     }
 
-    // Fallback to Lovable AI
     if (!aiResponse && LOVABLE_API_KEY) {
       const provider = getLovableProvider(LOVABLE_API_KEY);
       aiResponse = await callAI(provider, requestBody);
@@ -274,7 +398,6 @@ serve(async (req) => {
       });
     }
 
-    // Handle remaining errors (rate limit, payment, etc.)
     if (!aiResponse.ok) {
       const status = aiResponse.status;
       if (status === 429) {
@@ -297,7 +420,6 @@ serve(async (req) => {
       });
     }
 
-    // Stream response back
     return new Response(aiResponse.body, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
