@@ -1,58 +1,74 @@
 
 
-# Filtrage intelligent des appels d'offres par profil entreprise
+# Enrichir l'assistant de chiffrage avec le profil complet + analyses
 
 ## Problème
 
-Actuellement, la page Tenders affiche TOUS les appels d'offres sans distinction. Pour une entreprise de BTP en Île-de-France, elle voit aussi les marchés informatiques en Bretagne — inutile et bruyant.
+Le contexte envoyé à l'IA dans `generate-pricing-strategy` est incomplet. Il manque :
+- **Certifications** (ISO, Qualibat, etc.)
+- **Références / projets passés** (avec montants, clients)
+- **Expériences passées** (`company_past_work`)
+- **Description de l'entreprise**
+- **Taille, SIREN, régions, mots-clés**
+- **Conditions de participation** et **localisation d'exécution** côté tender
+- **Données DCE enrichies** si disponibles
 
-## Solution
+L'IA ne peut pas bien guider la personne si elle ne connaît pas le profil complet.
 
-Appliquer automatiquement les filtres du profil (secteurs, régions, mots-clés) au chargement de la page, avec un toggle "Voir tous les AO" pour désactiver le filtre si besoin.
+## Changements
 
-## Fonctionnement
+### 1. Enrichir le contexte prompt (`generate-pricing-strategy/index.ts`)
 
-### 1. Filtre par défaut au chargement
+**Aussi fetcher les DCE enrichies** pour cet AO (table `dce_downloads` avec `enriched_data`).
 
-Quand le profil est chargé, on applique automatiquement :
-- **Régions** du profil → filtre `region` (multi-régions avec `.in()`)
-- **Mots-clés** du profil → recherche textuelle combinée sur `title`, `object`, `buyer_name`
-- **Secteurs** → matching sur les CPV codes ou le texte de l'AO
+**Section ENTREPRISE complétée** avec tous les champs du profil :
 
-Un état `smartFilter: boolean` (défaut `true`) contrôle si le filtrage intelligent est actif.
+```
+ENTREPRISE :
+- Nom : ...
+- SIREN : ...
+- Taille : ...
+- Description : ...
+- Secteurs : ...
+- Régions : ...
+- Mots-clés : ...
+- Compétences : ...
+- Certifications : ...
+- Moyens humains : ...
+- Moyens matériels : ...
+- Expériences passées : ...
+- Références projets : [JSON des références avec client, montant, description]
+```
 
-### 2. Toggle "Filtrage intelligent"
+**Section APPEL D'OFFRES complétée** avec les champs manquants :
 
-Un switch bien visible en haut de page : "Appels d'offres pour mon entreprise" (activé par défaut). Quand désactivé, on retrouve tous les AO comme avant.
+```
+- Conditions de participation : ...
+- Lieu d'exécution : ...
+- Type de contrat : ...
+- Type de procédure : ...
+- Codes CPV : ...
+```
 
-### 3. Tri par score
+**Section DCE** (si des documents enrichis existent) :
 
-Quand le filtrage intelligent est actif, les résultats sont triés par score de pertinence (descendant) plutôt que par date de publication, pour montrer les plus pertinents en premier.
+```
+DONNÉES DCE ENRICHIES :
+[contenu enriched_data des DCE téléchargées]
+```
 
-### 4. Indicateur visuel
+### 2. Enrichir le system prompt
 
-Un badge ou bandeau indiquant "Filtré selon votre profil (3 régions, 5 mots-clés)" pour que l'utilisateur comprenne pourquoi il voit ces résultats.
+Ajouter des instructions pour que l'IA :
+- Exploite activement les références similaires pour calibrer les prix
+- Compare les certifications détenues vs celles potentiellement requises
+- Utilise la taille de l'entreprise et les expériences passées pour ajuster les marges
+- Mentionne les forces du profil comme arguments commerciaux dans le `pricing_arguments`
 
-## Changements techniques
+### 3. Redéployer la fonction
 
-**Fichier** : `src/pages/Tenders.tsx`
+Un seul fichier modifié : `supabase/functions/generate-pricing-strategy/index.ts`, puis déploiement.
 
-- Ajouter état `smartFilter` (boolean, défaut `true`)
-- Attendre que `profile` soit chargé avant le premier fetch
-- Dans `fetchTenders` : si `smartFilter` est actif ET que le profil a des données :
-  - Filtrer par régions du profil avec `.in("region", profile.regions)`
-  - Construire un `.or()` avec les mots-clés du profil pour matcher `title.ilike` / `object.ilike`
-  - Ces filtres s'ajoutent aux filtres manuels (pas de remplacement)
-- Ajouter un Switch "Filtrage intelligent" dans le header
-- Ajouter un petit texte explicatif sous le titre indiquant les critères actifs
-- Trier côté client par score quand `smartFilter` est actif (le scoring est déjà calculé)
-
-**Aucune migration DB nécessaire** — tout se fait côté requête client.
-
-## Résultat attendu
-
-- Par défaut, l'utilisateur voit uniquement les AO qui correspondent à son profil
-- Il peut désactiver le filtre en un clic pour voir tout
-- Les filtres manuels (région, statut, procédure) restent utilisables en complément
-- Plus le profil est renseigné, plus le filtrage est précis
+## Fichier modifié
+- `supabase/functions/generate-pricing-strategy/index.ts`
 
