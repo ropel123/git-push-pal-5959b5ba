@@ -1,18 +1,15 @@
 
 
-## Set Hackify logo as favicon
+## Mettre à jour le favicon avec le nouveau logo
 
-### Steps
+### Ce qui change
+Remplacement du favicon actuel par la nouvelle image uploadée (le logo Hackify avec la flèche orange).
 
-1. **Copy the uploaded image** to `public/favicon.png`
-2. **Delete** the existing `public/favicon.ico` if present
-3. **Update `index.html`** to reference the new favicon:
-   ```html
-   <link rel="icon" href="/favicon.png" type="image/png">
-   ```
+### Etapes
+1. **Copier l'image** `user-uploads://Capture_d_écran_2026-04-09_à_16.12.57.png` vers `public/favicon.png` (écrase l'existant)
+2. **Vérifier** que `index.html` contient déjà `<link rel="icon" href="/favicon.png" type="image/png">` (ajouté précédemment)
 
-### Technical details
-- The uploaded screenshot will be copied from `user-uploads://Capture_d_écran_2026-04-09_à_15.59.26.png` to `public/favicon.png`
-- The existing favicon.ico (if any) will be removed to prevent browser override
-- The `<link rel="icon">` tag in `index.html` will point to the new PNG file
+### Détail technique
+- Le fichier `public/favicon.png` sera remplacé par la nouvelle image
+- Aucune modification de `index.html` ne devrait être nécessaire car le lien favicon est déjà en place
 
