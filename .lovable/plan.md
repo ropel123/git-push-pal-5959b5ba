@@ -1,31 +1,43 @@
 
 
-L'utilisateur a testé une URL Maximilien mais aucun playbook n'existe pour cette plateforme. J'ai seedé seulement PLACE et Atexo. Maximilien tourne sur la techno Atexo donc je peux réutiliser des étapes similaires.
+## Diagnostic
 
-## Plan : ajouter playbooks Maximilien + Megalis + Marchés-Sécurisés
+Les playbooks Maximilien / Megalis / Marchés-Sécurisés ont été seedés avec `requires_auth=true`, ce qui impose un compte dans `platform_robots`. En réalité, ces plateformes acceptent un retrait **anonyme** via un mini-formulaire (email + raison sociale + nom). Seul un sous-ensemble de DCE (procédures restreintes, pièces sensibles) exige un compte.
 
-### 1. Migration SQL — seed 3 playbooks supplémentaires
+## Plan : passer en mode "identité anonyme" par défaut + fallback compte robot
 
-Insérer dans `agent_playbooks` :
+### 1. Ajout d'un nouveau type d'action `fill_anonymous_identity`
 
-- **maximilien** (`maximilien.fr`) — basé sur Atexo, requires_auth=true, requires_captcha=true. Étapes : goto, click "Télécharger le DCE", fill_login (si formulaire détecté), solve_captcha_if_present, accept CGU, wait_download.
-- **megalis** (`megalis.bretagne.bzh`) — Atexo également, mêmes étapes.
-- **marches_securises** (`marches-securises.fr`) — requires_auth=true, captcha optionnel. Étapes : goto, click "Retrait DCE", fill_login, solve_captcha_if_present, accept conditions, wait_download.
+Dans `supabase/functions/fetch-dce-agent/index.ts`, ajouter un handler pour `fill_anonymous_identity` qui :
+- Lit une identité par défaut depuis une nouvelle table `agent_anonymous_identity` (ou un secret `AGENT_DEFAULT_IDENTITY` JSON)
+- Pilote Stagehand : remplit email, raison sociale, nom, prénom, téléphone, SIRET dans le formulaire de retrait DCE
+- N'échoue pas si certains champs n'existent pas
 
-### 2. Améliorer le message d'erreur (optionnel)
+### 2. Migration SQL — table `agent_anonymous_identity`
 
-Dans `fetch-dce-agent/index.ts`, le message actuel renvoie déjà "Créez-en un dans /agent-monitor". Pas de changement nécessaire — mais je vais m'assurer que l'onglet Playbooks de `/agent-monitor` permet bien de créer/éditer un playbook à la volée (à vérifier après lecture).
+Une table simple (1 ligne admin) avec : `email`, `company_name`, `siret`, `last_name`, `first_name`, `phone`. RLS admin only. Seed avec une identité par défaut Hackify.
 
-### 3. Vérifier l'onglet Playbooks dans AgentMonitor
+### 3. Migration SQL — mise à jour des playbooks existants
 
-Lire `src/pages/AgentMonitor.tsx` pour confirmer qu'il y a un éditeur visuel des steps. Si non présent, ajouter un bouton "Nouveau playbook" avec dialog (platform + display_name + url_pattern + JSON steps + toggles auth/captcha).
+`UPDATE agent_playbooks SET requires_auth=false` pour `maximilien`, `megalis`, `marches_securises`, `atexo`. Remplacer dans leurs `steps` l'action `fill_login` par `fill_anonymous_identity`. Garder un fallback : si le formulaire détecte un champ login/password, basculer sur `fill_login` (qui lui retombe sur `platform_robots`, sinon skip).
+
+### 4. Logique côté agent (`fetch-dce-agent`)
+
+Modifier la condition de blocage :
+- Avant : `if (playbook.requires_auth && !robot) return error`
+- Après : ne plus bloquer en amont. Laisser l'agent tenter `fill_anonymous_identity` d'abord. Si à un moment Stagehand détecte explicitement un écran de login (heuristique : champ password visible) ET qu'aucun robot n'existe, alors logger une trace `auth.required` et terminer proprement avec un message clair.
+
+### 5. UI — onglet "Identité anonyme" dans AgentMonitor
+
+Ajouter un 4e (ou 5e) onglet `Identité` dans `src/pages/AgentMonitor.tsx` permettant à l'admin d'éditer l'identité anonyme utilisée par défaut (formulaire simple : email, raison sociale, SIRET, nom, prénom, téléphone).
 
 ## Fichiers touchés
 
-- Nouvelle migration SQL — 3 INSERT dans `agent_playbooks`
-- `src/pages/AgentMonitor.tsx` — ajout dialog création/édition playbook si absent
+- Nouvelle migration SQL : créer `agent_anonymous_identity` + UPDATE playbooks
+- `supabase/functions/fetch-dce-agent/index.ts` : handler `fill_anonymous_identity` + assouplir le check `requires_auth`
+- `src/pages/AgentMonitor.tsx` : onglet Identité
 
-## Note sur le flow
+## Note
 
-Pour les comptes Maximilien/Megalis/MS, l'utilisateur devra ensuite ajouter manuellement un compte robot dans l'onglet "Comptes robots" avant que les runs ne réussissent. Sinon le playbook échouera à `fill_login`.
+Les comptes robots (`platform_robots`) restent utiles pour les rares plateformes qui exigent vraiment un login (consultations restreintes). Ils servent désormais de **fallback**, pas de prérequis.
 
