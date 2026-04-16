@@ -281,6 +281,25 @@ function jsClickByIndex(idx: number): string {
 `;
 }
 
+function jsCountVisibleInputs(): string {
+  const sel = JSON.stringify(INPUT_SELECTOR);
+  return `
+(() => {
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== "hidden" && st.display !== "none";
+  };
+  return Array.from(document.querySelectorAll(${sel})).filter(el => {
+    if (!isVisible(el)) return false;
+    const t = (el.type || '').toLowerCase();
+    return !['hidden','submit','button','checkbox','radio','file'].includes(t);
+  }).length;
+})()
+`;
+}
+
 function jsSnapshotInputs(): string {
   const sel = JSON.stringify(INPUT_SELECTOR);
   return `
@@ -678,28 +697,68 @@ Deno.serve(async (req) => {
           case "click":
           case "click_if_present": {
             const instruction = step.instruction ?? step.natural ?? "";
-            const result = await cdp.eval(jsClickByText(instruction));
-            if (result?.clicked) {
-              log(label, "ok", `(heuristic) ${result.text}`, Date.now() - stepStart);
-            } else {
-              // Fallback LLM
+            const urlBefore = await cdp.url().catch(() => "");
+            const isStrictAct = step.action === "act";
+
+            // Strict 'act' uses LLM-first (more reliable for ambiguous final-submit buttons).
+            // 'click_if_present' / 'click' uses heuristic-first (faster, common case).
+            let chosen: { mode: string; idx?: number; text?: string } | null = null;
+
+            if (isStrictAct) {
               const snapshot = await cdp.eval(jsSnapshotClickables());
               const idx = await llmPickClickable(instruction, snapshot ?? []);
               if (idx >= 0) {
-                const r2 = await cdp.eval(jsClickByIndex(idx));
-                if (r2?.clicked) {
-                  log(label, "ok", `(llm idx=${idx}) ${r2.text}`, Date.now() - stepStart);
+                const r = await cdp.eval(jsClickByIndex(idx));
+                if (r?.clicked) chosen = { mode: "llm", idx, text: r.text };
+              }
+              if (!chosen) {
+                const heur = await cdp.eval(jsClickByText(instruction));
+                if (heur?.clicked) chosen = { mode: "heuristic-fallback", text: heur.text };
+              }
+              if (!chosen) {
+                const top5 = Array.isArray(snapshot)
+                  ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}`).join(" | ")
+                  : "(empty)";
+                throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}" — top5: ${top5}`);
+              }
+            } else {
+              const result = await cdp.eval(jsClickByText(instruction));
+              if (result?.clicked) {
+                chosen = { mode: "heuristic", text: result.text };
+              } else {
+                const snapshot = await cdp.eval(jsSnapshotClickables());
+                const idx = await llmPickClickable(instruction, snapshot ?? []);
+                if (idx >= 0) {
+                  const r2 = await cdp.eval(jsClickByIndex(idx));
+                  if (r2?.clicked) chosen = { mode: "llm", idx, text: r2.text };
+                }
+                if (!chosen) {
+                  const top5 = Array.isArray(snapshot)
+                    ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}${c.aria ? ` aria="${String(c.aria).slice(0, 30)}"` : ""}`).join(" | ")
+                    : "(empty snapshot)";
+                  log(label, "skipped", `no match (heuristic+llm) — top5: ${top5} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
                   break;
                 }
               }
-              const top5 = Array.isArray(snapshot)
-                ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}${c.aria ? ` aria="${String(c.aria).slice(0, 30)}"` : ""}`).join(" | ")
-                : "(empty snapshot)";
-              if (step.action === "click_if_present") {
-                log(label, "skipped", `no match (heuristic+llm) — top5: ${top5}`, Date.now() - stepStart);
-              } else {
-                throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}" — top5: ${top5}`);
-              }
+            }
+
+            log(label, "ok", `(${chosen.mode}${chosen.idx !== undefined ? ` idx=${chosen.idx}` : ""}) ${chosen.text ?? ""} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+            break;
+          }
+          case "wait_for_inputs": {
+            const minInputs = (step as any).min ?? 1;
+            const timeoutMs = step.timeout_ms ?? 8000;
+            const startWait = Date.now();
+            let count = 0;
+            while (Date.now() - startWait < timeoutMs) {
+              count = await cdp.eval(jsCountVisibleInputs());
+              if (count >= minInputs) break;
+              await new Promise((r) => setTimeout(r, 500));
+            }
+            if (count >= minInputs) {
+              log(label, "ok", `${count} inputs visibles (min=${minInputs})`, Date.now() - stepStart);
+            } else {
+              log(label, "skipped", `seulement ${count} inputs après ${timeoutMs}ms (min=${minInputs})`, Date.now() - stepStart);
             }
             break;
           }
@@ -737,25 +796,46 @@ Deno.serve(async (req) => {
             if (!anonId) { log(label, "skipped", "aucune identité anonyme"); break; }
             const isLogin = await cdp.eval(jsDetectLoginScreen());
             if (isLogin) { log(label, "skipped", "écran de login détecté"); break; }
-            const r = await cdp.eval(jsFillIdentity(anonId as any));
-            const heuristicFilled = (r?.filled ?? []) as string[];
-            if (heuristicFilled.length > 0) {
-              log(label, "ok", `(heuristic) champs: ${heuristicFilled.join(",")}`, Date.now() - stepStart);
-              break;
+            const urlBefore = await cdp.url().catch(() => "");
+            const visibleCount = await cdp.eval(jsCountVisibleInputs());
+            // For complex platforms (5+ inputs) the heuristic often misses fields → go LLM-first.
+            const tryHeuristicFirst = (visibleCount as number) <= 4;
+            let filledVia = "";
+            let filledFields: string[] = [];
+
+            if (tryHeuristicFirst) {
+              const r = await cdp.eval(jsFillIdentity(anonId as any));
+              filledFields = (r?.filled ?? []) as string[];
+              if (filledFields.length > 0) {
+                filledVia = "heuristic";
+              }
             }
-            // Fallback LLM
-            const inputs = await cdp.eval(jsSnapshotInputs());
-            if (!inputs || inputs.length === 0) {
-              log(label, "skipped", "aucun input visible", Date.now() - stepStart);
-              break;
+
+            if (filledFields.length === 0) {
+              const inputs = await cdp.eval(jsSnapshotInputs());
+              if (!inputs || inputs.length === 0) {
+                log(label, "skipped", `aucun input visible — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+                break;
+              }
+              const mapping = await llmMapInputs(anonId as any, inputs);
+              if (Object.keys(mapping).length === 0) {
+                // Last-resort heuristic if we hadn't tried it yet
+                if (!tryHeuristicFirst) {
+                  const r = await cdp.eval(jsFillIdentity(anonId as any));
+                  filledFields = (r?.filled ?? []) as string[];
+                  if (filledFields.length > 0) {
+                    log(label, "ok", `(heuristic-fallback) champs: ${filledFields.join(",")} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+                    break;
+                  }
+                }
+                log(label, "skipped", `LLM n'a mappé aucun champ (${inputs.length} inputs vus) — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+                break;
+              }
+              const fillRes = await cdp.eval(jsFillByIndex(mapping));
+              filledFields = (fillRes?.filled ?? []) as string[];
+              filledVia = "llm";
             }
-            const mapping = await llmMapInputs(anonId as any, inputs);
-            if (Object.keys(mapping).length === 0) {
-              log(label, "skipped", "LLM n'a mappé aucun champ", Date.now() - stepStart);
-              break;
-            }
-            const fillRes = await cdp.eval(jsFillByIndex(mapping));
-            log(label, "ok", `(llm) champs: ${(fillRes?.filled ?? []).join(",")}`, Date.now() - stepStart);
+            log(label, "ok", `(${filledVia}) champs: ${filledFields.join(",")} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
             break;
           }
           case "solve_captcha":
