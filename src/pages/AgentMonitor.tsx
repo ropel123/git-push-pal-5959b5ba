@@ -273,6 +273,52 @@ const AgentMonitor = () => {
           </Card>
         </TabsContent>
 
+        <TabsContent value="identity">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <UserCircle2 className="h-4 w-4" /> Identité anonyme par défaut
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Cette identité est utilisée par l'agent pour remplir automatiquement les formulaires de retrait
+                anonyme du DCE (Maximilien, Mégalis, Marchés-Sécurisés, Atexo…). Aucun compte n'est nécessaire.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Email *</label>
+                  <Input value={identity.email} onChange={(e) => setIdentity({ ...identity, email: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Raison sociale *</label>
+                  <Input value={identity.company_name} onChange={(e) => setIdentity({ ...identity, company_name: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">SIRET</label>
+                  <Input value={identity.siret} onChange={(e) => setIdentity({ ...identity, siret: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Téléphone</label>
+                  <Input value={identity.phone} onChange={(e) => setIdentity({ ...identity, phone: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Prénom *</label>
+                  <Input value={identity.first_name} onChange={(e) => setIdentity({ ...identity, first_name: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Nom *</label>
+                  <Input value={identity.last_name} onChange={(e) => setIdentity({ ...identity, last_name: e.target.value })} />
+                </div>
+              </div>
+              <Button onClick={saveIdentity} disabled={savingIdentity} className="gap-2">
+                {savingIdentity ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Enregistrer
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="robots">
           <Card>
             <CardHeader>
