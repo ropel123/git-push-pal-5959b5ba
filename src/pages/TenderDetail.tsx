@@ -11,6 +11,7 @@ import { fr } from "date-fns/locale";
 import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase, FileDown, Send } from "lucide-react";
 import DceUploadSection from "@/components/DceUploadSection";
 import DceAutoFetchButton from "@/components/DceAutoFetchButton";
+import DceAgentFetchButton from "@/components/DceAgentFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import PricingChat from "@/components/PricingChat";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
@@ -424,9 +425,18 @@ const TenderDetail = () => {
         </Card>
       )}
 
-      {/* Auto-fetch DCE */}
+      {/* Auto-fetch DCE (Firecrawl simple) */}
       {user && id && tender.dce_url && (
         <DceAutoFetchButton
+          tenderId={id}
+          dceUrl={tender.dce_url}
+          onSuccess={fetchDceAndAnalyses}
+        />
+      )}
+
+      {/* Agent IA navigateur (Browserbase + 2Captcha) */}
+      {user && id && tender.dce_url && (
+        <DceAgentFetchButton
           tenderId={id}
           dceUrl={tender.dce_url}
           onSuccess={fetchDceAndAnalyses}

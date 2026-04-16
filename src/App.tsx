@@ -18,6 +18,7 @@ import SettingsPage from "./pages/SettingsPage";
 import Onboarding from "./pages/Onboarding";
 import BuyerDetail from "./pages/BuyerDetail";
 import Activity from "./pages/Activity";
+import AgentMonitor from "./pages/AgentMonitor";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +43,7 @@ const App = () => (
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/buyers/:id" element={<BuyerDetail />} />
                 <Route path="/activity" element={<Activity />} />
+                <Route path="/agent-monitor" element={<AgentMonitor />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
