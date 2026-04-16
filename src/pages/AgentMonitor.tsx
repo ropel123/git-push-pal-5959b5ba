@@ -94,7 +94,7 @@ const AgentMonitor = () => {
       supabase.from("platform_robots").select("*").order("platform"),
       supabase.from("agent_playbooks").select("*").order("platform"),
     ]);
-    if (r1.data) setRuns(r1.data as Run[]);
+    if (r1.data) setRuns(r1.data as unknown as Run[]);
     if (r2.data) setRobots(r2.data as Robot[]);
     if (r3.data) setPlaybooks(r3.data as Playbook[]);
     setLoading(false);
