@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_anonymous_identity: {
+        Row: {
+          company_name: string
+          created_at: string | null
+          email: string
+          first_name: string
+          id: string
+          is_default: boolean | null
+          last_name: string
+          phone: string | null
+          siret: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          company_name: string
+          created_at?: string | null
+          email: string
+          first_name: string
+          id?: string
+          is_default?: boolean | null
+          last_name: string
+          phone?: string | null
+          siret?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          company_name?: string
+          created_at?: string | null
+          email?: string
+          first_name?: string
+          id?: string
+          is_default?: boolean | null
+          last_name?: string
+          phone?: string | null
+          siret?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       agent_playbooks: {
         Row: {
           created_at: string | null

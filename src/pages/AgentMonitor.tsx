@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle } from "lucide-react";
+import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle, UserCircle2, Save } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -56,6 +56,16 @@ type Playbook = {
   is_active: boolean;
 };
 
+type AnonIdentity = {
+  id?: string;
+  email: string;
+  company_name: string;
+  siret: string;
+  last_name: string;
+  first_name: string;
+  phone: string;
+};
+
 const statusBadge = (s: string) => {
   const map: Record<string, string> = {
     success: "bg-green-500/20 text-green-400",
@@ -86,17 +96,33 @@ const AgentMonitor = () => {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
 
   const [newRobot, setNewRobot] = useState({ platform: "", login: "", password: "" });
+  const [identity, setIdentity] = useState<AnonIdentity>({
+    email: "", company_name: "", siret: "", last_name: "", first_name: "", phone: "",
+  });
+  const [savingIdentity, setSavingIdentity] = useState(false);
 
   const loadAll = async () => {
     setLoading(true);
-    const [r1, r2, r3] = await Promise.all([
+    const [r1, r2, r3, r4] = await Promise.all([
       supabase.from("agent_runs").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("platform_robots").select("*").order("platform"),
       supabase.from("agent_playbooks").select("*").order("platform"),
+      supabase.from("agent_anonymous_identity").select("*").eq("is_default", true).maybeSingle(),
     ]);
     if (r1.data) setRuns(r1.data as unknown as Run[]);
     if (r2.data) setRobots(r2.data as Robot[]);
     if (r3.data) setPlaybooks(r3.data as Playbook[]);
+    if (r4.data) {
+      setIdentity({
+        id: r4.data.id,
+        email: r4.data.email ?? "",
+        company_name: r4.data.company_name ?? "",
+        siret: r4.data.siret ?? "",
+        last_name: r4.data.last_name ?? "",
+        first_name: r4.data.first_name ?? "",
+        phone: r4.data.phone ?? "",
+      });
+    }
     setLoading(false);
   };
 
@@ -158,6 +184,31 @@ const AgentMonitor = () => {
     loadAll();
   };
 
+  const saveIdentity = async () => {
+    setSavingIdentity(true);
+    try {
+      const payload = {
+        email: identity.email,
+        company_name: identity.company_name,
+        siret: identity.siret || null,
+        last_name: identity.last_name,
+        first_name: identity.first_name,
+        phone: identity.phone || null,
+        is_default: true,
+      };
+      const { error } = identity.id
+        ? await supabase.from("agent_anonymous_identity").update(payload).eq("id", identity.id)
+        : await supabase.from("agent_anonymous_identity").insert(payload);
+      if (error) throw error;
+      toast({ title: "Identité enregistrée" });
+      loadAll();
+    } catch (e: any) {
+      toast({ title: "Erreur", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingIdentity(false);
+    }
+  };
+
   return (
     <div className="container mx-auto max-w-7xl p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -175,6 +226,7 @@ const AgentMonitor = () => {
       <Tabs defaultValue="runs" className="space-y-4">
         <TabsList>
           <TabsTrigger value="runs">Runs ({runs.length})</TabsTrigger>
+          <TabsTrigger value="identity">Identité anonyme</TabsTrigger>
           <TabsTrigger value="robots">Comptes robots ({robots.length})</TabsTrigger>
           <TabsTrigger value="playbooks">Playbooks ({playbooks.length})</TabsTrigger>
           <TabsTrigger value="test">Tester une URL</TabsTrigger>
@@ -217,6 +269,52 @@ const AgentMonitor = () => {
                   )}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="identity">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <UserCircle2 className="h-4 w-4" /> Identité anonyme par défaut
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Cette identité est utilisée par l'agent pour remplir automatiquement les formulaires de retrait
+                anonyme du DCE (Maximilien, Mégalis, Marchés-Sécurisés, Atexo…). Aucun compte n'est nécessaire.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Email *</label>
+                  <Input value={identity.email} onChange={(e) => setIdentity({ ...identity, email: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Raison sociale *</label>
+                  <Input value={identity.company_name} onChange={(e) => setIdentity({ ...identity, company_name: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">SIRET</label>
+                  <Input value={identity.siret} onChange={(e) => setIdentity({ ...identity, siret: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Téléphone</label>
+                  <Input value={identity.phone} onChange={(e) => setIdentity({ ...identity, phone: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Prénom *</label>
+                  <Input value={identity.first_name} onChange={(e) => setIdentity({ ...identity, first_name: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Nom *</label>
+                  <Input value={identity.last_name} onChange={(e) => setIdentity({ ...identity, last_name: e.target.value })} />
+                </div>
+              </div>
+              <Button onClick={saveIdentity} disabled={savingIdentity} className="gap-2">
+                {savingIdentity ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Enregistrer
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
