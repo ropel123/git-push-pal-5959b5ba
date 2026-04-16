@@ -56,6 +56,16 @@ type Playbook = {
   is_active: boolean;
 };
 
+type AnonIdentity = {
+  id?: string;
+  email: string;
+  company_name: string;
+  siret: string;
+  last_name: string;
+  first_name: string;
+  phone: string;
+};
+
 const statusBadge = (s: string) => {
   const map: Record<string, string> = {
     success: "bg-green-500/20 text-green-400",
