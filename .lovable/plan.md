@@ -1,43 +1,57 @@
 
 
-L'utilisateur a uploadé une capture de la doc 2Captcha API v2 sans message. Il me montre qu'il est sur la bonne page mais cherche probablement où récupérer sa clé API. La capture montre la doc technique, pas le dashboard.
+## Plan : automatisation réelle du navigateur avec Stagehand + 2Captcha
 
-## Tu es sur la doc, pas sur ton compte
+### 1. Remplacer le stub Browserbase par Stagehand
+Dans `supabase/functions/fetch-dce-agent/index.ts` :
+- Importer `@browserbasehq/stagehand` via esm.sh
+- Créer une vraie session Browserbase, attacher Stagehand
+- Pour chaque étape du playbook, utiliser les méthodes en langage naturel `page.act()` / `page.observe()` / `page.extract()` pour exécuter (`goto`, `click`, `fill`, `wait`, `solve_captcha`, `download`)
+- Injecter les identifiants robot depuis `platform_robots` quand `requires_auth=true`
+- Détecter les captchas (sitekey reCAPTCHA v2 via DOM observe), appeler l'API 2Captcha, injecter le token via `g-recaptcha-response`
+- Capturer les téléchargements via l'API Browserbase → upload vers le bucket `dce-documents`
+- Streamer une `trace` structurée (statut par étape, URLs screenshots, timing) dans `agent_runs.trace`
 
-La page que tu vois (`2captcha.com/api-docs/...`) c'est la **documentation technique**. Pour récupérer ta clé, il faut aller dans ton **espace personnel**.
+### 2. Initialiser 2 playbooks de démarrage
+Insertion via migration dans `agent_playbooks` :
+- **PLACE (marches-publics.gouv.fr)** — public, sans captcha, liens de téléchargement directs
+- **Atexo (famille achatpublic.com)** — auth requise, reCAPTCHA v2, multi-étapes accept-CGU → download
 
-### Étape 1 — Connecte-toi (si pas déjà fait)
+Chaque playbook = tableau JSON d'étapes type :
+```json
+[
+  {"action":"goto","target":"{{dce_url}}"},
+  {"action":"act","instruction":"clique sur le bouton 'Télécharger le DCE'"},
+  {"action":"solve_captcha","type":"recaptcha_v2"},
+  {"action":"act","instruction":"accepte les CGU et continue"},
+  {"action":"download","timeout":60000}
+]
+```
 
-- En haut à droite de la page, clique sur **"Sign in"** (ou "Sign up" si tu n'as pas encore de compte)
-- Choisis bien le rôle **"Customer"** à l'inscription (pas "Worker")
+### 3. Brancher l'UI trace dans AgentMonitor
+Dans l'onglet Runs, rendre chaque ligne cliquable → panneau latéral affichant le tableau `trace` avec statut, durées et miniatures de screenshots (Browserbase expose les replays de session).
 
-### Étape 2 — Récupère ta clé API
+### 4. Verrou admin
+Actuellement `/agent-monitor` est ouvert à tout utilisateur authentifié. Ajouter un garde : rediriger les non-admins (vérification `user_roles` pour `admin`) vers `/`. Idem pour `DceAgentFetchButton` — ne s'affiche que pour les admins tant que ce n'est pas stable.
 
-Une fois connecté, tu arrives sur ton dashboard. Cherche :
-- Menu de gauche : **"API Settings"** ou directement **"Dashboard"**
-- Tu verras un bloc **"Your API key"** avec une chaîne de ~32 caractères
-- URL directe une fois loggé : `https://2captcha.com/setting`
+## Notes techniques
 
-### Étape 3 — Recharge ton compte (obligatoire)
+- Stagehand sur Deno : `import { Stagehand } from "https://esm.sh/@browserbasehq/stagehand@1?bundle"` — mode env Browserbase (pas de Playwright local)
+- 2Captcha : polling standard `in.php` / `res.php`, ~15-30s par reCAPTCHA v2
+- Coût : Browserbase = 0,10 $/min de session, 2Captcha = ~0,003 $/captcha → écrit dans `agent_runs.cost_usd`
+- Timeout : edge function plafonnée à 90s ; si dépassé, statut `timeout` et trace persistée
+- La colonne `password_encrypted` stocke pour l'instant du clair → à durcir avec pgsodium (hors scope de cette étape)
 
-- Menu de gauche : **"Add funds"**
-- Recharge **5 €** minimum (PayPal ou CB)
-- Sans crédit, les captchas échouent silencieusement → l'agent ne marchera pas
+## Hors scope de cette étape
 
-## Récap des 3 valeurs à me donner
+- Chiffrement pgsodium des mots de passe robots (passe de durcissement séparée)
+- Cron de traitement par lots (attend que Stagehand soit validé sur 1 run manuel)
+- Adaptateurs pour toutes les plateformes (uniquement PLACE + Atexo pour valider l'architecture)
 
-| Secret | Où | Format attendu |
-|---|---|---|
-| `BROWSERBASE_API_KEY` | Browserbase Settings (déjà vu) | `bb_live_Xrw...` |
-| `BROWSERBASE_PROJECT_ID` | Browserbase Settings (déjà vu) | `5698db44-ec14-...` |
-| `TWOCAPTCHA_API_KEY` | 2Captcha → setting | 32 caractères alphanumériques |
+## Fichiers touchés
 
-## Quand c'est prêt
-
-Réponds-moi simplement **« j'ai les 3 clés »** et je relance la demande de stockage sécurisé. Un formulaire apparaîtra dans Lovable avec 3 champs où tu colleras les valeurs (chiffrées côté Supabase, jamais visibles dans le code).
-
-Ensuite je construirai immédiatement :
-1. La edge function `fetch-dce-agent` (orchestrateur Browserbase + Stagehand + 2Captcha)
-2. Le bouton « Récupération automatique IA » dans `TenderDetail.tsx`
-3. La page admin `/agent-monitor` pour voir les runs en temps réel
+- `supabase/functions/fetch-dce-agent/index.ts` — réécriture complète de l'orchestrateur
+- `src/pages/AgentMonitor.tsx` — lignes cliquables + panneau trace
+- `src/components/DceAgentFetchButton.tsx` — affichage admin uniquement
+- Nouvelle migration — seed des 2 playbooks + helper de garde de route admin si nécessaire
 
