@@ -103,14 +103,26 @@ const AgentMonitor = () => {
 
   const loadAll = async () => {
     setLoading(true);
-    const [r1, r2, r3] = await Promise.all([
+    const [r1, r2, r3, r4] = await Promise.all([
       supabase.from("agent_runs").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("platform_robots").select("*").order("platform"),
       supabase.from("agent_playbooks").select("*").order("platform"),
+      supabase.from("agent_anonymous_identity").select("*").eq("is_default", true).maybeSingle(),
     ]);
     if (r1.data) setRuns(r1.data as unknown as Run[]);
     if (r2.data) setRobots(r2.data as Robot[]);
     if (r3.data) setPlaybooks(r3.data as Playbook[]);
+    if (r4.data) {
+      setIdentity({
+        id: r4.data.id,
+        email: r4.data.email ?? "",
+        company_name: r4.data.company_name ?? "",
+        siret: r4.data.siret ?? "",
+        last_name: r4.data.last_name ?? "",
+        first_name: r4.data.first_name ?? "",
+        phone: r4.data.phone ?? "",
+      });
+    }
     setLoading(false);
   };
 
