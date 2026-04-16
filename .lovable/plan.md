@@ -2,59 +2,56 @@
 
 ## Diagnostic
 
-La trace est éloquente :
-1. ✅ `act("Clique sur le bouton télécharger DCE")` → trouve un lien intitulé " Publicité / Téléchargement" — c'est probablement **un onglet de navigation**, pas le bouton de retrait DCE
-2. ⚠️ `fill_anonymous_identity` → `champs: ` (vide !) → aucun input mappé. Soit la modale de retrait n'est pas ouverte, soit Maximilien utilise des composants Angular/PrimeNG (`<p-inputtext>`, divs contenteditable) que mes sélecteurs `input/textarea` ratent
-3. ❌ `act("Valide le formulaire pour lancer le téléchargement")` → aucun bouton trouvé → **fail**
-
-Les heuristiques DOM sont trop pauvres pour les SPA modernes. Plutôt que d'ajuster manuellement chaque sélecteur (fragile, sans fin), il faut donner à l'agent **un peu de "vision LLM"** sur le DOM courant pour qu'il choisisse le bon élément.
-
-## Plan : ajouter un fallback LLM "smart click" via Lovable AI Gateway
-
-### 1. Nouvelle fonction `smartActWithLLM(cdp, instruction)` dans `fetch-dce-agent`
-
-Quand l'heuristique `jsClickByText` échoue :
-1. Extraire un **snapshot léger du DOM** via `Runtime.evaluate` : tous les éléments cliquables visibles avec leur texte, `tagName`, `id`, `aria-label`, et un index numéroté → ~50-200 candidats, sérialisés en JSON compact
-2. Envoyer à `https://ai.gateway.lovable.dev/v1/chat/completions` (modèle `google/gemini-2.5-flash`, gratuit) avec un prompt système : *"Tu es un agent d'automatisation web. Voici les éléments cliquables visibles. Retourne UNIQUEMENT l'index de l'élément qui correspond le mieux à : `<instruction>`. Si aucun ne correspond, retourne `-1`."*
-3. Récupérer l'index → cliquer via `Runtime.evaluate` (`document.querySelectorAll(...)[idx].click()`)
-
-Coût : ~0.0001 $ par appel LLM, négligeable. Latence : ~500ms.
-
-### 2. Idem pour `fill_anonymous_identity` quand `champs:` est vide
-
-Snapshot des inputs visibles avec leurs labels/placeholders → demander au LLM de retourner un mapping `{ index: champ_identité }` (email, company_name, …) → remplir via `setNativeValue`.
-
-### 3. Élargir les heuristiques DOM (avant même de tomber sur le LLM)
-
-- Ajouter `[role="textbox"]`, `[contenteditable="true"]`, `p-inputtext input`, `mat-form-field input` dans les sélecteurs d'inputs
-- Ajouter `[mat-button], [mat-raised-button], .ui-button, .p-button` dans les sélecteurs cliquables  
-- Pour les boutons "submit"/"valider", ajouter détection par `type=submit` + texte court (Valider, OK, Confirmer, Envoyer, Télécharger)
-
-### 4. Stratégie d'ordre
+Bonne nouvelle : le LLM fallback fonctionne — il a trouvé "Dossier de consultation - 1,59 Mo" (idx=19) sur l'étape précédente. Le problème actuel est un **step trop strict** :
 
 ```
-1. heuristique DOM rapide (gratuit, 50ms)
-   └─ si match → click & log "ok (heuristic)"
-   └─ sinon → fallback LLM (500ms, ~0.0001$)
-        └─ si match → click & log "ok (llm)"
-        └─ sinon → fail si "act", skip si "click_if_present"
+act("Si une option Retrait anonyme ou Sans identification est proposée, clique dessus")
 ```
 
-Le LLM ne tourne **que si** l'heuristique échoue. Sur PLACE et BOAMP qui sont stables, on n'appellera jamais le LLM.
+Sur Maximilien, après le clic sur "Dossier de consultation", on tombe **directement sur le formulaire de retrait anonyme** (pas de choix entre "anonyme/identifié" intermédiaire). L'étape `act` échoue parce qu'aucun bouton de ce type n'existe → il faut que ce step soit **optionnel** (`click_if_present` au lieu de `act`).
 
-### 5. Mise à jour du playbook Maximilien
+Par ailleurs, deux autres steps après risquent aussi d'échouer en cascade pour la même raison (étape obligatoire alors qu'elle pourrait ne pas exister selon la plateforme).
 
-Le step `act("Clique sur le bouton ou lien permettant de télécharger le DCE")` matche actuellement " Publicité / Téléchargement" qui est un **onglet menu**, pas le CTA. Reformuler en : `"Clique sur le bouton 'Télécharger le DCE' ou 'Retrait du dossier' (pas l'onglet de menu)"`. Le LLM saura alors discriminer.
+## Plan : rendre le playbook tolérant aux étapes optionnelles
+
+### 1. Migration SQL : convertir les étapes "peut-être présentes" en `click_if_present`
+
+Dans le playbook `maximilien`, transformer :
+
+```diff
+- {"action":"act","instruction":"Si une option Retrait anonyme ou Sans identification est proposée, clique dessus"}
++ {"action":"click_if_present","instruction":"Option Retrait anonyme, Sans identification, Accès libre, ou Téléchargement sans compte"}
+```
+
+Garder `act` (strict) **uniquement** pour les 2 étapes vraiment obligatoires :
+- Le clic initial sur "Dossier de consultation" 
+- Le bouton final de validation/téléchargement
+
+### 2. Améliorer la robustesse du `act` final
+
+Le step final `act("Clique sur le bouton de validation finale...")` peut aussi échouer si Maximilien déclenche un téléchargement direct (sans bouton de validation). Le rendre tolérant via une **stratégie en cascade** :
+
+```json
+{"action":"click_if_present","instruction":"Bouton Valider, Télécharger, Confirmer ou Envoyer le formulaire"},
+{"action":"wait_download","timeout_ms":25000}
+```
+
+Si le bouton existe → on clique. Sinon → on attend quand même un download (cas où le clic précédent l'a déjà déclenché).
+
+### 3. Côté edge function : aucune modif nécessaire
+
+Le moteur gère déjà bien `click_if_present` (heuristique → LLM → skip si rien). Le problème est uniquement dans la définition du playbook.
+
+### 4. (Optionnel) Logger les snapshots LLM
+
+Quand un `click_if_present` ne matche rien après LLM, logger les 5 premiers candidats du snapshot dans `agent_runs.trace` pour faciliter le debug futur. Ça permet de comprendre **ce que voit l'agent** quand il échoue.
 
 ## Fichiers touchés
 
-- `supabase/functions/fetch-dce-agent/index.ts` : 
-  - élargir `jsClickByText` et `jsFillIdentity` (sélecteurs Angular/PrimeNG)
-  - ajouter `smartActWithLLM` + `smartFillWithLLM` utilisant `LOVABLE_API_KEY`
-  - brancher en fallback dans le switch `act/click/fill_anonymous_identity`
-- Migration SQL légère : `UPDATE agent_playbooks SET steps = ...` pour reformuler 1-2 instructions Maximilien
+- **Migration SQL** : `UPDATE agent_playbooks SET steps = ... WHERE platform = 'maximilien'`
+- **`supabase/functions/fetch-dce-agent/index.ts`** : ajouter le log des candidats top-5 dans la trace quand `click_if_present` est skip après LLM (10 lignes)
 
-## Note honnête
+## Note
 
-Sans ce fallback LLM, on devra écrire un playbook spécifique avec sélecteurs CSS exacts pour CHAQUE plateforme (PLACE, Atexo, Maximilien, Megalis, MS = 5 playbooks, 30+ heures de R&D). Le LLM rend l'agent **adaptatif** : un seul playbook générique fonctionne sur toutes les plateformes au prix de ~0.001 $ de plus par run.
+C'est un ajustement de **playbook**, pas de moteur. Le moteur LLM-fallback marche : il a trouvé le bon bouton sur l'étape précédente. Reste à enseigner au playbook que toutes les plateformes ne demandent pas le même nombre de clics intermédiaires.
 
