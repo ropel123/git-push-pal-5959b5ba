@@ -1,41 +1,43 @@
 
 
-Tu es au bon endroit. Je vois sur ta capture les 2 valeurs dont j'ai besoin :
+L'utilisateur a uploadé une capture de la doc 2Captcha API v2 sans message. Il me montre qu'il est sur la bonne page mais cherche probablement où récupérer sa clé API. La capture montre la doc technique, pas le dashboard.
 
-## Tes 2 clés Browserbase (visibles à l'écran)
+## Tu es sur la doc, pas sur ton compte
 
-### 1. Project ID ✅
-```
-5698db44-ec14-4c3e-a752-aed1135a... (clique sur l'icône copier à droite pour avoir la valeur complète)
-```
+La page que tu vois (`2captcha.com/api-docs/...`) c'est la **documentation technique**. Pour récupérer ta clé, il faut aller dans ton **espace personnel**.
 
-### 2. API Key ✅
-```
-bb_live_Xrw**************** (masquée — clique sur l'icône œil 👁 pour la révéler, puis sur l'icône copier 📋)
-```
+### Étape 1 — Connecte-toi (si pas déjà fait)
 
-## Ce que tu fais maintenant
+- En haut à droite de la page, clique sur **"Sign in"** (ou "Sign up" si tu n'as pas encore de compte)
+- Choisis bien le rôle **"Customer"** à l'inscription (pas "Worker")
 
-1. **Copie le Project ID** : clique sur l'icône 📋 à droite de `5698db44-ec14-4c3e-a752-aed1135a...`
-2. **Révèle puis copie l'API Key** : clique sur 👁 pour afficher la clé complète, puis 📋 pour la copier
-3. **Garde les 2 valeurs de côté** (dans un bloc-notes par exemple)
+### Étape 2 — Récupère ta clé API
 
-## En parallèle : 2Captcha (3 min)
+Une fois connecté, tu arrives sur ton dashboard. Cherche :
+- Menu de gauche : **"API Settings"** ou directement **"Dashboard"**
+- Tu verras un bloc **"Your API key"** avec une chaîne de ~32 caractères
+- URL directe une fois loggé : `https://2captcha.com/setting`
 
-Pendant que tu y es, ouvre un autre onglet :
-1. https://2captcha.com → **Sign up**
-2. Une fois connecté, va dans **Settings → API Key** (en haut à droite)
-3. Recharge **5€ minimum** via "Add funds" (sinon les captchas échouent silencieusement)
-4. Copie la clé API
+### Étape 3 — Recharge ton compte (obligatoire)
 
-## Ensuite
+- Menu de gauche : **"Add funds"**
+- Recharge **5 €** minimum (PayPal ou CB)
+- Sans crédit, les captchas échouent silencieusement → l'agent ne marchera pas
 
-Réponds-moi simplement **"j'ai les 3 clés"** et je relancerai la demande de secrets dans Lovable. Un formulaire sécurisé apparaîtra où tu colleras :
-- `BROWSERBASE_API_KEY` → la clé `bb_live_...`
-- `BROWSERBASE_PROJECT_ID` → `5698db44-...`
-- `TWOCAPTCHA_API_KEY` → la clé 2Captcha
+## Récap des 3 valeurs à me donner
 
-Les valeurs seront chiffrées côté Supabase, jamais visibles dans le code, et accessibles uniquement par les edge functions.
+| Secret | Où | Format attendu |
+|---|---|---|
+| `BROWSERBASE_API_KEY` | Browserbase Settings (déjà vu) | `bb_live_Xrw...` |
+| `BROWSERBASE_PROJECT_ID` | Browserbase Settings (déjà vu) | `5698db44-ec14-...` |
+| `TWOCAPTCHA_API_KEY` | 2Captcha → setting | 32 caractères alphanumériques |
 
-Puis je construirai la edge function `fetch-dce-agent` qui fera le travail réel de récupération automatisée des DCE.
+## Quand c'est prêt
+
+Réponds-moi simplement **« j'ai les 3 clés »** et je relance la demande de stockage sécurisé. Un formulaire apparaîtra dans Lovable avec 3 champs où tu colleras les valeurs (chiffrées côté Supabase, jamais visibles dans le code).
+
+Ensuite je construirai immédiatement :
+1. La edge function `fetch-dce-agent` (orchestrateur Browserbase + Stagehand + 2Captcha)
+2. Le bouton « Récupération automatique IA » dans `TenderDetail.tsx`
+3. La page admin `/agent-monitor` pour voir les runs en temps réel
 
