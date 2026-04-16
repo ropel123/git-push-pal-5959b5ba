@@ -270,11 +270,35 @@ Deno.serve(async (req) => {
             break;
           }
           case "fill_login": {
-            if (!robot) throw new Error("fill_login sans robot");
+            if (!robot) {
+              log(label, "skipped", "aucun compte robot — étape ignorée");
+              break;
+            }
             await stagehand.page.act({
               action: `Trouve le champ identifiant/email et saisis exactement "${robot.login}", puis le champ mot de passe et saisis exactement "${robot.password_encrypted}", puis valide le formulaire de connexion.`,
             });
             log(label, "ok", `as ${robot.login}`, Date.now() - stepStart);
+            break;
+          }
+          case "fill_anonymous_identity": {
+            if (!anonId) {
+              log(label, "skipped", "aucune identité anonyme configurée");
+              break;
+            }
+            const instruction = `Si un formulaire de retrait de DCE en mode anonyme est affiché, remplis chaque champ correspondant avec les valeurs suivantes (ignore silencieusement les champs absents) :
+- Email / Adresse e-mail : "${anonId.email}"
+- Raison sociale / Société / Entreprise : "${anonId.company_name}"
+- SIRET / SIREN : "${anonId.siret ?? ""}"
+- Nom : "${anonId.last_name}"
+- Prénom : "${anonId.first_name}"
+- Téléphone : "${anonId.phone ?? ""}"
+Ne valide pas encore le formulaire, attends l'étape suivante. Si la page contient au contraire un écran de connexion (champ mot de passe), n'agis pas.`;
+            try {
+              await stagehand.page.act({ action: instruction });
+              log(label, "ok", anonId.email, Date.now() - stepStart);
+            } catch (e: any) {
+              log(label, "skipped", e.message, Date.now() - stepStart);
+            }
             break;
           }
           case "solve_captcha":
