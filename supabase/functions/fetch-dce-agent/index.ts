@@ -680,11 +680,23 @@ Deno.serve(async (req) => {
             const instruction = step.instruction ?? step.natural ?? "";
             const result = await cdp.eval(jsClickByText(instruction));
             if (result?.clicked) {
-              log(label, "ok", result.text, Date.now() - stepStart);
-            } else if (step.action === "click_if_present") {
-              log(label, "skipped", "no match", Date.now() - stepStart);
+              log(label, "ok", `(heuristic) ${result.text}`, Date.now() - stepStart);
             } else {
-              throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}"`);
+              // Fallback LLM
+              const snapshot = await cdp.eval(jsSnapshotClickables());
+              const idx = await llmPickClickable(instruction, snapshot ?? []);
+              if (idx >= 0) {
+                const r2 = await cdp.eval(jsClickByIndex(idx));
+                if (r2?.clicked) {
+                  log(label, "ok", `(llm idx=${idx}) ${r2.text}`, Date.now() - stepStart);
+                  break;
+                }
+              }
+              if (step.action === "click_if_present") {
+                log(label, "skipped", "no match (heuristic+llm)", Date.now() - stepStart);
+              } else {
+                throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}"`);
+              }
             }
             break;
           }
