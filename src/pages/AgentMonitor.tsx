@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle } from "lucide-react";
+import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle, UserCircle2, Save } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
