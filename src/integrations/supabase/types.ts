@@ -14,6 +14,105 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_playbooks: {
+        Row: {
+          created_at: string | null
+          display_name: string
+          id: string
+          is_active: boolean | null
+          platform: string
+          requires_auth: boolean | null
+          requires_captcha: boolean | null
+          steps: Json
+          success_rate: number | null
+          updated_at: string | null
+          url_pattern: string
+        }
+        Insert: {
+          created_at?: string | null
+          display_name: string
+          id?: string
+          is_active?: boolean | null
+          platform: string
+          requires_auth?: boolean | null
+          requires_captcha?: boolean | null
+          steps?: Json
+          success_rate?: number | null
+          updated_at?: string | null
+          url_pattern: string
+        }
+        Update: {
+          created_at?: string | null
+          display_name?: string
+          id?: string
+          is_active?: boolean | null
+          platform?: string
+          requires_auth?: boolean | null
+          requires_captcha?: boolean | null
+          steps?: Json
+          success_rate?: number | null
+          updated_at?: string | null
+          url_pattern?: string
+        }
+        Relationships: []
+      }
+      agent_runs: {
+        Row: {
+          browserbase_session_id: string | null
+          captchas_solved: number | null
+          cost_usd: number | null
+          created_at: string | null
+          dce_url: string
+          duration_ms: number | null
+          error_message: string | null
+          files_downloaded: number | null
+          finished_at: string | null
+          id: string
+          platform: string
+          started_at: string | null
+          status: string
+          tender_id: string | null
+          trace: Json | null
+          triggered_by: string | null
+        }
+        Insert: {
+          browserbase_session_id?: string | null
+          captchas_solved?: number | null
+          cost_usd?: number | null
+          created_at?: string | null
+          dce_url: string
+          duration_ms?: number | null
+          error_message?: string | null
+          files_downloaded?: number | null
+          finished_at?: string | null
+          id?: string
+          platform: string
+          started_at?: string | null
+          status?: string
+          tender_id?: string | null
+          trace?: Json | null
+          triggered_by?: string | null
+        }
+        Update: {
+          browserbase_session_id?: string | null
+          captchas_solved?: number | null
+          cost_usd?: number | null
+          created_at?: string | null
+          dce_url?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          files_downloaded?: number | null
+          finished_at?: string | null
+          id?: string
+          platform?: string
+          started_at?: string | null
+          status?: string
+          tender_id?: string | null
+          trace?: Json | null
+          triggered_by?: string | null
+        }
+        Relationships: []
+      }
       alerts: {
         Row: {
           created_at: string | null
@@ -246,6 +345,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      platform_robots: {
+        Row: {
+          created_at: string | null
+          failure_count: number | null
+          id: string
+          is_active: boolean | null
+          last_used_at: string | null
+          login: string
+          notes: string | null
+          password_encrypted: string
+          platform: string
+          success_count: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          failure_count?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_used_at?: string | null
+          login: string
+          notes?: string | null
+          password_encrypted: string
+          platform: string
+          success_count?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          failure_count?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_used_at?: string | null
+          login?: string
+          notes?: string | null
+          password_encrypted?: string
+          platform?: string
+          success_count?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
