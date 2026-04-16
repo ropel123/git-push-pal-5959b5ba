@@ -896,6 +896,7 @@ Deno.serve(async (req) => {
             file_name: `DCE_agent_${platform}.zip`,
             file_path: filename,
             file_size: archiveSize,
+            agent_run_id: runId,
           });
         }
         filesUploaded = 1;

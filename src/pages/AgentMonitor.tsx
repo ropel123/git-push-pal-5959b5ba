@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle, UserCircle2, Save } from "lucide-react";
+import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle, UserCircle2, Save, FileDown } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -182,6 +182,48 @@ const AgentMonitor = () => {
   const deleteRobot = async (id: string) => {
     await supabase.from("platform_robots").delete().eq("id", id);
     loadAll();
+  };
+
+  const downloadDce = async (run: Run) => {
+    try {
+      // 1. Try lookup by agent_run_id (preferred)
+      let { data: upload } = await supabase
+        .from("dce_uploads")
+        .select("file_path, file_name")
+        .eq("agent_run_id", run.id)
+        .maybeSingle();
+
+      // 2. Fallback: most recent upload for this tender_id close to the run
+      if (!upload && run.tender_id) {
+        const { data: fallback } = await supabase
+          .from("dce_uploads")
+          .select("file_path, file_name")
+          .eq("tender_id", run.tender_id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        upload = fallback;
+      }
+
+      if (!upload?.file_path) {
+        toast({ title: "Fichier introuvable", description: "Aucun upload lié à ce run.", variant: "destructive" });
+        return;
+      }
+
+      const { data: signed, error } = await supabase.storage
+        .from("dce-documents")
+        .createSignedUrl(upload.file_path, 3600);
+      if (error || !signed?.signedUrl) throw error ?? new Error("signed URL");
+
+      const a = document.createElement("a");
+      a.href = signed.signedUrl;
+      a.download = upload.file_name ?? "dce.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e: any) {
+      toast({ title: "Erreur de téléchargement", description: e.message, variant: "destructive" });
+    }
   };
 
   const saveIdentity = async () => {
