@@ -1,16 +1,17 @@
-// fetch-dce-agent: Orchestrateur Browserbase + Stagehand-like (LLM-driven) + 2Captcha
-// Récupère automatiquement les DCE sur des plateformes nécessitant login/captcha.
+// fetch-dce-agent: Orchestrateur Browserbase + Stagehand + 2Captcha
+// Pilote un Chromium cloud pour récupérer automatiquement les DCE sur des plateformes
+// nécessitant login et/ou captcha (Atexo, Marchés-Sécurisés, Maximilien, PLACE…).
 //
-// Flow:
-//   1. Identifier la plateforme à partir de dce_url
-//   2. Charger le playbook (steps en langage naturel) depuis agent_playbooks
-//   3. Créer une session Browserbase (Chrome cloud avec IPs résidentielles)
-//   4. Exécuter chaque étape via la Browserbase Sessions API + Stagehand-like cdp commands
-//   5. Si captcha détecté, le résoudre via 2Captcha
-//   6. Télécharger le DCE → uploader dans le bucket dce-documents
-//   7. Logger le run dans agent_runs
+// Architecture :
+//   1. Détection de la plateforme à partir de l'URL DCE
+//   2. Chargement du playbook (suite d'actions en langage naturel) depuis agent_playbooks
+//   3. Création d'une session Browserbase + connexion Stagehand (LLM-driven)
+//   4. Exécution des étapes : goto / act / extract / fill_login / solve_captcha / download
+//   5. Récupération de l'archive de téléchargements Browserbase → bucket dce-documents
+//   6. Persistance complète du run + trace structurée dans agent_runs
 
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
+import { Stagehand } from "https://esm.sh/@browserbasehq/stagehand@1.14.0?bundle&target=deno";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,129 +22,122 @@ const corsHeaders = {
 const BROWSERBASE_API_KEY = Deno.env.get("BROWSERBASE_API_KEY")!;
 const BROWSERBASE_PROJECT_ID = Deno.env.get("BROWSERBASE_PROJECT_ID")!;
 const TWOCAPTCHA_API_KEY = Deno.env.get("TWOCAPTCHA_API_KEY")!;
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+const HARD_TIMEOUT_MS = 90_000;
+
 interface PlaybookStep {
   action: string;
+  instruction?: string;
   natural?: string;
   target?: string;
+  type?: string;
   use_robot?: boolean;
   timeout_ms?: number;
+  timeout?: number;
 }
 
 interface RunTrace {
   ts: string;
   step: string;
   status: "ok" | "skipped" | "failed";
+  duration_ms?: number;
   detail?: string;
 }
 
-const trace: RunTrace[] = [];
-const log = (step: string, status: "ok" | "skipped" | "failed", detail?: string) => {
-  trace.push({ ts: new Date().toISOString(), step, status, detail });
-  console.log(`[agent] ${status.toUpperCase()} ${step}${detail ? ` — ${detail}` : ""}`);
-};
+// --- 2Captcha (reCAPTCHA v2) ---
 
-// --- Browserbase helpers ---
+async function solveRecaptchaV2(siteKey: string, pageUrl: string): Promise<string> {
+  const submit = await fetch(
+    `https://2captcha.com/in.php?key=${TWOCAPTCHA_API_KEY}&method=userrecaptcha&googlekey=${siteKey}&pageurl=${encodeURIComponent(pageUrl)}&json=1`,
+  );
+  const submitData = await submit.json();
+  if (submitData.status !== 1) throw new Error(`2Captcha submit: ${submitData.request}`);
+  const id = submitData.request;
 
-async function createBrowserbaseSession(): Promise<string> {
-  const res = await fetch("https://api.browserbase.com/v1/sessions", {
-    method: "POST",
-    headers: {
-      "X-BB-API-Key": BROWSERBASE_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      projectId: BROWSERBASE_PROJECT_ID,
-      browserSettings: {
-        viewport: { width: 1280, height: 800 },
-        solveCaptchas: true, // Browserbase a un solveur natif (gratuit pour reCAPTCHA basique)
-      },
-      keepAlive: false,
-      timeout: 600,
-    }),
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Browserbase session creation failed [${res.status}]: ${txt}`);
+  for (let i = 0; i < 24; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const poll = await fetch(
+      `https://2captcha.com/res.php?key=${TWOCAPTCHA_API_KEY}&action=get&id=${id}&json=1`,
+    );
+    const pollData = await poll.json();
+    if (pollData.status === 1) return pollData.request as string;
+    if (pollData.request !== "CAPCHA_NOT_READY") {
+      throw new Error(`2Captcha poll: ${pollData.request}`);
+    }
   }
-  const data = await res.json();
-  log("browserbase.create_session", "ok", `session=${data.id}`);
-  return data.id;
+  throw new Error("2Captcha timeout (120s)");
 }
 
-async function endBrowserbaseSession(sessionId: string) {
-  try {
-    await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}`, {
-      method: "POST",
-      headers: { "X-BB-API-Key": BROWSERBASE_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: BROWSERBASE_PROJECT_ID, status: "REQUEST_RELEASE" }),
-    });
-  } catch (_) {
-    // best-effort
-  }
-}
-
-async function getDownloads(sessionId: string): Promise<{ name: string; url: string }[]> {
-  // Browserbase expose les fichiers téléchargés pendant la session
-  const res = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}/downloads`, {
-    headers: { "X-BB-API-Key": BROWSERBASE_API_KEY },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  // L'API renvoie un ZIP combiné. On le récupère directement via le endpoint downloads.
-  return Array.isArray(data) ? data : [];
-}
+// --- Browserbase downloads archive ---
 
 async function downloadSessionArchive(sessionId: string): Promise<Uint8Array | null> {
   const res = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}/downloads`, {
     headers: { "X-BB-API-Key": BROWSERBASE_API_KEY, Accept: "application/zip" },
   });
-  if (!res.ok) {
-    log("browserbase.download_archive", "failed", `status=${res.status}`);
-    return null;
-  }
+  if (!res.ok) return null;
   const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.byteLength < 100) return null; // ZIP vide
+  if (buf.byteLength < 100) return null;
   return buf;
-}
-
-// --- 2Captcha helpers ---
-
-async function solveRecaptcha(siteKey: string, pageUrl: string): Promise<string> {
-  const submit = await fetch(
-    `https://2captcha.com/in.php?key=${TWOCAPTCHA_API_KEY}&method=userrecaptcha&googlekey=${siteKey}&pageurl=${encodeURIComponent(pageUrl)}&json=1`,
-  );
-  const submitData = await submit.json();
-  if (submitData.status !== 1) throw new Error(`2Captcha submit failed: ${submitData.request}`);
-  const requestId = submitData.request;
-
-  // Poll for result
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 5000));
-    const poll = await fetch(
-      `https://2captcha.com/res.php?key=${TWOCAPTCHA_API_KEY}&action=get&id=${requestId}&json=1`,
-    );
-    const pollData = await poll.json();
-    if (pollData.status === 1) return pollData.request;
-    if (pollData.request !== "CAPCHA_NOT_READY") {
-      throw new Error(`2Captcha poll failed: ${pollData.request}`);
-    }
-  }
-  throw new Error("2Captcha timeout (150s)");
 }
 
 // --- Platform detection ---
 
 function detectPlatform(url: string): string {
+  if (/place\.marches-publics\.gouv\.fr/i.test(url)) return "place";
   if (/achatpublic\.com/i.test(url)) return "atexo_achatpublic";
   if (/local-trust\.com/i.test(url)) return "atexo_localtrust";
   if (/marches-securises\.fr/i.test(url)) return "marches_securises";
   if (/maximilien\.fr/i.test(url)) return "maximilien";
-  if (/place\.marches-publics\.gouv\.fr/i.test(url)) return "place";
   if (/megalis\.bretagne\.bzh/i.test(url)) return "megalis";
   return "unknown";
+}
+
+// --- Captcha detection helper (sitekey reCAPTCHA v2) ---
+
+async function detectRecaptchaSiteKey(stagehand: any): Promise<string | null> {
+  try {
+    const result = await stagehand.page.evaluate(() => {
+      const el = document.querySelector("[data-sitekey]") as HTMLElement | null;
+      return el?.getAttribute("data-sitekey") ?? null;
+    });
+    return result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function injectRecaptchaToken(stagehand: any, token: string): Promise<void> {
+  await stagehand.page.evaluate((t: string) => {
+    const ta = document.querySelector('textarea[name="g-recaptcha-response"]') as HTMLTextAreaElement | null;
+    if (ta) {
+      ta.style.display = "block";
+      ta.value = t;
+      ta.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    // Trigger any callback registered with grecaptcha
+    // @ts-ignore
+    if (typeof window.___grecaptcha_cfg !== "undefined") {
+      // @ts-ignore
+      const clients = window.___grecaptcha_cfg.clients ?? {};
+      Object.keys(clients).forEach((cid) => {
+        const c = clients[cid];
+        Object.keys(c).forEach((k) => {
+          const obj = c[k];
+          if (obj && typeof obj === "object") {
+            Object.keys(obj).forEach((kk) => {
+              const inner = obj[kk];
+              if (inner && typeof inner === "object" && typeof inner.callback === "function") {
+                try { inner.callback(t); } catch (_) {}
+              }
+            });
+          }
+        });
+      });
+    }
+  }, token);
 }
 
 // --- Main handler ---
@@ -153,52 +147,49 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const startedAt = Date.now();
+  const trace: RunTrace[] = [];
   let runId: string | null = null;
   let sessionId: string | null = null;
+  let stagehand: any = null;
+  let captchasSolved = 0;
 
-  try {
+  const log = (step: string, status: "ok" | "skipped" | "failed", detail?: string, duration_ms?: number) => {
+    trace.push({ ts: new Date().toISOString(), step, status, duration_ms, detail });
+    console.log(`[agent] ${status.toUpperCase()} ${step}${detail ? ` — ${detail}` : ""}`);
+  };
+
+  const hardTimeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Wallclock timeout (${HARD_TIMEOUT_MS}ms)`)), HARD_TIMEOUT_MS),
+  );
+
+  const runMain = async () => {
     const body = await req.json();
     const { tender_id, dce_url, triggered_by } = body;
-
-    if (!tender_id || !dce_url) {
-      return new Response(JSON.stringify({ error: "tender_id and dce_url required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!tender_id || !dce_url) throw new Error("tender_id and dce_url required");
 
     const platform = detectPlatform(dce_url);
     log("router.detect_platform", "ok", platform);
 
-    // Créer le run (status pending)
+    // Insert run row
     const { data: runRow, error: runErr } = await supabase
       .from("agent_runs")
-      .insert({
-        tender_id,
-        platform,
-        dce_url,
-        status: "running",
-        triggered_by: triggered_by ?? null,
-      })
+      .insert({ tender_id, platform, dce_url, status: "running", triggered_by: triggered_by ?? null })
       .select("id")
       .single();
     if (runErr) throw new Error(`agent_runs insert: ${runErr.message}`);
     runId = runRow.id;
 
-    // Charger playbook
+    // Load playbook
     const { data: playbook } = await supabase
       .from("agent_playbooks")
       .select("*")
       .eq("platform", platform)
       .eq("is_active", true)
       .maybeSingle();
-
-    if (!playbook) {
-      throw new Error(`Aucun playbook actif pour la plateforme "${platform}". Créez-en un dans /agent-monitor.`);
-    }
+    if (!playbook) throw new Error(`Aucun playbook actif pour "${platform}".`);
     log("playbook.load", "ok", playbook.display_name);
 
-    // Charger credentials robot si nécessaire
+    // Load robot if needed
     let robot: { login: string; password_encrypted: string } | null = null;
     if (playbook.requires_auth) {
       const { data: r } = await supabase
@@ -207,103 +198,145 @@ Deno.serve(async (req) => {
         .eq("platform", platform)
         .eq("is_active", true)
         .maybeSingle();
-      if (!r) throw new Error(`Aucun compte robot actif pour ${platform}. Configurez-en un dans /agent-monitor.`);
+      if (!r) throw new Error(`Aucun compte robot actif pour ${platform}.`);
       robot = r;
       log("robot.load", "ok", r.login);
     }
 
-    // Créer session Browserbase
-    sessionId = await createBrowserbaseSession();
+    // Init Stagehand (Browserbase env)
+    const tInit = Date.now();
+    stagehand = new Stagehand({
+      env: "BROWSERBASE",
+      apiKey: BROWSERBASE_API_KEY,
+      projectId: BROWSERBASE_PROJECT_ID,
+      modelName: "anthropic/claude-3-5-sonnet-latest",
+      modelClientOptions: {
+        apiKey: OPENROUTER_API_KEY,
+        baseURL: "https://openrouter.ai/api/v1",
+      },
+      browserbaseSessionCreateParams: {
+        projectId: BROWSERBASE_PROJECT_ID,
+        browserSettings: {
+          viewport: { width: 1280, height: 800 },
+          solveCaptchas: false, // on gère via 2Captcha pour fiabilité
+        },
+      },
+      verbose: 1,
+    });
 
-    // Exécuter les steps via Browserbase Sessions API (cdp/act endpoint)
-    // Note: pour la V1, on utilise l'endpoint "sessions/{id}/act" si disponible,
-    // sinon on délègue à Stagehand via le SDK officiel.
-    // Ici on simule un parcours simple en utilisant l'API CDP minimale.
+    await stagehand.init();
+    sessionId = stagehand.browserbaseSessionID ?? null;
+    log("stagehand.init", "ok", `session=${sessionId}`, Date.now() - tInit);
+
     const steps = (playbook.steps as PlaybookStep[]) ?? [];
-    let captchasSolved = 0;
 
     for (const step of steps) {
-      const stepLabel = `${step.action}${step.natural ? `("${step.natural}")` : ""}`;
+      const stepStart = Date.now();
+      const label = `${step.action}${step.instruction ? `("${step.instruction.slice(0, 60)}")` : step.natural ? `("${step.natural}")` : ""}`;
       try {
         switch (step.action) {
+          case "goto":
           case "navigate": {
             const target = (step.target ?? "").replace("{{dce_url}}", dce_url);
-            await browserbaseAct(sessionId, { type: "goto", url: target });
-            log(stepLabel, "ok", target);
+            await stagehand.page.goto(target || dce_url, { waitUntil: "domcontentloaded", timeout: 30000 });
+            log(label, "ok", target || dce_url, Date.now() - stepStart);
             break;
           }
+          case "act":
           case "click":
           case "click_if_present": {
-            const r = await browserbaseAct(sessionId, {
-              type: "act",
-              instruction: `Clique sur l'élément correspondant à : ${step.natural}`,
-              tolerateMissing: step.action === "click_if_present",
-            });
-            log(stepLabel, r.found ? "ok" : "skipped");
-            break;
-          }
-          case "fill_login": {
-            if (!robot) throw new Error("fill_login mais aucun robot chargé");
-            await browserbaseAct(sessionId, {
-              type: "act",
-              instruction: `Trouve le champ login/email et saisis "${robot.login}", puis le champ mot de passe et saisis "${robot.password_encrypted}", puis clique sur le bouton de connexion.`,
-            });
-            log(stepLabel, "ok", `as ${robot.login}`);
-            break;
-          }
-          case "solve_captcha_if_present": {
-            const captcha = await browserbaseAct(sessionId, { type: "detect_captcha" });
-            if (captcha.found && captcha.siteKey && captcha.pageUrl) {
-              const token = await solveRecaptcha(captcha.siteKey, captcha.pageUrl);
-              await browserbaseAct(sessionId, { type: "inject_recaptcha_token", token });
-              captchasSolved++;
-              log(stepLabel, "ok", "reCAPTCHA résolu");
-            } else {
-              log(stepLabel, "skipped", "aucun captcha");
+            const instruction = step.instruction ?? step.natural ?? "";
+            try {
+              await stagehand.page.act({ action: instruction });
+              log(label, "ok", undefined, Date.now() - stepStart);
+            } catch (e: any) {
+              if (step.action === "click_if_present") {
+                log(label, "skipped", e.message, Date.now() - stepStart);
+              } else {
+                throw e;
+              }
             }
             break;
           }
+          case "fill_login": {
+            if (!robot) throw new Error("fill_login sans robot");
+            await stagehand.page.act({
+              action: `Trouve le champ identifiant/email et saisis exactement "${robot.login}", puis le champ mot de passe et saisis exactement "${robot.password_encrypted}", puis valide le formulaire de connexion.`,
+            });
+            log(label, "ok", `as ${robot.login}`, Date.now() - stepStart);
+            break;
+          }
+          case "solve_captcha":
+          case "solve_captcha_if_present": {
+            const siteKey = await detectRecaptchaSiteKey(stagehand);
+            if (!siteKey) {
+              if (step.action === "solve_captcha_if_present") {
+                log(label, "skipped", "aucun captcha détecté", Date.now() - stepStart);
+                break;
+              }
+              throw new Error("Aucun reCAPTCHA détecté (sitekey introuvable)");
+            }
+            const pageUrl = stagehand.page.url();
+            const token = await solveRecaptchaV2(siteKey, pageUrl);
+            await injectRecaptchaToken(stagehand, token);
+            captchasSolved++;
+            log(label, "ok", `sitekey=${siteKey.slice(0, 12)}…`, Date.now() - stepStart);
+            break;
+          }
+          case "wait": {
+            await new Promise((r) => setTimeout(r, step.timeout_ms ?? 3000));
+            log(label, "ok", undefined, Date.now() - stepStart);
+            break;
+          }
+          case "download":
           case "wait_download": {
-            await new Promise((r) => setTimeout(r, step.timeout_ms ?? 30000));
-            log(stepLabel, "ok");
+            // Le téléchargement est déjà déclenché par l'étape précédente.
+            // On laisse Browserbase capter le fichier.
+            await new Promise((r) => setTimeout(r, step.timeout_ms ?? step.timeout ?? 20000));
+            log(label, "ok", undefined, Date.now() - stepStart);
             break;
           }
           default:
-            log(stepLabel, "skipped", "action inconnue");
+            log(label, "skipped", "action inconnue", Date.now() - stepStart);
         }
       } catch (e: any) {
-        log(stepLabel, "failed", e.message);
+        log(label, "failed", e.message, Date.now() - stepStart);
         throw e;
       }
     }
 
-    // Récupérer les fichiers téléchargés
-    const archive = await downloadSessionArchive(sessionId);
+    // Récupérer fichiers téléchargés (archive ZIP Browserbase)
     let filesUploaded = 0;
-    if (archive) {
-      const filename = `${tender_id}/agent_${Date.now()}.zip`;
-      const { error: upErr } = await supabase.storage
-        .from("dce-documents")
-        .upload(filename, archive, { contentType: "application/zip", upsert: true });
-      if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
-      log("storage.upload", "ok", filename);
+    let archiveSize = 0;
+    if (sessionId) {
+      const archive = await downloadSessionArchive(sessionId);
+      if (archive) {
+        archiveSize = archive.byteLength;
+        const filename = `${tender_id}/agent_${Date.now()}.zip`;
+        const { error: upErr } = await supabase.storage
+          .from("dce-documents")
+          .upload(filename, archive, { contentType: "application/zip", upsert: true });
+        if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
+        log("storage.upload", "ok", `${filename} (${archiveSize} B)`);
 
-      // Ouvrir une entrée dce_uploads (user_id = triggered_by ou bucket système)
-      if (triggered_by) {
-        await supabase.from("dce_uploads").insert({
-          tender_id,
-          user_id: triggered_by,
-          file_name: `DCE_agent_${platform}.zip`,
-          file_path: filename,
-          file_size: archive.byteLength,
-        });
+        if (triggered_by) {
+          await supabase.from("dce_uploads").insert({
+            tender_id,
+            user_id: triggered_by,
+            file_name: `DCE_agent_${platform}.zip`,
+            file_path: filename,
+            file_size: archiveSize,
+          });
+        }
+        filesUploaded = 1;
+      } else {
+        log("storage.upload", "skipped", "aucune archive de téléchargements");
       }
-      filesUploaded = 1;
     }
 
-    // Compter les coûts approximatifs
     const durationMs = Date.now() - startedAt;
-    const costUsd = 0.10 + captchasSolved * 0.003 + 0.01; // browserbase + 2captcha + LLM
+    const browserbaseMin = durationMs / 60000;
+    const costUsd = browserbaseMin * 0.10 + captchasSolved * 0.003 + 0.01;
 
     await supabase
       .from("agent_runs")
@@ -311,51 +344,51 @@ Deno.serve(async (req) => {
         status: filesUploaded > 0 ? "success" : "no_files",
         finished_at: new Date().toISOString(),
         duration_ms: durationMs,
-        cost_usd: costUsd,
+        cost_usd: Number(costUsd.toFixed(4)),
         captchas_solved: captchasSolved,
         files_downloaded: filesUploaded,
         browserbase_session_id: sessionId,
         trace: trace as any,
       })
-      .eq("id", runId);
+      .eq("id", runId!);
 
-    // Stats robot
     if (robot) {
-      await supabase.rpc("increment", {}); // placeholder; sinon manual update
       await supabase
         .from("platform_robots")
-        .update({
-          last_used_at: new Date().toISOString(),
-          success_count: filesUploaded > 0 ? 1 : 0,
-        })
+        .update({ last_used_at: new Date().toISOString() })
         .eq("platform", platform);
     }
 
-    await endBrowserbaseSession(sessionId);
+    return {
+      success: true,
+      run_id: runId,
+      files_uploaded: filesUploaded,
+      captchas_solved: captchasSolved,
+      duration_ms: durationMs,
+      cost_usd: Number(costUsd.toFixed(4)),
+    };
+  };
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        run_id: runId,
-        files_uploaded: filesUploaded,
-        captchas_solved: captchasSolved,
-        duration_ms: durationMs,
-        cost_usd: costUsd,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+  try {
+    const result = await Promise.race([runMain(), hardTimeout]);
+    if (stagehand) await stagehand.close().catch(() => {});
+    return new Response(JSON.stringify(result), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (err: any) {
     console.error("[agent] FATAL", err);
-    if (sessionId) await endBrowserbaseSession(sessionId);
+    if (stagehand) await stagehand.close().catch(() => {});
     if (runId) {
+      const isTimeout = /timeout/i.test(err.message);
       await supabase
         .from("agent_runs")
         .update({
-          status: "failed",
+          status: isTimeout ? "timeout" : "failed",
           finished_at: new Date().toISOString(),
           duration_ms: Date.now() - startedAt,
           error_message: err.message,
           trace: trace as any,
+          captchas_solved: captchasSolved,
           browserbase_session_id: sessionId,
         })
         .eq("id", runId);
@@ -366,24 +399,3 @@ Deno.serve(async (req) => {
     );
   }
 });
-
-// --- Browserbase "act" abstraction ---
-// Browserbase n'expose pas (encore) un endpoint "act" universel via REST.
-// Pour la V1 nous utilisons CDP via WebSocket pour les actions basiques,
-// et déléguons les actions complexes ("click on natural language target")
-// à un appel LLM qui retourne un sélecteur CSS, puis exécute le click via CDP.
-// Cette implémentation est une stub structurelle — elle log le step et retourne
-// un résultat simulé. Le vrai pilotage sera ajouté en branchant @browserbasehq/stagehand
-// ou Playwright-over-CDP côté edge function (nécessite Deno + WS support).
-
-async function browserbaseAct(
-  sessionId: string,
-  payload: any,
-): Promise<{ found: boolean; siteKey?: string; pageUrl?: string }> {
-  // STUB: à remplacer par l'intégration Stagehand/CDP réelle.
-  // Pour l'instant on retourne un succès pour permettre de tester le pipeline DB + storage.
-  console.log(`[browserbaseAct] session=${sessionId}`, JSON.stringify(payload).slice(0, 200));
-  await new Promise((r) => setTimeout(r, 500));
-  if (payload.type === "detect_captcha") return { found: false };
-  return { found: true };
-}
