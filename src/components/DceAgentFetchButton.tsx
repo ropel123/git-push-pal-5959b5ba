@@ -74,9 +74,9 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
       >
         {status === "running" && <><Loader2 className="h-4 w-4 animate-spin" /> Agent en cours… (peut prendre 1-2 min)</>}
         {status === "idle" && <><Sparkles className="h-4 w-4" /> Lancer l'agent IA</>}
-        {status === "success" && <><CheckCircle2 className="h-4 w-4 text-green-500" /> DCE récupéré</>}
-        {status === "no_files" && <><AlertTriangle className="h-4 w-4 text-yellow-500" /> Relancer</>}
-        {status === "failed" && <><AlertTriangle className="h-4 w-4 text-red-500" /> Réessayer</>}
+        {status === "success" && <><CheckCircle2 className="h-4 w-4" /> DCE récupéré</>}
+        {status === "no_files" && <><AlertTriangle className="h-4 w-4" /> Relancer</>}
+        {status === "failed" && <><AlertTriangle className="h-4 w-4" /> Réessayer</>}
       </Button>
 
       {detail && (
