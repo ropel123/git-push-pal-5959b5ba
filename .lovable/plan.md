@@ -2,63 +2,46 @@
 
 ## Diagnostic
 
-Le téléchargement DCE a réussi (1.41 MB ✓), mais le fichier est invisible parce que **la page `/agent-monitor` est un mode test** qui force `tender_id = "00000000-0000-0000-0000-000000000000"` (UUID nul). Conséquence :
+"Aucun upload lié à ce run" → la query `dce_uploads.agent_run_id = run.id` ne renvoie rien parce que **le fichier a été uploadé AVANT que la migration `agent_run_id` n'existe**. Le ZIP de 1.41 MB est dans le storage mais sa ligne `dce_uploads` a `agent_run_id = NULL`.
 
-1. Le fichier est uploadé dans `dce-documents/00000000-.../agent_xxx.zip`
-2. La ligne `dce_uploads` est créée avec ce tender_id nul → **n'apparaît dans aucune page `/tenders/:id`**
-3. La page `/agent-monitor` affiche seulement la trace, pas de bouton de téléchargement
+Deux problèmes :
 
-Donc tu n'as **aucun moyen UI** de récupérer le fichier sauf via `agent-monitor` lui-même.
+1. **Run historique orphelin** : le fichier `agent_1776372623578.zip` existe dans `dce-documents/00000000-.../` mais n'est lié à aucun run via `agent_run_id`.
+2. **Fallback insuffisant** : le code actuel fait `agent_run_id = runId` puis fallback `tender_id`. Mais sur les runs test, plusieurs runs partagent le même `tender_id = 00000000...` → le fallback retourne potentiellement le **mauvais** fichier (ou rien si la query est mal ordonnée).
 
-## Plan : ajouter un bouton "Télécharger le DCE" dans /agent-monitor
+## Plan
 
-### 1. Côté UI (`src/pages/AgentMonitor.tsx`)
+### 1. Backfill des uploads orphelins (one-shot SQL)
 
-Pour chaque `agent_run` avec `status === "success"` ET `files_downloaded > 0` :
-- Bouton **"Télécharger le DCE"** (icône `FileDown`)
-- Au clic : appeler une fonction qui retrouve le fichier dans `dce_uploads` filtré par `agent_run_id` (préféré) ou par `tender_id + created_at` proche du run, génère un signed URL via `supabase.storage.createSignedUrl()`, et déclenche le téléchargement navigateur.
+Lier rétroactivement les `dce_uploads` existants à leur `agent_run` par **proximité temporelle** (upload `created_at` entre `agent_run.started_at` et `agent_run.finished_at`) :
 
-### 2. Lier `agent_runs` ↔ `dce_uploads`
-
-Aujourd'hui rien ne relie un upload à son run. Deux options :
-- **A. Ajouter `agent_run_id` à `dce_uploads`** (migration : nouvelle colonne nullable + index). L'edge function l'insère lors de l'upload. **Choix recommandé** : robuste, évite les ambiguïtés.
-- B. Match par `tender_id` + `file_path` qui contient déjà le run ID dans le nom.
-
-→ Aller avec **A**. Migration légère :
 ```sql
-ALTER TABLE public.dce_uploads ADD COLUMN agent_run_id uuid REFERENCES public.agent_runs(id) ON DELETE SET NULL;
-CREATE INDEX idx_dce_uploads_agent_run_id ON public.dce_uploads(agent_run_id);
+UPDATE public.dce_uploads u
+SET agent_run_id = r.id
+FROM public.agent_runs r
+WHERE u.agent_run_id IS NULL
+  AND u.tender_id = r.tender_id
+  AND u.created_at BETWEEN r.started_at AND COALESCE(r.finished_at, r.started_at + interval '5 minutes');
 ```
 
-### 3. Edge function (`supabase/functions/fetch-dce-agent/index.ts`)
+### 2. Améliorer `downloadDce` côté UI (`AgentMonitor.tsx`)
 
-Insertion `dce_uploads` modifiée pour passer `agent_run_id: runId` (déjà disponible localement dans la fonction).
+Stratégie en cascade plus robuste :
+1. Cherche par `agent_run_id = run.id` (exact)
+2. Sinon : cherche par `tender_id = run.tender_id` ET `created_at` dans la fenêtre `[run.started_at, run.finished_at + 1min]`, ordonné par `created_at DESC`, limit 1
+3. Sinon : fallback storage direct → liste les fichiers dans `dce-documents/{tender_id}/` créés dans la fenêtre, prend le plus récent et génère signed URL
+4. Toast d'erreur seulement si les 3 stratégies échouent, avec message qui indique le chemin storage à vérifier manuellement
 
-### 4. UI : carte "DCE récupéré" dans le détail du run
+### 3. (Bonus) Lien direct "Voir dans Storage"
 
-Dans le drawer/dialog d'un run sur `/agent-monitor`, sous la trace, ajouter une carte verte avec :
-- Nom du fichier + taille
-- Bouton **"Télécharger"** → signed URL 1h → download navigateur
-
-Si le run est "test" (tender_id nul), c'est le **seul** moyen de récupérer le fichier → fonctionnalité critique.
-
-### 5. (Bonus rapide) Améliorer la detection "Continuer" sur Maximilien
-
-Les logs montrent que `click_if_present("Continuer/Suivant/Valider...")` a heuristic-matché un bouton **"Valider"** **avant** que la radio "anonyme" ne déclenche son postback → on a cliqué Valider trop tôt sur un formulaire vide → `wait_for_inputs` 0/2. 
-
-Reformuler l'instruction pour exclure "Valider" du step intermédiaire :
-> "Bouton **Continuer** ou **Suivant** uniquement (PAS Valider, PAS Télécharger) — étape intermédiaire après sélection du mode anonyme"
-
-Migration SQL légère pour mettre à jour ce step. **Mais** le run a quand même réussi finalement (le `act` final LLM-first a trouvé "Télécharger le Dossier de consultation" idx=12), donc c'est optionnel.
+Sur le toast d'erreur, ajouter un bouton/lien vers le dashboard Supabase Storage (`https://supabase.com/dashboard/project/xfqvaeshidleazgfqlze/storage/buckets/dce-documents`) pour que tu puisses récupérer manuellement le fichier en attendant.
 
 ## Fichiers touchés
 
-- **Migration SQL** : ajouter colonne `agent_run_id` à `dce_uploads` + index
-- **`supabase/functions/fetch-dce-agent/index.ts`** : passer `agent_run_id: runId` à l'insert (~1 ligne)
-- **`src/pages/AgentMonitor.tsx`** : bouton "Télécharger le DCE" sur chaque run success + handler signed URL (~30 lignes)
-- (optionnel) Migration Maximilien playbook : reformuler step "Continuer/Suivant"
+- **Migration SQL** : backfill `dce_uploads.agent_run_id` pour les uploads existants
+- **`src/pages/AgentMonitor.tsx`** : fonction `downloadDce` enrichie (cascade 3 niveaux + lien storage dashboard)
 
 ## Note
 
-Tu peux aussi récupérer le fichier **dès maintenant** sans aucun code en allant sur Supabase Storage > bucket `dce-documents` > dossier `00000000-0000-0000-0000-000000000000/` et en téléchargeant `agent_1776372623578.zip` (1.41 MB). Mais c'est pas viable long terme — le bouton dans `/agent-monitor` est le bon fix.
+Le fichier `agent_1776372623578.zip` (1.41 MB, ton DCE Maximilien) est **bien là**, il faut juste le retrouver. Le backfill SQL le rattachera au run correspondant et le bouton fonctionnera.
 
