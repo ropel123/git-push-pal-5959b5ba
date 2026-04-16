@@ -81,9 +81,9 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
 
       {detail && (
         <div className="flex items-start gap-2 text-xs">
-          {status === "success" && <Badge variant="secondary" className="bg-green-500/20 text-green-400">Succès</Badge>}
-          {status === "no_files" && <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-400">Aucun fichier</Badge>}
-          {status === "failed" && <Badge variant="secondary" className="bg-red-500/20 text-red-400">Échec</Badge>}
+          {status === "success" && <Badge variant="secondary">Succès</Badge>}
+          {status === "no_files" && <Badge variant="secondary">Aucun fichier</Badge>}
+          {status === "failed" && <Badge variant="destructive">Échec</Badge>}
           {status === "running" && <Badge variant="secondary">En cours</Badge>}
           <span className="text-muted-foreground">{detail}</span>
         </div>

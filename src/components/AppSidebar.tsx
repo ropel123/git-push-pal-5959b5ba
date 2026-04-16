@@ -20,6 +20,7 @@ import {
   Settings,
   LogOut,
   Activity,
+  Bot,
 } from "lucide-react";
 
 const menuItems = [
@@ -28,6 +29,7 @@ const menuItems = [
   { title: "Pipeline", icon: Kanban, path: "/pipeline" },
   { title: "Attributions", icon: Award, path: "/awards" },
   { title: "Mon activité", icon: Activity, path: "/activity" },
+  { title: "Agent IA", icon: Bot, path: "/agent-monitor" },
   { title: "Paramètres", icon: Settings, path: "/settings" },
 ];
 
