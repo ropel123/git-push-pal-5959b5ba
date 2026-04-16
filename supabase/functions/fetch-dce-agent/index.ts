@@ -838,15 +838,6 @@ Deno.serve(async (req) => {
             log(label, "ok", `(${filledVia}) champs: ${filledFields.join(",")} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
             break;
           }
-            const mapping = await llmMapInputs(anonId as any, inputs);
-            if (Object.keys(mapping).length === 0) {
-              log(label, "skipped", "LLM n'a mappé aucun champ", Date.now() - stepStart);
-              break;
-            }
-            const fillRes = await cdp.eval(jsFillByIndex(mapping));
-            log(label, "ok", `(llm) champs: ${(fillRes?.filled ?? []).join(",")}`, Date.now() - stepStart);
-            break;
-          }
           case "solve_captcha":
           case "solve_captcha_if_present": {
             const siteKey = await cdp.eval(jsDetectRecaptcha());
