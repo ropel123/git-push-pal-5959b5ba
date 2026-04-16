@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,10 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
-import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2 } from "lucide-react";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+
+type TraceEntry = { ts: string; step: string; status: "ok" | "skipped" | "failed"; duration_ms?: number; detail?: string };
 
 type Run = {
   id: string;
@@ -24,6 +29,9 @@ type Run = {
   files_downloaded: number | null;
   error_message: string | null;
   tender_id: string | null;
+  browserbase_session_id: string | null;
+  trace: TraceEntry[] | null;
+  dce_url: string;
 };
 
 type Robot = {
@@ -54,21 +62,29 @@ const statusBadge = (s: string) => {
     running: "bg-blue-500/20 text-blue-400",
     pending: "bg-muted text-muted-foreground",
     failed: "bg-red-500/20 text-red-400",
+    timeout: "bg-orange-500/20 text-orange-400",
     no_files: "bg-yellow-500/20 text-yellow-400",
   };
   return map[s] ?? "bg-muted";
 };
 
+const traceIcon = (status: TraceEntry["status"]) => {
+  if (status === "ok") return <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />;
+  if (status === "failed") return <XCircle className="h-3.5 w-3.5 text-red-400" />;
+  return <MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />;
+};
+
 const AgentMonitor = () => {
   const { toast } = useToast();
+  const { isAdmin, loading: adminLoading } = useIsAdmin();
   const [runs, setRuns] = useState<Run[]>([]);
   const [robots, setRobots] = useState<Robot[]>([]);
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [testUrl, setTestUrl] = useState("");
   const [testing, setTesting] = useState(false);
+  const [selectedRun, setSelectedRun] = useState<Run | null>(null);
 
-  // New robot form
   const [newRobot, setNewRobot] = useState({ platform: "", login: "", password: "" });
 
   const loadAll = async () => {
@@ -78,15 +94,15 @@ const AgentMonitor = () => {
       supabase.from("platform_robots").select("*").order("platform"),
       supabase.from("agent_playbooks").select("*").order("platform"),
     ]);
-    if (r1.data) setRuns(r1.data as Run[]);
+    if (r1.data) setRuns(r1.data as unknown as Run[]);
     if (r2.data) setRobots(r2.data as Robot[]);
     if (r3.data) setPlaybooks(r3.data as Playbook[]);
     setLoading(false);
   };
 
   useEffect(() => {
+    if (!isAdmin) return;
     loadAll();
-    // Realtime
     const chan = supabase
       .channel("agent_runs_realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "agent_runs" }, () => loadAll())
@@ -94,7 +110,14 @@ const AgentMonitor = () => {
     return () => {
       supabase.removeChannel(chan);
     };
-  }, []);
+  }, [isAdmin]);
+
+  if (adminLoading) {
+    return <div className="container mx-auto p-6 text-sm text-muted-foreground">Chargement…</div>;
+  }
+  if (!isAdmin) {
+    return <Navigate to="/" replace />;
+  }
 
   const runTest = async () => {
     if (!testUrl) return;
@@ -119,7 +142,7 @@ const AgentMonitor = () => {
     const { error } = await supabase.from("platform_robots").insert({
       platform: newRobot.platform,
       login: newRobot.login,
-      password_encrypted: newRobot.password, // TODO: chiffrer côté serveur
+      password_encrypted: newRobot.password,
     });
     if (error) {
       toast({ title: "Erreur", description: error.message, variant: "destructive" });
@@ -142,7 +165,7 @@ const AgentMonitor = () => {
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Bot className="h-8 w-8 text-primary" /> Agent Monitor
           </h1>
-          <p className="text-muted-foreground text-sm">Pilotage de l'agent IA navigateur (Browserbase + 2Captcha)</p>
+          <p className="text-muted-foreground text-sm">Pilotage de l'agent IA navigateur (Browserbase + Stagehand + 2Captcha)</p>
         </div>
         <Button variant="outline" size="sm" onClick={loadAll} className="gap-2">
           <RefreshCw className="h-4 w-4" /> Rafraîchir
@@ -160,7 +183,7 @@ const AgentMonitor = () => {
         <TabsContent value="runs">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Derniers runs</CardTitle>
+              <CardTitle className="text-base">Derniers runs (clique pour voir la trace)</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -178,7 +201,7 @@ const AgentMonitor = () => {
                 </TableHeader>
                 <TableBody>
                   {runs.map((r) => (
-                    <TableRow key={r.id}>
+                    <TableRow key={r.id} onClick={() => setSelectedRun(r)} className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="text-xs">{format(new Date(r.started_at), "dd/MM HH:mm:ss", { locale: fr })}</TableCell>
                       <TableCell><Badge variant="outline">{r.platform}</Badge></TableCell>
                       <TableCell><Badge className={statusBadge(r.status)}>{r.status}</Badge></TableCell>
@@ -283,6 +306,65 @@ const AgentMonitor = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Sheet open={!!selectedRun} onOpenChange={(o) => !o && setSelectedRun(null)}>
+        <SheetContent className="w-[600px] sm:max-w-[600px] overflow-y-auto">
+          {selectedRun && (
+            <>
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2">
+                  Run trace <Badge className={statusBadge(selectedRun.status)}>{selectedRun.status}</Badge>
+                </SheetTitle>
+                <SheetDescription className="text-xs space-y-1">
+                  <div>Plateforme : <span className="font-mono">{selectedRun.platform}</span></div>
+                  <div>Démarré : {format(new Date(selectedRun.started_at), "dd/MM/yyyy HH:mm:ss", { locale: fr })}</div>
+                  <div>Durée : {selectedRun.duration_ms ? `${(selectedRun.duration_ms / 1000).toFixed(1)}s` : "—"} • Captchas : {selectedRun.captchas_solved ?? 0} • Coût : {selectedRun.cost_usd ? `${selectedRun.cost_usd.toFixed(3)}$` : "—"}</div>
+                  <div className="break-all">URL : <a href={selectedRun.dce_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{selectedRun.dce_url}</a></div>
+                  {selectedRun.browserbase_session_id && (
+                    <div>
+                      <a
+                        href={`https://browserbase.com/sessions/${selectedRun.browserbase_session_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline inline-flex items-center gap-1"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Voir le replay Browserbase
+                      </a>
+                    </div>
+                  )}
+                </SheetDescription>
+              </SheetHeader>
+
+              {selectedRun.error_message && (
+                <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                  <strong>Erreur :</strong> {selectedRun.error_message}
+                </div>
+              )}
+
+              <div className="mt-6 space-y-2">
+                <h4 className="text-sm font-semibold">Étapes ({selectedRun.trace?.length ?? 0})</h4>
+                <div className="space-y-1.5">
+                  {(selectedRun.trace ?? []).map((t, i) => (
+                    <div key={i} className="flex items-start gap-2 rounded border border-border bg-muted/30 p-2 text-xs">
+                      <div className="pt-0.5">{traceIcon(t.status)}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-mono break-all">{t.step}</div>
+                        {t.detail && <div className="text-muted-foreground mt-0.5 break-all">{t.detail}</div>}
+                      </div>
+                      <div className="text-muted-foreground whitespace-nowrap text-[10px]">
+                        {t.duration_ms ? `${t.duration_ms}ms` : ""}
+                      </div>
+                    </div>
+                  ))}
+                  {(!selectedRun.trace || selectedRun.trace.length === 0) && (
+                    <p className="text-xs text-muted-foreground">Aucune trace enregistrée.</p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };

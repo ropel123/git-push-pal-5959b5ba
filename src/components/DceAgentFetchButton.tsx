@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { Sparkles, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
 interface Props {
@@ -15,6 +16,7 @@ type Status = "idle" | "running" | "success" | "no_files" | "failed";
 
 const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
   const { toast } = useToast();
+  const { isAdmin } = useIsAdmin();
   const [status, setStatus] = useState<Status>("idle");
   const [detail, setDetail] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
@@ -52,6 +54,8 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
       toast({ title: "Agent en échec", description: e.message, variant: "destructive" });
     }
   };
+
+  if (!isAdmin) return null;
 
   return (
     <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-4">
