@@ -184,6 +184,31 @@ const AgentMonitor = () => {
     loadAll();
   };
 
+  const saveIdentity = async () => {
+    setSavingIdentity(true);
+    try {
+      const payload = {
+        email: identity.email,
+        company_name: identity.company_name,
+        siret: identity.siret || null,
+        last_name: identity.last_name,
+        first_name: identity.first_name,
+        phone: identity.phone || null,
+        is_default: true,
+      };
+      const { error } = identity.id
+        ? await supabase.from("agent_anonymous_identity").update(payload).eq("id", identity.id)
+        : await supabase.from("agent_anonymous_identity").insert(payload);
+      if (error) throw error;
+      toast({ title: "Identité enregistrée" });
+      loadAll();
+    } catch (e: any) {
+      toast({ title: "Erreur", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingIdentity(false);
+    }
+  };
+
   return (
     <div className="container mx-auto max-w-7xl p-6 space-y-6">
       <div className="flex items-center justify-between">
