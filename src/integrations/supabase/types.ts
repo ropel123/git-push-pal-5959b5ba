@@ -270,6 +270,7 @@ export type Database = {
       }
       dce_uploads: {
         Row: {
+          agent_run_id: string | null
           created_at: string | null
           file_name: string
           file_path: string
@@ -279,6 +280,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          agent_run_id?: string | null
           created_at?: string | null
           file_name: string
           file_path: string
@@ -288,6 +290,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          agent_run_id?: string | null
           created_at?: string | null
           file_name?: string
           file_path?: string
@@ -297,6 +300,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "dce_uploads_agent_run_id_fkey"
+            columns: ["agent_run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "dce_uploads_tender_id_fkey"
             columns: ["tender_id"]

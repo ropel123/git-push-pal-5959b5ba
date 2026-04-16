@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle, UserCircle2, Save } from "lucide-react";
+import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, MinusCircle, UserCircle2, Save, FileDown } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -184,6 +184,48 @@ const AgentMonitor = () => {
     loadAll();
   };
 
+  const downloadDce = async (run: Run) => {
+    try {
+      // 1. Try lookup by agent_run_id (preferred)
+      let { data: upload } = await supabase
+        .from("dce_uploads")
+        .select("file_path, file_name")
+        .eq("agent_run_id", run.id)
+        .maybeSingle();
+
+      // 2. Fallback: most recent upload for this tender_id close to the run
+      if (!upload && run.tender_id) {
+        const { data: fallback } = await supabase
+          .from("dce_uploads")
+          .select("file_path, file_name")
+          .eq("tender_id", run.tender_id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        upload = fallback;
+      }
+
+      if (!upload?.file_path) {
+        toast({ title: "Fichier introuvable", description: "Aucun upload lié à ce run.", variant: "destructive" });
+        return;
+      }
+
+      const { data: signed, error } = await supabase.storage
+        .from("dce-documents")
+        .createSignedUrl(upload.file_path, 3600);
+      if (error || !signed?.signedUrl) throw error ?? new Error("signed URL");
+
+      const a = document.createElement("a");
+      a.href = signed.signedUrl;
+      a.download = upload.file_name ?? "dce.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e: any) {
+      toast({ title: "Erreur de téléchargement", description: e.message, variant: "destructive" });
+    }
+  };
+
   const saveIdentity = async () => {
     setSavingIdentity(true);
     try {
@@ -248,6 +290,7 @@ const AgentMonitor = () => {
                     <TableHead>Captchas</TableHead>
                     <TableHead>Fichiers</TableHead>
                     <TableHead>Coût</TableHead>
+                    <TableHead>DCE</TableHead>
                     <TableHead>Erreur</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -261,11 +304,25 @@ const AgentMonitor = () => {
                       <TableCell>{r.captchas_solved ?? 0}</TableCell>
                       <TableCell>{r.files_downloaded ?? 0}</TableCell>
                       <TableCell className="text-xs">{r.cost_usd ? `${r.cost_usd.toFixed(3)}$` : "—"}</TableCell>
+                      <TableCell>
+                        {r.status === "success" && (r.files_downloaded ?? 0) > 0 ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1.5 text-xs"
+                            onClick={(e) => { e.stopPropagation(); downloadDce(r); }}
+                          >
+                            <FileDown className="h-3.5 w-3.5" /> ZIP
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-xs text-red-400 max-w-xs truncate">{r.error_message}</TableCell>
                     </TableRow>
                   ))}
                   {runs.length === 0 && (
-                    <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground text-sm">Aucun run</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground text-sm">Aucun run</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -436,6 +493,20 @@ const AgentMonitor = () => {
               {selectedRun.error_message && (
                 <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
                   <strong>Erreur :</strong> {selectedRun.error_message}
+                </div>
+              )}
+
+              {selectedRun.status === "success" && (selectedRun.files_downloaded ?? 0) > 0 && (
+                <div className="mt-4 rounded-md border border-green-500/40 bg-green-500/10 p-3 text-xs space-y-2">
+                  <div className="font-semibold text-green-400">DCE récupéré ✓</div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => downloadDce(selectedRun)}
+                  >
+                    <FileDown className="h-4 w-4" /> Télécharger le DCE
+                  </Button>
                 </div>
               )}
 
