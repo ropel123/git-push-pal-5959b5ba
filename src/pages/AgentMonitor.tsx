@@ -96,6 +96,10 @@ const AgentMonitor = () => {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
 
   const [newRobot, setNewRobot] = useState({ platform: "", login: "", password: "" });
+  const [identity, setIdentity] = useState<AnonIdentity>({
+    email: "", company_name: "", siret: "", last_name: "", first_name: "", phone: "",
+  });
+  const [savingIdentity, setSavingIdentity] = useState(false);
 
   const loadAll = async () => {
     setLoading(true);
