@@ -189,19 +189,30 @@ Deno.serve(async (req) => {
     if (!playbook) throw new Error(`Aucun playbook actif pour "${platform}".`);
     log("playbook.load", "ok", playbook.display_name);
 
-    // Load robot if needed
+    // Load robot (optional fallback for restricted procedures)
     let robot: { login: string; password_encrypted: string } | null = null;
-    if (playbook.requires_auth) {
+    {
       const { data: r } = await supabase
         .from("platform_robots")
         .select("login,password_encrypted")
         .eq("platform", platform)
         .eq("is_active", true)
         .maybeSingle();
-      if (!r) throw new Error(`Aucun compte robot actif pour ${platform}.`);
-      robot = r;
-      log("robot.load", "ok", r.login);
+      if (r) {
+        robot = r;
+        log("robot.load", "ok", r.login);
+      } else if (playbook.requires_auth) {
+        log("robot.load", "skipped", "aucun compte — fallback identité anonyme");
+      }
     }
+
+    // Load default anonymous identity (used by fill_anonymous_identity)
+    const { data: anonId } = await supabase
+      .from("agent_anonymous_identity")
+      .select("email,company_name,siret,last_name,first_name,phone")
+      .eq("is_default", true)
+      .maybeSingle();
+    if (anonId) log("identity.load", "ok", anonId.email);
 
     // Init Stagehand (Browserbase env)
     const tInit = Date.now();
