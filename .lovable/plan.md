@@ -1,57 +1,60 @@
 
 
-## Diagnostic confirmé
+## Diagnostic
 
-`supabase/functions/fetch-dce-agent/index.ts` importe (directement ou indirectement) `playwright-core` / `@browserbasehq/stagehand`, qui requièrent :
-- Un filesystem local pour le "browser registry" Playwright (absent dans Deno Deploy edge runtime)
-- Les modules natifs `bufferutil` et `utf-8-validate` (non résolvables)
+La trace est éloquente :
+1. ✅ `act("Clique sur le bouton télécharger DCE")` → trouve un lien intitulé " Publicité / Téléchargement" — c'est probablement **un onglet de navigation**, pas le bouton de retrait DCE
+2. ⚠️ `fill_anonymous_identity` → `champs: ` (vide !) → aucun input mappé. Soit la modale de retrait n'est pas ouverte, soit Maximilien utilise des composants Angular/PrimeNG (`<p-inputtext>`, divs contenteditable) que mes sélecteurs `input/textarea` ratent
+3. ❌ `act("Valide le formulaire pour lancer le téléchargement")` → aucun bouton trouvé → **fail**
 
-Résultat : crash au boot → preflight OPTIONS sans réponse → CORS error côté client. Aucun playbook ni identité anonyme n'est en cause.
+Les heuristiques DOM sont trop pauvres pour les SPA modernes. Plutôt que d'ajuster manuellement chaque sélecteur (fragile, sans fin), il faut donner à l'agent **un peu de "vision LLM"** sur le DOM courant pour qu'il choisisse le bon élément.
 
-## Plan : remplacer Stagehand/Playwright par le SDK Browserbase HTTP + CDP via WebSocket Deno-native
+## Plan : ajouter un fallback LLM "smart click" via Lovable AI Gateway
 
-### Option retenue : Browserbase Sessions API + Chrome DevTools Protocol
+### 1. Nouvelle fonction `smartActWithLLM(cdp, instruction)` dans `fetch-dce-agent`
 
-Browserbase expose une API REST pour créer une session distante, et renvoie une URL `wss://…` (Chrome DevTools Protocol). On pilote le navigateur **distant** via CDP brut depuis Deno, sans Playwright local. C'est exactement l'usage prévu pour les runtimes serverless contraints.
+Quand l'heuristique `jsClickByText` échoue :
+1. Extraire un **snapshot léger du DOM** via `Runtime.evaluate` : tous les éléments cliquables visibles avec leur texte, `tagName`, `id`, `aria-label`, et un index numéroté → ~50-200 candidats, sérialisés en JSON compact
+2. Envoyer à `https://ai.gateway.lovable.dev/v1/chat/completions` (modèle `google/gemini-2.5-flash`, gratuit) avec un prompt système : *"Tu es un agent d'automatisation web. Voici les éléments cliquables visibles. Retourne UNIQUEMENT l'index de l'élément qui correspond le mieux à : `<instruction>`. Si aucun ne correspond, retourne `-1`."*
+3. Récupérer l'index → cliquer via `Runtime.evaluate` (`document.querySelectorAll(...)[idx].click()`)
 
-### 1. Réécrire `supabase/functions/fetch-dce-agent/index.ts`
+Coût : ~0.0001 $ par appel LLM, négligeable. Latence : ~500ms.
 
-Remplacer toute la couche Stagehand/Playwright par :
+### 2. Idem pour `fill_anonymous_identity` quand `champs:` est vide
 
-- **Création de session** : `POST https://api.browserbase.com/v1/sessions` avec `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID` → récupère `id`, `connectUrl` (wss CDP), `signingKey`
-- **Connexion CDP** : `new WebSocket(connectUrl)` (natif Deno) + petit client CDP minimal (envoi/réception JSON-RPC, ids incrémentaux, promesses par id)
-- **Helpers de haut niveau** basés sur CDP commands :
-  - `Page.navigate({url})` pour `goto`
-  - `Runtime.evaluate({expression})` pour cliquer/remplir via JS injecté (`document.querySelector(...).click()`, `setNativeValue` + `dispatchEvent('input')`)
-  - `Network.enable` + écoute `Network.responseReceived` pour détecter les téléchargements de PDF/ZIP
-  - `Page.printToPDF` ou `Browser.downloadProgress` pour récupérer les fichiers
-- **Capture des fichiers** : pour les téléchargements binaires, intercepter via `Fetch.enable` + `Fetch.getResponseBody` (base64), puis upload dans le bucket `dce-documents`
+Snapshot des inputs visibles avec leurs labels/placeholders → demander au LLM de retourner un mapping `{ index: champ_identité }` (email, company_name, …) → remplir via `setNativeValue`.
 
-### 2. Remplacer "natural language actions" par heuristiques DOM
+### 3. Élargir les heuristiques DOM (avant même de tomber sur le LLM)
 
-Stagehand gérait les `act/instruction` en LLM-vision. On remplace par :
-- Pour `click`/`act` : injection JS qui scanne tous les `a`, `button`, `input[type=submit]` dont le texte contient un des libellés du `instruction` (split sur virgules + parenthèses) → click sur le premier match visible
-- Pour `fill_anonymous_identity` : JS qui mappe les `input`/`textarea`/`select` par labels/placeholders/names connus (`email`, `mail`, `raison sociale`, `société`, `nom`, `prénom`, `téléphone`, `siret`) → remplit avec l'identité par défaut
-- Pour `solve_captcha_if_present` : détection `iframe[src*="recaptcha"]` ou `[data-sitekey]` → appel 2Captcha API HTTP (`TWOCAPTCHA_API_KEY` déjà présent) → injection du token dans `g-recaptcha-response` + dispatch event
-- Pour `click_if_present` : même heuristique que `click` mais ne fail pas si rien trouvé
+- Ajouter `[role="textbox"]`, `[contenteditable="true"]`, `p-inputtext input`, `mat-form-field input` dans les sélecteurs d'inputs
+- Ajouter `[mat-button], [mat-raised-button], .ui-button, .p-button` dans les sélecteurs cliquables  
+- Pour les boutons "submit"/"valider", ajouter détection par `type=submit` + texte court (Valider, OK, Confirmer, Envoyer, Télécharger)
 
-C'est moins "intelligent" qu'un LLM mais 100% serverless-compatible et déterministe.
+### 4. Stratégie d'ordre
 
-### 3. Tracing & coût
+```
+1. heuristique DOM rapide (gratuit, 50ms)
+   └─ si match → click & log "ok (heuristic)"
+   └─ sinon → fallback LLM (500ms, ~0.0001$)
+        └─ si match → click & log "ok (llm)"
+        └─ sinon → fail si "act", skip si "click_if_present"
+```
 
-Conserver la trace step-by-step (déjà branchée sur `agent_runs.trace`). Calculer `cost_usd` à partir de la durée Browserbase (≈ 0,10 $ / minute) + 0,003 $ par captcha 2Captcha.
+Le LLM ne tourne **que si** l'heuristique échoue. Sur PLACE et BOAMP qui sont stables, on n'appellera jamais le LLM.
 
-### 4. CORS & boot defensive
+### 5. Mise à jour du playbook Maximilien
 
-Wrapper tout le handler dans un `try/catch` global avec headers CORS sur la réponse d'erreur, pour qu'un futur crash de boot ne casse plus la preflight.
+Le step `act("Clique sur le bouton ou lien permettant de télécharger le DCE")` matche actuellement " Publicité / Téléchargement" qui est un **onglet menu**, pas le CTA. Reformuler en : `"Clique sur le bouton 'Télécharger le DCE' ou 'Retrait du dossier' (pas l'onglet de menu)"`. Le LLM saura alors discriminer.
 
 ## Fichiers touchés
 
-- `supabase/functions/fetch-dce-agent/index.ts` — réécriture complète (~400 lignes), suppression imports `playwright-core` / `stagehand`
-- Aucune migration SQL : les playbooks et l'identité anonyme restent valides
+- `supabase/functions/fetch-dce-agent/index.ts` : 
+  - élargir `jsClickByText` et `jsFillIdentity` (sélecteurs Angular/PrimeNG)
+  - ajouter `smartActWithLLM` + `smartFillWithLLM` utilisant `LOVABLE_API_KEY`
+  - brancher en fallback dans le switch `act/click/fill_anonymous_identity`
+- Migration SQL légère : `UPDATE agent_playbooks SET steps = ...` pour reformuler 1-2 instructions Maximilien
 
-## Limitations honnêtes
+## Note honnête
 
-- Plateformes ultra-dynamiques (SPA React lourdes type Atexo récents) peuvent demander des sélecteurs spécifiques → ajustables playbook par playbook
-- Pas de "vision LLM" → si le DOM change radicalement on devra mettre à jour les heuristiques. Acceptable pour PLACE/Maximilien/Megalis qui sont stables
+Sans ce fallback LLM, on devra écrire un playbook spécifique avec sélecteurs CSS exacts pour CHAQUE plateforme (PLACE, Atexo, Maximilien, Megalis, MS = 5 playbooks, 30+ heures de R&D). Le LLM rend l'agent **adaptatif** : un seul playbook générique fonctionne sur toutes les plateformes au prix de ~0.001 $ de plus par run.
 
