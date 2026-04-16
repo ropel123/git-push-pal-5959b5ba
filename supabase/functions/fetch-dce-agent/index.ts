@@ -281,6 +281,25 @@ function jsClickByIndex(idx: number): string {
 `;
 }
 
+function jsCountVisibleInputs(): string {
+  const sel = JSON.stringify(INPUT_SELECTOR);
+  return `
+(() => {
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== "hidden" && st.display !== "none";
+  };
+  return Array.from(document.querySelectorAll(${sel})).filter(el => {
+    if (!isVisible(el)) return false;
+    const t = (el.type || '').toLowerCase();
+    return !['hidden','submit','button','checkbox','radio','file'].includes(t);
+  }).length;
+})()
+`;
+}
+
 function jsSnapshotInputs(): string {
   const sel = JSON.stringify(INPUT_SELECTOR);
   return `
