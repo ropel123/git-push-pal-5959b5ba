@@ -226,6 +226,7 @@ const AgentMonitor = () => {
       <Tabs defaultValue="runs" className="space-y-4">
         <TabsList>
           <TabsTrigger value="runs">Runs ({runs.length})</TabsTrigger>
+          <TabsTrigger value="identity">Identité anonyme</TabsTrigger>
           <TabsTrigger value="robots">Comptes robots ({robots.length})</TabsTrigger>
           <TabsTrigger value="playbooks">Playbooks ({playbooks.length})</TabsTrigger>
           <TabsTrigger value="test">Tester une URL</TabsTrigger>
