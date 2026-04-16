@@ -12,6 +12,7 @@ const corsHeaders = {
 const BROWSERBASE_API_KEY = Deno.env.get("BROWSERBASE_API_KEY")!;
 const BROWSERBASE_PROJECT_ID = Deno.env.get("BROWSERBASE_PROJECT_ID")!;
 const TWOCAPTCHA_API_KEY = Deno.env.get("TWOCAPTCHA_API_KEY") ?? "";
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -182,19 +183,22 @@ class CDP {
 
 // ---------- DOM heuristics injected as JS ----------
 
+const CLICKABLE_SELECTOR = `a, button, input[type=submit], input[type=button], [role=button], [onclick], [mat-button], [mat-raised-button], [mat-flat-button], [mat-stroked-button], .mat-button, .mat-raised-button, .ui-button, .p-button, .btn`;
+const INPUT_SELECTOR = `input, textarea, [role=textbox], [contenteditable="true"], p-inputtext input, mat-form-field input, mat-form-field textarea`;
+
 function jsClickByText(instruction: string): string {
-  // Build candidate keywords from instruction
   const safe = JSON.stringify(instruction);
+  const sel = JSON.stringify(CLICKABLE_SELECTOR);
   return `
 (() => {
   const instruction = ${safe}.toLowerCase();
-  // Extract candidate phrases : split on commas, parentheses, colons
   const raw = instruction
     .replace(/[()\\[\\]]/g, ",")
     .split(/[,;:]/)
     .map(s => s.trim())
     .filter(s => s.length >= 3 && s.length < 80);
   const phrases = raw.length ? raw : [instruction];
+  const submitWords = ['valider','valide','confirmer','envoyer','soumettre','télécharger','telecharger','retrait','retirer','accepter','continuer','suivant'];
 
   const isVisible = (el) => {
     if (!el) return false;
@@ -204,11 +208,7 @@ function jsClickByText(instruction: string): string {
     return st.visibility !== "hidden" && st.display !== "none" && st.opacity !== "0";
   };
 
-  const candidates = Array.from(document.querySelectorAll(
-    'a, button, input[type=submit], input[type=button], [role=button], [onclick]'
-  ));
-
-  // Score each candidate by phrase match
+  const candidates = Array.from(document.querySelectorAll(${sel}));
   let best = null;
   let bestScore = 0;
   for (const el of candidates) {
@@ -221,6 +221,13 @@ function jsClickByText(instruction: string): string {
         if (score > bestScore) { best = el; bestScore = score; }
       }
     }
+    if (!best && el.type === 'submit') {
+      for (const w of submitWords) {
+        if (instruction.includes(w) && text.includes(w)) {
+          best = el; bestScore = w.length;
+        }
+      }
+    }
   }
 
   if (!best) return { clicked: false, reason: "no match" };
@@ -229,6 +236,200 @@ function jsClickByText(instruction: string): string {
   return { clicked: true, text: (best.innerText || best.value || '').slice(0, 80) };
 })()
 `;
+}
+
+// ---------- LLM-assisted snapshot helpers ----------
+
+function jsSnapshotClickables(): string {
+  const sel = JSON.stringify(CLICKABLE_SELECTOR);
+  return `
+(() => {
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== "hidden" && st.display !== "none" && st.opacity !== "0";
+  };
+  const els = Array.from(document.querySelectorAll(${sel}));
+  const out = [];
+  let idx = 0;
+  for (const el of els) {
+    if (!isVisible(el)) continue;
+    const text = (el.innerText || el.value || '').trim().slice(0, 120).replace(/\\s+/g, ' ');
+    const aria = el.getAttribute('aria-label') || '';
+    const title = el.title || '';
+    const id = el.id || '';
+    out.push({ i: idx, tag: el.tagName.toLowerCase(), text, aria, title, id });
+    el.setAttribute('data-agent-idx', String(idx));
+    idx++;
+    if (idx >= 200) break;
+  }
+  return out;
+})()
+`;
+}
+
+function jsClickByIndex(idx: number): string {
+  return `
+(() => {
+  const el = document.querySelector('[data-agent-idx="' + ${idx} + '"]');
+  if (!el) return { clicked: false, reason: "index not found" };
+  el.scrollIntoView({ block: "center" });
+  el.click();
+  return { clicked: true, text: (el.innerText || el.value || '').slice(0, 80) };
+})()
+`;
+}
+
+function jsSnapshotInputs(): string {
+  const sel = JSON.stringify(INPUT_SELECTOR);
+  return `
+(() => {
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== "hidden" && st.display !== "none";
+  };
+  const els = Array.from(document.querySelectorAll(${sel})).filter(el => {
+    if (!isVisible(el)) return false;
+    const t = (el.type || '').toLowerCase();
+    return !['hidden','submit','button','checkbox','radio','file'].includes(t);
+  });
+  const out = [];
+  let idx = 0;
+  for (const el of els) {
+    let labelText = '';
+    if (el.id) {
+      const lbl = document.querySelector('label[for="' + el.id.replace(/"/g,'\\\\"') + '"]');
+      if (lbl) labelText = (lbl.innerText || '').trim().slice(0, 80);
+    }
+    if (!labelText) {
+      let p = el.parentElement;
+      for (let k = 0; k < 4 && p; k++) {
+        if (p.tagName === 'LABEL' || /mat-form-field|p-field/i.test(p.className || '')) {
+          labelText = (p.innerText || '').trim().slice(0, 80);
+          if (labelText) break;
+        }
+        p = p.parentElement;
+      }
+    }
+    out.push({
+      i: idx,
+      tag: el.tagName.toLowerCase(),
+      type: (el.type || '').toLowerCase(),
+      name: el.name || '',
+      id: el.id || '',
+      placeholder: el.placeholder || '',
+      aria: el.getAttribute('aria-label') || '',
+      label: labelText,
+    });
+    el.setAttribute('data-agent-input-idx', String(idx));
+    idx++;
+    if (idx >= 80) break;
+  }
+  return out;
+})()
+`;
+}
+
+function jsFillByIndex(mapping: Record<string, string>): string {
+  const safe = JSON.stringify(mapping);
+  return `
+(() => {
+  const m = ${safe};
+  const setVal = (el, v) => {
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+    setter.call(el, v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+  };
+  const filled = [];
+  for (const [idx, v] of Object.entries(m)) {
+    const el = document.querySelector('[data-agent-input-idx="' + idx + '"]');
+    if (el && v) { setVal(el, v); filled.push(idx); }
+  }
+  return { filled };
+})()
+`;
+}
+
+// ---------- LLM calls (Lovable AI Gateway) ----------
+
+async function llmPickClickable(
+  instruction: string,
+  candidates: Array<{ i: number; tag: string; text: string; aria: string; title: string; id: string }>,
+): Promise<number> {
+  if (!LOVABLE_API_KEY) return -1;
+  const compact = candidates
+    .filter((c) => (c.text || c.aria || c.title))
+    .map((c) => `${c.i}: <${c.tag}> "${(c.text || c.aria || c.title).slice(0, 80)}"${c.id ? ` #${c.id}` : ""}`)
+    .join("\n");
+  const sys = `Tu es un agent d'automatisation web. On te donne une liste numérotée d'éléments cliquables visibles sur une page.
+Retourne UNIQUEMENT un entier : l'index de l'élément qui correspond le mieux à l'instruction utilisateur.
+Si aucun élément ne correspond, retourne -1. N'écris RIEN d'autre que le nombre.`;
+  const user = `Instruction: ${instruction}\n\nÉléments:\n${compact}`;
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+      }),
+    });
+    if (!res.ok) return -1;
+    const data = await res.json();
+    const txt = (data.choices?.[0]?.message?.content ?? "").trim();
+    const m = txt.match(/-?\d+/);
+    if (!m) return -1;
+    const n = parseInt(m[0], 10);
+    return Number.isFinite(n) ? n : -1;
+  } catch {
+    return -1;
+  }
+}
+
+async function llmMapInputs(
+  identity: Record<string, string>,
+  inputs: Array<any>,
+): Promise<Record<string, string>> {
+  if (!LOVABLE_API_KEY) return {};
+  const compact = inputs
+    .map((c) => `${c.i}: <${c.tag} type=${c.type}> name="${c.name}" id="${c.id}" placeholder="${c.placeholder}" aria="${c.aria}" label="${c.label}"`)
+    .join("\n");
+  const fields = Object.entries(identity)
+    .filter(([_, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
+  const sys = `Tu es un agent d'automatisation web. On te donne une liste d'inputs visibles d'un formulaire et des champs d'identité à remplir.
+Retourne UNIQUEMENT un objet JSON {"<index>": "<valeur>"} associant chaque input à la valeur d'identité la plus pertinente.
+Ignore les inputs qui ne correspondent à aucune valeur. Aucune explication.`;
+  const user = `Identité:\n${fields}\n\nInputs:\n${compact}`;
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    const txt = (data.choices?.[0]?.message?.content ?? "{}").trim();
+    const parsed = JSON.parse(txt);
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "string" && v) out[String(k)] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 function jsFillIdentity(identity: Record<string, string>): string {
@@ -479,11 +680,23 @@ Deno.serve(async (req) => {
             const instruction = step.instruction ?? step.natural ?? "";
             const result = await cdp.eval(jsClickByText(instruction));
             if (result?.clicked) {
-              log(label, "ok", result.text, Date.now() - stepStart);
-            } else if (step.action === "click_if_present") {
-              log(label, "skipped", "no match", Date.now() - stepStart);
+              log(label, "ok", `(heuristic) ${result.text}`, Date.now() - stepStart);
             } else {
-              throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}"`);
+              // Fallback LLM
+              const snapshot = await cdp.eval(jsSnapshotClickables());
+              const idx = await llmPickClickable(instruction, snapshot ?? []);
+              if (idx >= 0) {
+                const r2 = await cdp.eval(jsClickByIndex(idx));
+                if (r2?.clicked) {
+                  log(label, "ok", `(llm idx=${idx}) ${r2.text}`, Date.now() - stepStart);
+                  break;
+                }
+              }
+              if (step.action === "click_if_present") {
+                log(label, "skipped", "no match (heuristic+llm)", Date.now() - stepStart);
+              } else {
+                throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}"`);
+              }
             }
             break;
           }
@@ -522,7 +735,24 @@ Deno.serve(async (req) => {
             const isLogin = await cdp.eval(jsDetectLoginScreen());
             if (isLogin) { log(label, "skipped", "écran de login détecté"); break; }
             const r = await cdp.eval(jsFillIdentity(anonId as any));
-            log(label, "ok", `champs: ${(r?.filled ?? []).join(",")}`, Date.now() - stepStart);
+            const heuristicFilled = (r?.filled ?? []) as string[];
+            if (heuristicFilled.length > 0) {
+              log(label, "ok", `(heuristic) champs: ${heuristicFilled.join(",")}`, Date.now() - stepStart);
+              break;
+            }
+            // Fallback LLM
+            const inputs = await cdp.eval(jsSnapshotInputs());
+            if (!inputs || inputs.length === 0) {
+              log(label, "skipped", "aucun input visible", Date.now() - stepStart);
+              break;
+            }
+            const mapping = await llmMapInputs(anonId as any, inputs);
+            if (Object.keys(mapping).length === 0) {
+              log(label, "skipped", "LLM n'a mappé aucun champ", Date.now() - stepStart);
+              break;
+            }
+            const fillRes = await cdp.eval(jsFillByIndex(mapping));
+            log(label, "ok", `(llm) champs: ${(fillRes?.filled ?? []).join(",")}`, Date.now() - stepStart);
             break;
           }
           case "solve_captcha":
