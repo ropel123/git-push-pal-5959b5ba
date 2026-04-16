@@ -692,10 +692,13 @@ Deno.serve(async (req) => {
                   break;
                 }
               }
+              const top5 = Array.isArray(snapshot)
+                ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}${c.aria ? ` aria="${String(c.aria).slice(0, 30)}"` : ""}`).join(" | ")
+                : "(empty snapshot)";
               if (step.action === "click_if_present") {
-                log(label, "skipped", "no match (heuristic+llm)", Date.now() - stepStart);
+                log(label, "skipped", `no match (heuristic+llm) — top5: ${top5}`, Date.now() - stepStart);
               } else {
-                throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}"`);
+                throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}" — top5: ${top5}`);
               }
             }
             break;
