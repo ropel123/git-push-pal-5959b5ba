@@ -796,18 +796,48 @@ Deno.serve(async (req) => {
             if (!anonId) { log(label, "skipped", "aucune identité anonyme"); break; }
             const isLogin = await cdp.eval(jsDetectLoginScreen());
             if (isLogin) { log(label, "skipped", "écran de login détecté"); break; }
-            const r = await cdp.eval(jsFillIdentity(anonId as any));
-            const heuristicFilled = (r?.filled ?? []) as string[];
-            if (heuristicFilled.length > 0) {
-              log(label, "ok", `(heuristic) champs: ${heuristicFilled.join(",")}`, Date.now() - stepStart);
-              break;
+            const urlBefore = await cdp.url().catch(() => "");
+            const visibleCount = await cdp.eval(jsCountVisibleInputs());
+            // For complex platforms (5+ inputs) the heuristic often misses fields → go LLM-first.
+            const tryHeuristicFirst = (visibleCount as number) <= 4;
+            let filledVia = "";
+            let filledFields: string[] = [];
+
+            if (tryHeuristicFirst) {
+              const r = await cdp.eval(jsFillIdentity(anonId as any));
+              filledFields = (r?.filled ?? []) as string[];
+              if (filledFields.length > 0) {
+                filledVia = "heuristic";
+              }
             }
-            // Fallback LLM
-            const inputs = await cdp.eval(jsSnapshotInputs());
-            if (!inputs || inputs.length === 0) {
-              log(label, "skipped", "aucun input visible", Date.now() - stepStart);
-              break;
+
+            if (filledFields.length === 0) {
+              const inputs = await cdp.eval(jsSnapshotInputs());
+              if (!inputs || inputs.length === 0) {
+                log(label, "skipped", `aucun input visible — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+                break;
+              }
+              const mapping = await llmMapInputs(anonId as any, inputs);
+              if (Object.keys(mapping).length === 0) {
+                // Last-resort heuristic if we hadn't tried it yet
+                if (!tryHeuristicFirst) {
+                  const r = await cdp.eval(jsFillIdentity(anonId as any));
+                  filledFields = (r?.filled ?? []) as string[];
+                  if (filledFields.length > 0) {
+                    log(label, "ok", `(heuristic-fallback) champs: ${filledFields.join(",")} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+                    break;
+                  }
+                }
+                log(label, "skipped", `LLM n'a mappé aucun champ (${inputs.length} inputs vus) — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+                break;
+              }
+              const fillRes = await cdp.eval(jsFillByIndex(mapping));
+              filledFields = (fillRes?.filled ?? []) as string[];
+              filledVia = "llm";
             }
+            log(label, "ok", `(${filledVia}) champs: ${filledFields.join(",")} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+            break;
+          }
             const mapping = await llmMapInputs(anonId as any, inputs);
             if (Object.keys(mapping).length === 0) {
               log(label, "skipped", "LLM n'a mappé aucun champ", Date.now() - stepStart);
