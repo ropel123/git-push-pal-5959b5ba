@@ -2,76 +2,63 @@
 
 ## Diagnostic
 
-L'agent va maintenant **jusqu'au bout sans crasher** ✅ mais le téléchargement échoue : `wait_download` 25s → `storage.upload aucune archive`. Trois symptômes clés dans la trace :
+Le téléchargement DCE a réussi (1.41 MB ✓), mais le fichier est invisible parce que **la page `/agent-monitor` est un mode test** qui force `tender_id = "00000000-0000-0000-0000-000000000000"` (UUID nul). Conséquence :
 
-1. **`fill_anonymous_identity` → "aucun input visible"** alors que `choixAnonyme` (un radio button ASP.NET WebForms `ctl0$CONTENU_PAGE$EntrepriseFormulaireDemande$choixAnonyme`) vient juste d'être cliqué. Sur Maximilien (PLACE/Atexo legacy), cocher la radio **ne déclenche pas** l'apparition immédiate des champs : il faut un **postback ASP.NET** (soit la radio elle-même déclenche `__doPostBack`, soit il y a un bouton "Continuer" intermédiaire). Notre `wait 1500ms` n'attend pas ce postback.
+1. Le fichier est uploadé dans `dce-documents/00000000-.../agent_xxx.zip`
+2. La ligne `dce_uploads` est créée avec ce tender_id nul → **n'apparaît dans aucune page `/tenders/:id`**
+3. La page `/agent-monitor` affiche seulement la trace, pas de bouton de téléchargement
 
-2. **`click_if_present("Coche CGU") → top5: a "Aller au menu" / "Se connecter" / "Avis"`** → le snapshot top5 montre des liens **du header global** de la page, pas des éléments du formulaire. Ça confirme : on est resté **sur la page d'accueil** du formulaire (radio sélectionnée) sans avoir progressé vers l'étape "remplir les champs".
+Donc tu n'as **aucun moyen UI** de récupérer le fichier sauf via `agent-monitor` lui-même.
 
-3. **`Valider` cliqué (heuristic) → no download** : le `Valider` cliqué est probablement un bouton décoratif/inactif (formulaire incomplet → submit silencieusement rejeté côté client). L'heuristique a pris le premier "Valider" venu.
+## Plan : ajouter un bouton "Télécharger le DCE" dans /agent-monitor
 
-## Plan : gérer les postbacks ASP.NET + meilleur flow Maximilien
+### 1. Côté UI (`src/pages/AgentMonitor.tsx`)
 
-### 1. Ajouter une action `wait_for_inputs` dans le moteur
+Pour chaque `agent_run` avec `status === "success"` ET `files_downloaded > 0` :
+- Bouton **"Télécharger le DCE"** (icône `FileDown`)
+- Au clic : appeler une fonction qui retrouve le fichier dans `dce_uploads` filtré par `agent_run_id` (préféré) ou par `tender_id + created_at` proche du run, génère un signed URL via `supabase.storage.createSignedUrl()`, et déclenche le téléchargement navigateur.
 
-Nouveau type d'action qui **attend qu'au moins N inputs visibles apparaissent** dans le DOM (polling 500ms, timeout configurable). Indispensable pour les SPA / postbacks lents.
+### 2. Lier `agent_runs` ↔ `dce_uploads`
 
-```ts
-case "wait_for_inputs": {
-  const start = Date.now();
-  while (Date.now() - start < (step.timeout_ms ?? 8000)) {
-    const count = await jsCountVisibleInputs(cdp);
-    if (count >= (step.min ?? 1)) { logOk(...); break; }
-    await sleep(500);
-  }
-}
+Aujourd'hui rien ne relie un upload à son run. Deux options :
+- **A. Ajouter `agent_run_id` à `dce_uploads`** (migration : nouvelle colonne nullable + index). L'edge function l'insère lors de l'upload. **Choix recommandé** : robuste, évite les ambiguïtés.
+- B. Match par `tender_id` + `file_path` qui contient déjà le run ID dans le nom.
+
+→ Aller avec **A**. Migration légère :
+```sql
+ALTER TABLE public.dce_uploads ADD COLUMN agent_run_id uuid REFERENCES public.agent_runs(id) ON DELETE SET NULL;
+CREATE INDEX idx_dce_uploads_agent_run_id ON public.dce_uploads(agent_run_id);
 ```
 
-### 2. Améliorer `fill_anonymous_identity` : déclencher les events ASP.NET après chaque fill
+### 3. Edge function (`supabase/functions/fetch-dce-agent/index.ts`)
 
-Sur ASP.NET WebForms, après `setNativeValue` il faut dispatch `change` + `blur` (déjà fait) **mais aussi** parfois `__doPostBack` côté navigateur. Élargir aussi les sélecteurs d'inputs pour matcher `input[type="text"]:not([type="hidden"])` même sans `name="email"` explicite, et utiliser le LLM pour mapper inputs ↔ champs identité **systématiquement** (pas seulement en fallback) sur les plateformes complexes.
+Insertion `dce_uploads` modifiée pour passer `agent_run_id: runId` (déjà disponible localement dans la fonction).
 
-### 3. Améliorer la sélection du bouton final "Valider"
+### 4. UI : carte "DCE récupéré" dans le détail du run
 
-Le `click_if_present("Valider")` heuristique a cliqué un bouton qui n'a rien fait. Préférer la **stratégie LLM-first** pour le bouton final, avec instruction enrichie :
-> "Bouton SUBMIT du formulaire de retrait DCE : généralement un `<input type='submit'>` ou `<button type='submit'>` avec texte Valider/Télécharger/Confirmer. PAS un bouton de navigation, PAS un bouton 'Annuler', PAS un onglet."
+Dans le drawer/dialog d'un run sur `/agent-monitor`, sous la trace, ajouter une carte verte avec :
+- Nom du fichier + taille
+- Bouton **"Télécharger"** → signed URL 1h → download navigateur
 
-Et ajouter une **vérification post-clic** : si le formulaire n'a pas changé d'URL ni déclenché de download après 5s, retry avec un autre candidat.
+Si le run est "test" (tender_id nul), c'est le **seul** moyen de récupérer le fichier → fonctionnalité critique.
 
-### 4. Mise à jour du playbook Maximilien
+### 5. (Bonus rapide) Améliorer la detection "Continuer" sur Maximilien
 
-```diff
-  {"action":"click_if_present","instruction":"Option Retrait anonyme..."},
-- {"action":"wait","timeout_ms":1500},
-+ {"action":"wait","timeout_ms":2500},
-+ {"action":"click_if_present","instruction":"Bouton Continuer / Suivant / Valider le choix anonyme (étape intermédiaire après sélection du mode)"},
-+ {"action":"wait_for_inputs","min":2,"timeout_ms":8000},
-  {"action":"fill_anonymous_identity"},
-- {"action":"wait","timeout_ms":1500},
-+ {"action":"wait","timeout_ms":2000},
-  {"action":"solve_captcha_if_present"},
-  {"action":"click_if_present","instruction":"Coche la case d'acceptation des CGU..."},
-- {"action":"click_if_present","instruction":"Bouton de validation finale..."},
-+ {"action":"act","instruction":"Bouton SUBMIT final du formulaire de retrait : input[type=submit] ou button[type=submit] avec texte Valider/Télécharger/Confirmer/Envoyer. PAS un bouton Annuler ni un onglet de menu"},
-  {"action":"wait_download","timeout_ms":30000}
-```
+Les logs montrent que `click_if_present("Continuer/Suivant/Valider...")` a heuristic-matché un bouton **"Valider"** **avant** que la radio "anonyme" ne déclenche son postback → on a cliqué Valider trop tôt sur un formulaire vide → `wait_for_inputs` 0/2. 
 
-Repasser le bouton final en `act` (strict + LLM-first), pas `click_if_present`, parce que sans ce clic il n'y a **aucune** chance de download. Mieux vaut échouer explicitement que silencieusement.
+Reformuler l'instruction pour exclure "Valider" du step intermédiaire :
+> "Bouton **Continuer** ou **Suivant** uniquement (PAS Valider, PAS Télécharger) — étape intermédiaire après sélection du mode anonyme"
 
-### 5. Logger l'URL courante dans la trace
-
-Avant chaque step `act`/`fill`/`click_if_present`, enregistrer `document.location.href` dans la trace. Ça permet de voir **si on a bien changé de page** entre les étapes (debug critique pour les postbacks ASP.NET).
+Migration SQL légère pour mettre à jour ce step. **Mais** le run a quand même réussi finalement (le `act` final LLM-first a trouvé "Télécharger le Dossier de consultation" idx=12), donc c'est optionnel.
 
 ## Fichiers touchés
 
-- **`supabase/functions/fetch-dce-agent/index.ts`** :
-  - Nouvelle action `wait_for_inputs` (~15 lignes)
-  - `jsFillIdentity` : LLM-first pour identités complexes (toggle via param ou auto-detect plateforme)
-  - Vérification post-submit (URL changed OR download started) (~20 lignes)
-  - Log de `document.location.href` à chaque step interactif (~5 lignes)
-- **Migration SQL** : `UPDATE agent_playbooks SET steps = ... WHERE platform = 'maximilien'` avec le nouveau flow ci-dessus
+- **Migration SQL** : ajouter colonne `agent_run_id` à `dce_uploads` + index
+- **`supabase/functions/fetch-dce-agent/index.ts`** : passer `agent_run_id: runId` à l'insert (~1 ligne)
+- **`src/pages/AgentMonitor.tsx`** : bouton "Télécharger le DCE" sur chaque run success + handler signed URL (~30 lignes)
+- (optionnel) Migration Maximilien playbook : reformuler step "Continuer/Suivant"
 
-## Note honnête
+## Note
 
-Maximilien (basé sur Atexo / PLACE legacy ASP.NET WebForms) est l'une des plateformes les plus pénibles de France : postbacks invisibles, `ViewState` lourd, multi-étapes. C'est précisément le cas d'usage où l'**adaptabilité LLM** vaut son coût. Une fois ce playbook stable, BOAMP / TED / Megalis (qui sont plus modernes) seront triviales en comparaison.
+Tu peux aussi récupérer le fichier **dès maintenant** sans aucun code en allant sur Supabase Storage > bucket `dce-documents` > dossier `00000000-0000-0000-0000-000000000000/` et en téléchargeant `agent_1776372623578.zip` (1.41 MB). Mais c'est pas viable long terme — le bouton dans `/agent-monitor` est le bon fix.
 
