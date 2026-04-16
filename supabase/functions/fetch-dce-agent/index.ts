@@ -697,28 +697,68 @@ Deno.serve(async (req) => {
           case "click":
           case "click_if_present": {
             const instruction = step.instruction ?? step.natural ?? "";
-            const result = await cdp.eval(jsClickByText(instruction));
-            if (result?.clicked) {
-              log(label, "ok", `(heuristic) ${result.text}`, Date.now() - stepStart);
-            } else {
-              // Fallback LLM
+            const urlBefore = await cdp.url().catch(() => "");
+            const isStrictAct = step.action === "act";
+
+            // Strict 'act' uses LLM-first (more reliable for ambiguous final-submit buttons).
+            // 'click_if_present' / 'click' uses heuristic-first (faster, common case).
+            let chosen: { mode: string; idx?: number; text?: string } | null = null;
+
+            if (isStrictAct) {
               const snapshot = await cdp.eval(jsSnapshotClickables());
               const idx = await llmPickClickable(instruction, snapshot ?? []);
               if (idx >= 0) {
-                const r2 = await cdp.eval(jsClickByIndex(idx));
-                if (r2?.clicked) {
-                  log(label, "ok", `(llm idx=${idx}) ${r2.text}`, Date.now() - stepStart);
+                const r = await cdp.eval(jsClickByIndex(idx));
+                if (r?.clicked) chosen = { mode: "llm", idx, text: r.text };
+              }
+              if (!chosen) {
+                const heur = await cdp.eval(jsClickByText(instruction));
+                if (heur?.clicked) chosen = { mode: "heuristic-fallback", text: heur.text };
+              }
+              if (!chosen) {
+                const top5 = Array.isArray(snapshot)
+                  ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}`).join(" | ")
+                  : "(empty)";
+                throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}" — top5: ${top5}`);
+              }
+            } else {
+              const result = await cdp.eval(jsClickByText(instruction));
+              if (result?.clicked) {
+                chosen = { mode: "heuristic", text: result.text };
+              } else {
+                const snapshot = await cdp.eval(jsSnapshotClickables());
+                const idx = await llmPickClickable(instruction, snapshot ?? []);
+                if (idx >= 0) {
+                  const r2 = await cdp.eval(jsClickByIndex(idx));
+                  if (r2?.clicked) chosen = { mode: "llm", idx, text: r2.text };
+                }
+                if (!chosen) {
+                  const top5 = Array.isArray(snapshot)
+                    ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}${c.aria ? ` aria="${String(c.aria).slice(0, 30)}"` : ""}`).join(" | ")
+                    : "(empty snapshot)";
+                  log(label, "skipped", `no match (heuristic+llm) — top5: ${top5} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
                   break;
                 }
               }
-              const top5 = Array.isArray(snapshot)
-                ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}${c.aria ? ` aria="${String(c.aria).slice(0, 30)}"` : ""}`).join(" | ")
-                : "(empty snapshot)";
-              if (step.action === "click_if_present") {
-                log(label, "skipped", `no match (heuristic+llm) — top5: ${top5}`, Date.now() - stepStart);
-              } else {
-                throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}" — top5: ${top5}`);
-              }
+            }
+
+            log(label, "ok", `(${chosen.mode}${chosen.idx !== undefined ? ` idx=${chosen.idx}` : ""}) ${chosen.text ?? ""} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+            break;
+          }
+          case "wait_for_inputs": {
+            const minInputs = (step as any).min ?? 1;
+            const timeoutMs = step.timeout_ms ?? 8000;
+            const startWait = Date.now();
+            let count = 0;
+            while (Date.now() - startWait < timeoutMs) {
+              count = await cdp.eval(jsCountVisibleInputs());
+              if (count >= minInputs) break;
+              await new Promise((r) => setTimeout(r, 500));
+            }
+            if (count >= minInputs) {
+              log(label, "ok", `${count} inputs visibles (min=${minInputs})`, Date.now() - stepStart);
+            } else {
+              log(label, "skipped", `seulement ${count} inputs après ${timeoutMs}ms (min=${minInputs})`, Date.now() - stepStart);
             }
             break;
           }
