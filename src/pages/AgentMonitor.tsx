@@ -184,45 +184,92 @@ const AgentMonitor = () => {
     loadAll();
   };
 
+  const triggerDownload = async (filePath: string, fileName?: string) => {
+    const { data: signed, error } = await supabase.storage
+      .from("dce-documents")
+      .createSignedUrl(filePath, 3600);
+    if (error || !signed?.signedUrl) throw error ?? new Error("signed URL");
+    const a = document.createElement("a");
+    a.href = signed.signedUrl;
+    a.download = fileName ?? filePath.split("/").pop() ?? "dce.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const downloadDce = async (run: Run) => {
+    const storageDashboardUrl = `https://supabase.com/dashboard/project/xfqvaeshidleazgfqlze/storage/buckets/dce-documents`;
     try {
-      // 1. Try lookup by agent_run_id (preferred)
-      let { data: upload } = await supabase
+      // 1. Lookup by agent_run_id (exact match — preferred)
+      const { data: byRunId } = await supabase
         .from("dce_uploads")
         .select("file_path, file_name")
         .eq("agent_run_id", run.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
-
-      // 2. Fallback: most recent upload for this tender_id close to the run
-      if (!upload && run.tender_id) {
-        const { data: fallback } = await supabase
-          .from("dce_uploads")
-          .select("file_path, file_name")
-          .eq("tender_id", run.tender_id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        upload = fallback;
-      }
-
-      if (!upload?.file_path) {
-        toast({ title: "Fichier introuvable", description: "Aucun upload lié à ce run.", variant: "destructive" });
+      if (byRunId?.file_path) {
+        await triggerDownload(byRunId.file_path, byRunId.file_name);
         return;
       }
 
-      const { data: signed, error } = await supabase.storage
-        .from("dce-documents")
-        .createSignedUrl(upload.file_path, 3600);
-      if (error || !signed?.signedUrl) throw error ?? new Error("signed URL");
+      // 2. Fallback: tender_id + temporal window around the run
+      if (run.tender_id) {
+        const startIso = run.started_at;
+        const endIso = run.finished_at
+          ? new Date(new Date(run.finished_at).getTime() + 60_000).toISOString()
+          : new Date(new Date(run.started_at).getTime() + 10 * 60_000).toISOString();
+        const { data: byWindow } = await supabase
+          .from("dce_uploads")
+          .select("file_path, file_name")
+          .eq("tender_id", run.tender_id)
+          .gte("created_at", startIso)
+          .lte("created_at", endIso)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (byWindow?.file_path) {
+          await triggerDownload(byWindow.file_path, byWindow.file_name);
+          return;
+        }
 
-      const a = document.createElement("a");
-      a.href = signed.signedUrl;
-      a.download = upload.file_name ?? "dce.zip";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+        // 3. Storage fallback: list files in dce-documents/{tender_id}/ in window
+        const { data: files } = await supabase.storage
+          .from("dce-documents")
+          .list(run.tender_id, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
+        const startMs = new Date(startIso).getTime();
+        const endMs = new Date(endIso).getTime();
+        const match = (files ?? []).find((f) => {
+          const t = f.created_at ? new Date(f.created_at).getTime() : 0;
+          return t >= startMs && t <= endMs;
+        }) ?? files?.[0];
+        if (match) {
+          await triggerDownload(`${run.tender_id}/${match.name}`, match.name);
+          return;
+        }
+      }
+
+      toast({
+        title: "Fichier introuvable",
+        description: `Aucun fichier trouvé pour ce run. Vérifie manuellement dans Storage > dce-documents/${run.tender_id ?? "?"}/`,
+        variant: "destructive",
+        action: (
+          <a
+            href={storageDashboardUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted"
+          >
+            <ExternalLink className="h-3 w-3" /> Storage
+          </a>
+        ) as any,
+      });
     } catch (e: any) {
-      toast({ title: "Erreur de téléchargement", description: e.message, variant: "destructive" });
+      toast({
+        title: "Erreur de téléchargement",
+        description: e.message,
+        variant: "destructive",
+      });
     }
   };
 
