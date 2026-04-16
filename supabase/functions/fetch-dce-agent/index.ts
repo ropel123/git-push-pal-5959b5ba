@@ -735,7 +735,24 @@ Deno.serve(async (req) => {
             const isLogin = await cdp.eval(jsDetectLoginScreen());
             if (isLogin) { log(label, "skipped", "écran de login détecté"); break; }
             const r = await cdp.eval(jsFillIdentity(anonId as any));
-            log(label, "ok", `champs: ${(r?.filled ?? []).join(",")}`, Date.now() - stepStart);
+            const heuristicFilled = (r?.filled ?? []) as string[];
+            if (heuristicFilled.length > 0) {
+              log(label, "ok", `(heuristic) champs: ${heuristicFilled.join(",")}`, Date.now() - stepStart);
+              break;
+            }
+            // Fallback LLM
+            const inputs = await cdp.eval(jsSnapshotInputs());
+            if (!inputs || inputs.length === 0) {
+              log(label, "skipped", "aucun input visible", Date.now() - stepStart);
+              break;
+            }
+            const mapping = await llmMapInputs(anonId as any, inputs);
+            if (Object.keys(mapping).length === 0) {
+              log(label, "skipped", "LLM n'a mappé aucun champ", Date.now() - stepStart);
+              break;
+            }
+            const fillRes = await cdp.eval(jsFillByIndex(mapping));
+            log(label, "ok", `(llm) champs: ${(fillRes?.filled ?? []).join(",")}`, Date.now() - stepStart);
             break;
           }
           case "solve_captcha":
