@@ -2,46 +2,43 @@
 
 ## Diagnostic
 
-"Aucun upload lié à ce run" → la query `dce_uploads.agent_run_id = run.id` ne renvoie rien parce que **le fichier a été uploadé AVANT que la migration `agent_run_id` n'existe**. Le ZIP de 1.41 MB est dans le storage mais sa ligne `dce_uploads` a `agent_run_id = NULL`.
+L'agent reçoit une URL DCE qu'il ne sait pas mapper à une plateforme connue. `router.detect_platform` retourne `"unknown"` → aucun playbook actif → erreur fatale.
 
-Deux problèmes :
+Causes probables :
+1. URL testée non couverte par les regex/url_pattern dans `agent_playbooks` (ex: une URL PLACE alors que seul Maximilien a un playbook actif)
+2. Logique de détection trop stricte (matche uniquement sur hostname exact)
+3. Pas de fallback générique quand la détection échoue
 
-1. **Run historique orphelin** : le fichier `agent_1776372623578.zip` existe dans `dce-documents/00000000-.../` mais n'est lié à aucun run via `agent_run_id`.
-2. **Fallback insuffisant** : le code actuel fait `agent_run_id = runId` puis fallback `tender_id`. Mais sur les runs test, plusieurs runs partagent le même `tender_id = 00000000...` → le fallback retourne potentiellement le **mauvais** fichier (ou rien si la query est mal ordonnée).
+## Investigation à mener (lecture seule en plan mode)
 
-## Plan
+- `supabase/functions/fetch-dce-agent/index.ts` — fonction `detect_platform` + chargement playbooks
+- Table `agent_playbooks` — quelles plateformes ont `is_active=true` et leurs `url_pattern`
+- URL exacte qui a déclenché le run `3cc59589`
 
-### 1. Backfill des uploads orphelins (one-shot SQL)
+## Plan de correction
 
-Lier rétroactivement les `dce_uploads` existants à leur `agent_run` par **proximité temporelle** (upload `created_at` entre `agent_run.started_at` et `agent_run.finished_at`) :
+### 1. Améliorer `detect_platform` (router)
+Trois niveaux en cascade :
+1. Match `url_pattern` (regex) des playbooks actifs en base — comportement actuel
+2. Si "unknown" : match heuristique par hostname connu (mapping en dur : `marches-publics.gouv.fr → place`, `maximilien.fr → maximilien`, `marches-publics.info → mpi`, `achatpublic.com → achatpublic`, `e-marchespublics.com → emarchespublics`, `marches-securises.fr → marches-securises`, `megalisbretagne.org → megalis`, `atexo` patterns, etc.)
+3. Si toujours "unknown" : fallback sur un **playbook générique LLM-first** (`platform = "generic"`) qui laisse Claude piloter sans recette préalable — déjà le mode opératoire de fond de l'agent.
 
-```sql
-UPDATE public.dce_uploads u
-SET agent_run_id = r.id
-FROM public.agent_runs r
-WHERE u.agent_run_id IS NULL
-  AND u.tender_id = r.tender_id
-  AND u.created_at BETWEEN r.started_at AND COALESCE(r.finished_at, r.started_at + interval '5 minutes');
-```
+### 2. Créer un playbook "generic" en base
+Migration SQL : insérer une ligne `agent_playbooks` avec `platform='generic'`, `url_pattern='.*'`, `display_name='Generic LLM-first'`, `is_active=true`, `steps` = séquence minimale (ouvrir URL → laisser act/extract LLM piloter → télécharger DCE).
 
-### 2. Améliorer `downloadDce` côté UI (`AgentMonitor.tsx`)
+### 3. Améliorer le message d'erreur côté UI
+Si vraiment aucun playbook ne match, le toast doit indiquer l'URL et la plateforme détectée pour permettre à l'admin de créer/activer le playbook adapté en 1 clic depuis `/agent-monitor`.
 
-Stratégie en cascade plus robuste :
-1. Cherche par `agent_run_id = run.id` (exact)
-2. Sinon : cherche par `tender_id = run.tender_id` ET `created_at` dans la fenêtre `[run.started_at, run.finished_at + 1min]`, ordonné par `created_at DESC`, limit 1
-3. Sinon : fallback storage direct → liste les fichiers dans `dce-documents/{tender_id}/` créés dans la fenêtre, prend le plus récent et génère signed URL
-4. Toast d'erreur seulement si les 3 stratégies échouent, avec message qui indique le chemin storage à vérifier manuellement
-
-### 3. (Bonus) Lien direct "Voir dans Storage"
-
-Sur le toast d'erreur, ajouter un bouton/lien vers le dashboard Supabase Storage (`https://supabase.com/dashboard/project/xfqvaeshidleazgfqlze/storage/buckets/dce-documents`) pour que tu puisses récupérer manuellement le fichier en attendant.
+### 4. (Bonus) Bouton "Créer playbook pour cette URL" dans `/agent-monitor`
+Sur les runs `failed` avec erreur "Aucun playbook actif", un bouton qui pré-remplit un formulaire de création playbook avec l'URL et la plateforme suggérée.
 
 ## Fichiers touchés
 
-- **Migration SQL** : backfill `dce_uploads.agent_run_id` pour les uploads existants
-- **`src/pages/AgentMonitor.tsx`** : fonction `downloadDce` enrichie (cascade 3 niveaux + lien storage dashboard)
+- **Migration SQL** : insérer playbook `generic` (fallback universel)
+- **`supabase/functions/fetch-dce-agent/index.ts`** : enrichir `detect_platform` (cascade regex DB → hostname map → generic fallback)
+- **`src/pages/AgentMonitor.tsx`** (optionnel) : message d'erreur enrichi + bouton "Créer playbook"
 
-## Note
+## Étape d'investigation préalable
 
-Le fichier `agent_1776372623578.zip` (1.41 MB, ton DCE Maximilien) est **bien là**, il faut juste le retrouver. Le backfill SQL le rattachera au run correspondant et le bouton fonctionnera.
+Avant d'implémenter, je dois lire `fetch-dce-agent/index.ts` (fonction `detect_platform` et chargement playbooks) et lister les playbooks actifs en base pour confirmer l'URL/pattern qui a foiré sur ce run précis. Une fois en mode édition, je commencerai par ça avant d'écrire le code.
 
