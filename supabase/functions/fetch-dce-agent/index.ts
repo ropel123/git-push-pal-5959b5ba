@@ -1183,6 +1183,10 @@ Deno.serve(async (req) => {
         }
       } catch (e: any) {
         log(label, "failed", e.message, Date.now() - stepStart);
+        if (continueOnError) {
+          console.warn(`[agent] continue_on_error → skip step "${step.action}" after failure`);
+          continue;
+        }
         throw e;
       }
     }
