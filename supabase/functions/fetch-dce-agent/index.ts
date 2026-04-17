@@ -677,7 +677,7 @@ Deno.serve(async (req) => {
     const { tender_id, dce_url, triggered_by } = body;
     if (!tender_id || !dce_url) throw new Error("tender_id and dce_url required");
 
-    const platform = detectPlatform(dce_url);
+    const platform = await detectPlatform(supabase, dce_url);
     log("router.detect_platform", "ok", platform);
 
     const { data: runRow, error: runErr } = await supabase
@@ -688,13 +688,32 @@ Deno.serve(async (req) => {
     if (runErr) throw new Error(`agent_runs insert: ${runErr.message}`);
     runId = runRow.id;
 
-    const { data: playbook } = await supabase
+    let { data: playbook } = await supabase
       .from("agent_playbooks")
       .select("*")
       .eq("platform", platform)
       .eq("is_active", true)
       .maybeSingle();
-    if (!playbook) throw new Error(`Aucun playbook actif pour "${platform}".`);
+
+    // Last-chance fallback to generic playbook if nothing matched
+    if (!playbook && platform !== "generic") {
+      const { data: gen } = await supabase
+        .from("agent_playbooks")
+        .select("*")
+        .eq("platform", "generic")
+        .eq("is_active", true)
+        .maybeSingle();
+      if (gen) {
+        playbook = gen;
+        log("playbook.fallback_generic", "ok", `no playbook for "${platform}", using generic`);
+      }
+    }
+
+    if (!playbook) {
+      throw new Error(
+        `Aucun playbook actif pour "${platform}" et aucun playbook "generic" disponible. URL: ${dce_url}`,
+      );
+    }
     log("playbook.load", "ok", playbook.display_name);
 
     let robot: { login: string; password_encrypted: string } | null = null;
