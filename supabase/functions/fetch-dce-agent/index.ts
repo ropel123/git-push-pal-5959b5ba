@@ -594,14 +594,59 @@ async function solveRecaptchaV2(siteKey: string, pageUrl: string): Promise<strin
 
 // ---------- Platform detection ----------
 
-function detectPlatform(url: string): string {
-  if (/place\.marches-publics\.gouv\.fr/i.test(url)) return "place";
-  if (/achatpublic\.com/i.test(url)) return "atexo_achatpublic";
-  if (/local-trust\.com/i.test(url)) return "atexo_localtrust";
-  if (/marches-securises\.fr/i.test(url)) return "marches_securises";
-  if (/maximilien\.fr/i.test(url)) return "maximilien";
-  if (/megalis\.bretagne\.bzh/i.test(url)) return "megalis";
+// Hard-coded hostname → platform mapping (fallback heuristic when DB regex doesn't match)
+const HOSTNAME_PLATFORM_MAP: Array<[RegExp, string]> = [
+  [/place\.marches-publics\.gouv\.fr/i, "place"],
+  [/marches-publics\.info/i, "mpi"],
+  [/achatpublic\.com/i, "atexo_achatpublic"],
+  [/local-trust\.com/i, "atexo_localtrust"],
+  [/marches-securises\.fr/i, "marches_securises"],
+  [/maximilien\.fr/i, "maximilien"],
+  [/megalis\.bretagne\.bzh/i, "megalis"],
+  [/megalisbretagne\.org/i, "megalis"],
+  [/e-marchespublics\.com/i, "emarchespublics"],
+  [/atexo/i, "atexo_achatpublic"],
+];
+
+function detectPlatformHeuristic(url: string): string {
+  for (const [re, platform] of HOSTNAME_PLATFORM_MAP) {
+    if (re.test(url)) return platform;
+  }
   return "unknown";
+}
+
+/**
+ * Three-level cascade:
+ * 1. Match against active playbooks' url_pattern (regex) loaded from DB
+ * 2. Hostname heuristic mapping
+ * 3. "generic" fallback (LLM-first playbook that should always exist in DB)
+ */
+async function detectPlatform(
+  supabase: ReturnType<typeof createClient>,
+  url: string,
+): Promise<string> {
+  // 1. DB-driven regex match
+  try {
+    const { data: playbooks } = await supabase
+      .from("agent_playbooks")
+      .select("platform, url_pattern")
+      .eq("is_active", true);
+    if (playbooks) {
+      for (const pb of playbooks as Array<{ platform: string; url_pattern: string }>) {
+        if (pb.platform === "generic" || !pb.url_pattern || pb.url_pattern === ".*") continue;
+        try {
+          if (new RegExp(pb.url_pattern, "i").test(url)) return pb.platform;
+        } catch (_) { /* invalid regex, skip */ }
+      }
+    }
+  } catch (_) { /* DB unreachable, fall through */ }
+
+  // 2. Hardcoded hostname heuristic
+  const heuristic = detectPlatformHeuristic(url);
+  if (heuristic !== "unknown") return heuristic;
+
+  // 3. Generic LLM-first fallback
+  return "generic";
 }
 
 // ---------- Main handler ----------
