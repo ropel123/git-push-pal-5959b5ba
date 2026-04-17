@@ -1058,6 +1058,29 @@ Deno.serve(async (req) => {
             log(label, "ok", `(${filledVia}) champs: ${filledFields.join(",")} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
             break;
           }
+          case "solve_image_captcha":
+          case "solve_image_captcha_if_present": {
+            const optional = step.action === "solve_image_captcha_if_present";
+            const detected = await cdp.eval(jsDetectImageCaptcha());
+            if (!detected) {
+              if (optional) { log(label, "skipped", "aucun captcha image détecté", Date.now() - stepStart); break; }
+              throw new Error("Aucun captcha image détecté");
+            }
+            const b64 = await cdp.eval(jsCaptureCaptchaBase64());
+            if (!b64 || typeof b64 !== "string" || b64.length < 50) {
+              if (optional) { log(label, "skipped", "capture base64 vide", Date.now() - stepStart); break; }
+              throw new Error("Impossible de capturer l'image du captcha (base64 vide)");
+            }
+            const tSolve = Date.now();
+            const solution = await solveImageCaptcha(b64);
+            const fillRes = await cdp.eval(jsFillCaptchaInput(solution));
+            if (!fillRes?.ok) {
+              throw new Error(`Captcha résolu (${solution}) mais champ d'input introuvable`);
+            }
+            captchasSolved++;
+            log(label, "ok", `texte="${solution}" via=${fillRes.via} solve=${Date.now() - tSolve}ms`, Date.now() - stepStart);
+            break;
+          }
           case "solve_captcha":
           case "solve_captcha_if_present": {
             const siteKey = await cdp.eval(jsDetectRecaptcha());
