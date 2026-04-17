@@ -572,7 +572,163 @@ function jsInjectRecaptchaToken(token: string): string {
 `;
 }
 
+// ---------- Image CAPTCHA helpers (DOM detection + base64 capture) ----------
+
+function jsDetectImageCaptcha(): string {
+  return `
+(() => {
+  // Heuristics: <img> with src/alt/id/class containing "captcha", visible
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== "hidden" && st.display !== "none" && st.opacity !== "0";
+  };
+  const imgs = Array.from(document.querySelectorAll('img'));
+  const captchaImg = imgs.find(img => {
+    if (!isVisible(img)) return false;
+    const hay = ((img.src||'') + ' ' + (img.alt||'') + ' ' + (img.id||'') + ' ' + (img.className||'')).toLowerCase();
+    return hay.includes('captcha') || hay.includes('securimage') || hay.includes('antispam');
+  });
+  if (!captchaImg) return null;
+  // Find probable input: nearest visible text input after the image
+  const inputs = Array.from(document.querySelectorAll('input[type=text], input:not([type])')).filter(isVisible);
+  let inputId = '';
+  let inputName = '';
+  let inputIdx = -1;
+  // Prefer inputs whose name/id/placeholder/label hints captcha
+  for (const inp of inputs) {
+    const hay = ((inp.name||'') + ' ' + (inp.id||'') + ' ' + (inp.placeholder||'') + ' ' + (inp.getAttribute('aria-label')||'')).toLowerCase();
+    if (hay.includes('captcha') || hay.includes('code') || hay.includes('image') || hay.includes('verif')) {
+      inputId = inp.id || '';
+      inputName = inp.name || '';
+      inp.setAttribute('data-agent-captcha-input', '1');
+      inputIdx = 1;
+      break;
+    }
+  }
+  // Fallback: input that comes after the captcha img in DOM order
+  if (inputIdx < 0) {
+    const all = Array.from(document.querySelectorAll('*'));
+    const imgPos = all.indexOf(captchaImg);
+    for (const inp of inputs) {
+      if (all.indexOf(inp) > imgPos) {
+        inputId = inp.id || '';
+        inputName = inp.name || '';
+        inp.setAttribute('data-agent-captcha-input', '1');
+        inputIdx = 1;
+        break;
+      }
+    }
+  }
+  captchaImg.setAttribute('data-agent-captcha-img', '1');
+  return {
+    src: captchaImg.src,
+    width: captchaImg.naturalWidth || captchaImg.width,
+    height: captchaImg.naturalHeight || captchaImg.height,
+    inputId,
+    inputName,
+    hasInput: inputIdx >= 0,
+  };
+})()
+`;
+}
+
+function jsCaptureCaptchaBase64(): string {
+  return `
+(async () => {
+  const img = document.querySelector('img[data-agent-captcha-img="1"]');
+  if (!img) return null;
+  // Wait if image not yet loaded
+  if (!img.complete) {
+    await new Promise(res => { img.onload = res; img.onerror = res; setTimeout(res, 3000); });
+  }
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) return null;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL('image/png');
+    return dataUrl.split(',')[1] || null;
+  } catch (e) {
+    // CORS-tainted: try fetch then FileReader
+    try {
+      const r = await fetch(img.src, { credentials: 'include' });
+      const blob = await r.blob();
+      return await new Promise((resolve) => {
+        const fr = new FileReader();
+        fr.onloadend = () => {
+          const s = String(fr.result || '');
+          resolve(s.split(',')[1] || null);
+        };
+        fr.onerror = () => resolve(null);
+        fr.readAsDataURL(blob);
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+})()
+`;
+}
+
+function jsFillCaptchaInput(text: string): string {
+  const safe = JSON.stringify(text);
+  return `
+(() => {
+  const v = ${safe};
+  const setVal = (el, val) => {
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, val);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+  };
+  const tagged = document.querySelector('input[data-agent-captcha-input="1"]');
+  if (tagged) { setVal(tagged, v); return { ok: true, via: 'tagged' }; }
+  // Fallback: any input with name/id containing captcha
+  const inputs = Array.from(document.querySelectorAll('input'));
+  const target = inputs.find(inp => {
+    const hay = ((inp.name||'') + ' ' + (inp.id||'') + ' ' + (inp.placeholder||'')).toLowerCase();
+    return hay.includes('captcha') || hay.includes('code');
+  });
+  if (target) { setVal(target, v); return { ok: true, via: 'heuristic' }; }
+  return { ok: false };
+})()
+`;
+}
+
 // ---------- 2Captcha ----------
+
+async function solveImageCaptcha(base64: string): Promise<string> {
+  if (!TWOCAPTCHA_API_KEY) throw new Error("TWOCAPTCHA_API_KEY non configuré");
+  // Submit base64 image
+  const form = new FormData();
+  form.append("key", TWOCAPTCHA_API_KEY);
+  form.append("method", "base64");
+  form.append("body", base64);
+  form.append("json", "1");
+  // Common hints for AWS-Achat / SecurImage style captchas: 6 chars, alphanumeric
+  form.append("regsense", "1"); // case-sensitive matters less, set 0 if needed
+  form.append("min_len", "4");
+  form.append("max_len", "8");
+  const submit = await fetch("https://2captcha.com/in.php", { method: "POST", body: form });
+  const submitData = await submit.json();
+  if (submitData.status !== 1) throw new Error(`2Captcha submit (image): ${submitData.request}`);
+  const id = submitData.request;
+  for (let i = 0; i < 24; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const poll = await fetch(`https://2captcha.com/res.php?key=${TWOCAPTCHA_API_KEY}&action=get&id=${id}&json=1`);
+    const pollData = await poll.json();
+    if (pollData.status === 1) return String(pollData.request);
+    if (pollData.request !== "CAPCHA_NOT_READY") throw new Error(`2Captcha poll (image): ${pollData.request}`);
+  }
+  throw new Error("2Captcha image timeout (120s)");
+}
 
 async function solveRecaptchaV2(siteKey: string, pageUrl: string): Promise<string> {
   if (!TWOCAPTCHA_API_KEY) throw new Error("TWOCAPTCHA_API_KEY non configuré");
@@ -900,6 +1056,29 @@ Deno.serve(async (req) => {
               filledVia = "llm";
             }
             log(label, "ok", `(${filledVia}) champs: ${filledFields.join(",")} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+            break;
+          }
+          case "solve_image_captcha":
+          case "solve_image_captcha_if_present": {
+            const optional = step.action === "solve_image_captcha_if_present";
+            const detected = await cdp.eval(jsDetectImageCaptcha());
+            if (!detected) {
+              if (optional) { log(label, "skipped", "aucun captcha image détecté", Date.now() - stepStart); break; }
+              throw new Error("Aucun captcha image détecté");
+            }
+            const b64 = await cdp.eval(jsCaptureCaptchaBase64());
+            if (!b64 || typeof b64 !== "string" || b64.length < 50) {
+              if (optional) { log(label, "skipped", "capture base64 vide", Date.now() - stepStart); break; }
+              throw new Error("Impossible de capturer l'image du captcha (base64 vide)");
+            }
+            const tSolve = Date.now();
+            const solution = await solveImageCaptcha(b64);
+            const fillRes = await cdp.eval(jsFillCaptchaInput(solution));
+            if (!fillRes?.ok) {
+              throw new Error(`Captcha résolu (${solution}) mais champ d'input introuvable`);
+            }
+            captchasSolved++;
+            log(label, "ok", `texte="${solution}" via=${fillRes.via} solve=${Date.now() - tSolve}ms`, Date.now() - stepStart);
             break;
           }
           case "solve_captcha":
