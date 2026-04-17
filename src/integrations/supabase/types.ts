@@ -55,6 +55,7 @@ export type Database = {
       }
       agent_playbooks: {
         Row: {
+          config: Json
           created_at: string | null
           display_name: string
           id: string
@@ -68,6 +69,7 @@ export type Database = {
           url_pattern: string
         }
         Insert: {
+          config?: Json
           created_at?: string | null
           display_name: string
           id?: string
@@ -81,6 +83,7 @@ export type Database = {
           url_pattern: string
         }
         Update: {
+          config?: Json
           created_at?: string | null
           display_name?: string
           id?: string
