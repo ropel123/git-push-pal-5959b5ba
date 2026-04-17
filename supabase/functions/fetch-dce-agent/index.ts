@@ -960,6 +960,8 @@ Deno.serve(async (req) => {
     log("cdp.connect", "ok", `session=${sessionId}`, Date.now() - tInit);
 
     const steps = (playbook.steps as PlaybookStep[]) ?? [];
+    const playbookConfig = ((playbook as any).config ?? {}) as { continue_on_error?: boolean };
+    const continueOnError = playbookConfig.continue_on_error === true;
 
     for (const step of steps) {
       const stepStart = Date.now();
@@ -974,17 +976,20 @@ Deno.serve(async (req) => {
             break;
           }
           case "act":
+          case "act_if_present":
           case "click":
           case "click_if_present": {
             const instruction = step.instruction ?? step.natural ?? "";
             const urlBefore = await cdp.url().catch(() => "");
             const isStrictAct = step.action === "act";
+            const isOptional = step.action === "act_if_present" || step.action === "click_if_present";
 
             // Strict 'act' uses LLM-first (more reliable for ambiguous final-submit buttons).
+            // 'act_if_present' also uses LLM-first but degrades to "skipped" instead of throwing.
             // 'click_if_present' / 'click' uses heuristic-first (faster, common case).
             let chosen: { mode: string; idx?: number; text?: string } | null = null;
 
-            if (isStrictAct) {
+            if (isStrictAct || step.action === "act_if_present") {
               const snapshot = await cdp.eval(jsSnapshotClickables());
               const idx = await llmPickClickable(instruction, snapshot ?? []);
               if (idx >= 0) {
@@ -999,6 +1004,10 @@ Deno.serve(async (req) => {
                 const top5 = Array.isArray(snapshot)
                   ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}`).join(" | ")
                   : "(empty)";
+                if (isOptional) {
+                  log(label, "skipped", `no match (heuristic+llm) — top5: ${top5} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+                  break;
+                }
                 throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}" — top5: ${top5}`);
               }
             } else {
