@@ -208,7 +208,42 @@ function jsClickByText(instruction: string): string {
     return st.visibility !== "hidden" && st.display !== "none" && st.opacity !== "0";
   };
 
-  const candidates = Array.from(document.querySelectorAll(${sel}));
+  // Collect candidates from main doc + same-origin iframes
+  const docs = [document];
+  try {
+    for (const fr of Array.from(document.querySelectorAll('iframe'))) {
+      try { if (fr.contentDocument) docs.push(fr.contentDocument); } catch (_) {}
+    }
+  } catch (_) {}
+
+  const candidates = [];
+  for (const d of docs) {
+    try {
+      for (const el of Array.from(d.querySelectorAll(${sel}))) candidates.push(el);
+    } catch (_) {}
+  }
+
+  // Priority pass : if instruction contains a submit-word, prefer matching <input type="submit">
+  const wantsSubmit = submitWords.some(w => instruction.includes(w));
+  if (wantsSubmit) {
+    for (const el of candidates) {
+      if (!isVisible(el)) continue;
+      const tag = el.tagName.toLowerCase();
+      const type = (el.type || '').toLowerCase();
+      if (tag === 'input' && (type === 'submit' || type === 'button')) {
+        const value = (el.value || '').toLowerCase().trim();
+        if (!value) continue;
+        for (const w of submitWords) {
+          if (instruction.includes(w) && value.includes(w)) {
+            el.scrollIntoView({ block: 'center' });
+            el.click();
+            return { clicked: true, text: el.value.slice(0, 80), via: 'submit-priority:' + w };
+          }
+        }
+      }
+    }
+  }
+
   let best = null;
   let bestScore = 0;
   for (const el of candidates) {
@@ -291,11 +326,24 @@ function jsCountVisibleInputs(): string {
     const st = window.getComputedStyle(el);
     return st.visibility !== "hidden" && st.display !== "none";
   };
-  return Array.from(document.querySelectorAll(${sel})).filter(el => {
-    if (!isVisible(el)) return false;
-    const t = (el.type || '').toLowerCase();
-    return !['hidden','submit','button','checkbox','radio','file'].includes(t);
-  }).length;
+  const docs = [document];
+  try {
+    for (const fr of Array.from(document.querySelectorAll('iframe'))) {
+      try { if (fr.contentDocument) docs.push(fr.contentDocument); } catch (_) {}
+    }
+  } catch (_) {}
+  let count = 0;
+  for (const d of docs) {
+    try {
+      const els = Array.from(d.querySelectorAll(${sel})).filter(el => {
+        if (!isVisible(el)) return false;
+        const t = (el.type || '').toLowerCase();
+        return !['hidden','submit','button','checkbox','radio','file'].includes(t);
+      });
+      count += els.length;
+    } catch (_) {}
+  }
+  return count;
 })()
 `;
 }
@@ -310,11 +358,23 @@ function jsSnapshotInputs(): string {
     const st = window.getComputedStyle(el);
     return st.visibility !== "hidden" && st.display !== "none";
   };
-  const els = Array.from(document.querySelectorAll(${sel})).filter(el => {
-    if (!isVisible(el)) return false;
-    const t = (el.type || '').toLowerCase();
-    return !['hidden','submit','button','checkbox','radio','file'].includes(t);
-  });
+  const docs = [document];
+  try {
+    for (const fr of Array.from(document.querySelectorAll('iframe'))) {
+      try { if (fr.contentDocument) docs.push(fr.contentDocument); } catch (_) {}
+    }
+  } catch (_) {}
+  const els = [];
+  for (const d of docs) {
+    try {
+      for (const el of Array.from(d.querySelectorAll(${sel}))) {
+        if (!isVisible(el)) continue;
+        const t = (el.type || '').toLowerCase();
+        if (['hidden','submit','button','checkbox','radio','file'].includes(t)) continue;
+        els.push(el);
+      }
+    } catch (_) {}
+  }
   const out = [];
   let idx = 0;
   for (const el of els) {
@@ -900,6 +960,8 @@ Deno.serve(async (req) => {
     log("cdp.connect", "ok", `session=${sessionId}`, Date.now() - tInit);
 
     const steps = (playbook.steps as PlaybookStep[]) ?? [];
+    const playbookConfig = ((playbook as any).config ?? {}) as { continue_on_error?: boolean };
+    const continueOnError = playbookConfig.continue_on_error === true;
 
     for (const step of steps) {
       const stepStart = Date.now();
@@ -914,17 +976,20 @@ Deno.serve(async (req) => {
             break;
           }
           case "act":
+          case "act_if_present":
           case "click":
           case "click_if_present": {
             const instruction = step.instruction ?? step.natural ?? "";
             const urlBefore = await cdp.url().catch(() => "");
             const isStrictAct = step.action === "act";
+            const isOptional = step.action === "act_if_present" || step.action === "click_if_present";
 
             // Strict 'act' uses LLM-first (more reliable for ambiguous final-submit buttons).
+            // 'act_if_present' also uses LLM-first but degrades to "skipped" instead of throwing.
             // 'click_if_present' / 'click' uses heuristic-first (faster, common case).
             let chosen: { mode: string; idx?: number; text?: string } | null = null;
 
-            if (isStrictAct) {
+            if (isStrictAct || step.action === "act_if_present") {
               const snapshot = await cdp.eval(jsSnapshotClickables());
               const idx = await llmPickClickable(instruction, snapshot ?? []);
               if (idx >= 0) {
@@ -939,6 +1004,10 @@ Deno.serve(async (req) => {
                 const top5 = Array.isArray(snapshot)
                   ? snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag}${c.text ? ` "${String(c.text).slice(0, 40)}"` : ""}`).join(" | ")
                   : "(empty)";
+                if (isOptional) {
+                  log(label, "skipped", `no match (heuristic+llm) — top5: ${top5} — url=${urlBefore.slice(0, 80)}`, Date.now() - stepStart);
+                  break;
+                }
                 throw new Error(`Aucun bouton/lien correspondant à "${instruction.slice(0, 60)}" — top5: ${top5}`);
               }
             } else {
@@ -1114,6 +1183,10 @@ Deno.serve(async (req) => {
         }
       } catch (e: any) {
         log(label, "failed", e.message, Date.now() - stepStart);
+        if (continueOnError) {
+          console.warn(`[agent] continue_on_error → skip step "${step.action}" after failure`);
+          continue;
+        }
         throw e;
       }
     }
