@@ -1,77 +1,62 @@
 
 
-## Réponse courte
+## Diagnostic précis (run 09071431)
 
-**Oui, l'agent peut le faire — mais pas tout seul aujourd'hui.** Le screenshot montre une page **AWS-Achat / marches-publics.info (MPI)** avec :
+La trace dit tout :
 
-1. Formulaire d'identification anonyme (nom/email/société)
-2. **CAPTCHA image obligatoire** ("WR7XEH" en visuel déformé sur fond rose)
-3. Bouton RETRAIT pour télécharger le DCE
+1. ✅ Navigation OK sur `marches-publics.info/mpiaws/...?typeErreur=captchaVide`
+2. ⏭ `click_if_present("Télécharger le DCE…")` → skipped, page déjà sur le formulaire de retrait (top5 montre déjà `input "RETRAIT"` + `bordereau de retrait` + `Documentation sur les dépôts`)
+3. ⏭ `wait_for_inputs(min=2)` → skipped (1 seul input vu en 8s)
+4. ⏭ `fill_anonymous_identity` → skipped (aucun champ mappé)
+5. ❌ `act("Cocher toutes les cases…")` → **FATAL**
 
-## État actuel des capacités
+**Trois problèmes structurels** :
 
-| Capacité | Statut |
-|---|---|
-| Naviguer sur MPI | ✅ Playbook `mpi` créé (migration précédente) |
-| Remplir formulaire anonyme | ✅ Géré par étape `act` LLM-first |
-| Cocher cases / accepter CGU | ✅ Géré |
-| Cliquer RETRAIT + attendre ZIP | ✅ Géré (`wait_download`) |
-| **Résoudre le CAPTCHA image** | ⚠️ **Partiel** — secret `TWOCAPTCHA_API_KEY` configuré mais **pas appelé** dans le playbook MPI ni dans `fetch-dce-agent` |
+### Problème 1 : un step `act/click_if_present` qui ne trouve rien casse tout le run
+Le moteur traite l'absence de match comme une erreur fatale au lieu d'un skip propre. Sur des pages où la case "CGU" n'existe pas (ex: page MPI déjà partiellement validée), tout le playbook plante.
 
-## Le vrai gap : résolution CAPTCHA
+### Problème 2 : MPI rend ses formulaires en `<iframe>` ou via JS différé
+La page Dordogne (`typeErreur=captchaVide` = retour d'une tentative précédente avec captcha vide) ne montre qu'1 input parce que le formulaire identité est probablement dans une iframe ou un panel caché. L'agent ne fouille pas les iframes.
 
-Le CAPTCHA visible sur ton screenshot est un **CAPTCHA image classique** (pas reCAPTCHA, pas hCaptcha). Pour le résoudre, il faut :
-
-1. **Détecter** le `<img>` du CAPTCHA dans la page
-2. **Capturer** l'image (screenshot ciblé ou téléchargement direct du src)
-3. **L'envoyer à 2Captcha** (`POST https://2captcha.com/in.php` avec `method=base64`)
-4. **Poller** jusqu'à obtenir le texte décodé (~10-30 sec, ~0,001 $)
-5. **Remplir** le champ "Texte de l'image" avec le résultat
-6. **Cliquer** RETRAIT
-
-Ce flux n'existe pas encore dans `fetch-dce-agent`. Le playbook MPI actuel suppose qu'il n'y a pas de captcha (`requires_captcha: false`).
+### Problème 3 : pas de `act_if_present` (variante non-bloquante de `act`)
+On a `click_if_present` mais pas `act_if_present`. Du coup l'étape "cocher CGU" est obligatoire et casse tout si les cases ne sont pas là.
 
 ## Plan de correction
 
-### 1. Helper `solveImageCaptcha` dans l'agent
-Ajouter une fonction utilitaire dans `supabase/functions/fetch-dce-agent/index.ts` :
-- Prend un sélecteur (ou screenshot de zone)
-- Convertit en base64
-- POST à 2Captcha API
-- Poll `res.php` jusqu'à résolution
-- Retourne le texte
+### 1. Nouveau step `act_if_present` (non-bloquant)
+Variante de `act` qui retourne `skipped` au lieu de `failed` quand aucun élément ne match. À utiliser pour toutes les étapes optionnelles (CGU, accepter conditions, etc.).
 
-### 2. Nouvelle action `solve_captcha` dans le moteur de playbook
-Étendre le switch d'actions pour gérer un step type :
-```json
-{"action":"solve_captcha","captcha_type":"image","image_selector":"img[src*='captcha']","input_selector":"input[name='captcha_text']"}
-```
+### 2. Mode `continue_on_error` global du playbook
+Ajouter un flag dans la config playbook : si `true`, un step `failed` log l'erreur mais ne stoppe pas le run — le moteur passe au step suivant. Idéal pour `generic` et `mpi` où la séquence n'est pas linéaire.
 
-### 3. Mettre à jour le playbook MPI
-- Passer `requires_captcha: true`
-- Insérer un step `solve_captcha` entre le remplissage du formulaire et le clic RETRAIT
-- Migration SQL d'update
+### 3. Support des iframes dans `wait_for_inputs` et `fill_anonymous_identity`
+Étendre les helpers DOM JS pour parcourir aussi `document.querySelectorAll('iframe')` → `iframe.contentDocument` (cross-origin permitting). Sur MPI tout est same-origin donc accessible.
 
-### 4. Tracking coût + traçabilité
-- Logger chaque résolution captcha dans `agent_runs.trace` (prix, durée, succès)
-- Compter dans `captchas_solved` (déjà présent dans le retour de l'agent)
+### 4. Mise à jour playbooks `mpi` et `generic`
+- Remplacer `act("Cocher CGU…")` par `act_if_present("Cocher CGU…")`
+- Remplacer `act("Cliquer RETRAIT…")` par cascade : `click_if_present("RETRAIT")` (heuristique sur input value) → fallback `act("Cliquer RETRAIT")` 
+- Activer `continue_on_error: true` sur le playbook generic
 
-### 5. Fallback heuristique LLM-vision
-Si 2Captcha échoue, demander à Claude (vision) de lire l'image — moins fiable sur captchas déformés mais utile en backup.
+### 5. Heuristique RETRAIT prioritaire pour MPI
+Le top5 montre déjà `input "RETRAIT"` — c'est un `<input type="submit" value="RETRAIT">`. Ajouter dans le moteur un matcher heuristique qui privilégie les `input[type=submit][value*=RETRAIT]` quand le step contient le mot "retrait" / "télécharger".
 
 ## Fichiers touchés
 
-- **`supabase/functions/fetch-dce-agent/index.ts`** : helper `solveImageCaptcha` + handler d'action `solve_captcha` + intégration trace/coût
-- **Migration SQL** : `UPDATE agent_playbooks SET steps = ..., requires_captcha = true WHERE platform = 'mpi'`
-- **(optionnel) `src/pages/AgentMonitor.tsx`** : afficher nb captchas résolus + coût par run
+- **`supabase/functions/fetch-dce-agent/index.ts`** :
+  - Nouveau handler `act_if_present`
+  - Lecture flag `continue_on_error` sur playbook → wrap try/catch autour de la boucle steps
+  - Helpers DOM : parcours iframes same-origin dans `wait_for_inputs` + `fill_anonymous_identity`
+  - Heuristique input[type=submit] prioritaire pour `click_if_present`/`act` quand mots-clés "retrait/télécharger/valider"
+  
+- **Migration SQL** :
+  - `UPDATE agent_playbooks SET steps = ..., config = '{"continue_on_error": true}' WHERE platform IN ('mpi', 'generic')`
+  - Remplacer les `act` bloquants par `act_if_present`
+  - Ajouter colonne `config jsonb DEFAULT '{}'` à `agent_playbooks` si absente
 
-## Coût attendu
+## Test après fix
 
-- 2Captcha image classique : **~0,001 $/captcha** (1000 captchas pour 1 $)
-- Latence : 10-30 sec par résolution
-- Taux de succès attendu : >90 % sur captchas image type AWS
-
-## Prêt à exécuter
-
-Je peux implémenter dans l'ordre : helper + action `solve_captcha` → migration update playbook MPI → test sur l'URL Dordogne du screenshot. **Donne le go pour passer en mode édition.**
+Relancer sur la même URL Dordogne (`IDM=1808436`). Attendu :
+- `click_if_present("RETRAIT")` matche directement l'input submit
+- Si captcha présent → `solve_image_captcha_if_present` (déjà en place)
+- `wait_download` récupère le ZIP
 
