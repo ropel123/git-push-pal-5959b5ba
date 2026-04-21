@@ -26,8 +26,41 @@ function normalize(item: any) {
   const region = deptToRegion(dept);
   const estimated_amount = parseAmount(item.estimated_amount);
   const contract_type = item.contract_type || detectContractType(item.title);
-  const dce_url =
-    item.dce_url && /^https?:\/\//.test(item.dce_url) ? item.dce_url : item._source_url;
+
+  // Lien direct vers la fiche de la consultation, validé contre l'URL de listing
+  // pour éviter qu'une hallucination Firecrawl pointe vers un autre portail.
+  const listing_url: string = item._source_url || "";
+  const raw_item_link: string | null =
+    item.dce_url && /^https?:\/\//.test(item.dce_url) ? item.dce_url : null;
+
+  let item_link: string | null = null;
+  let item_link_rejected_reason: string | null = null;
+  if (raw_item_link) {
+    try {
+      const itemHost = new URL(raw_item_link).hostname.toLowerCase();
+      const listingHost = listing_url ? new URL(listing_url).hostname.toLowerCase() : "";
+      // Domaines fédérateurs OK même en cross-publication
+      const FEDERATED = ["boamp.fr", "ted.europa.eu", "marches-publics.gouv.fr"];
+      const isFederated = FEDERATED.some((d) => itemHost.endsWith(d));
+      const sameHost =
+        listingHost &&
+        (itemHost === listingHost ||
+          itemHost.endsWith(`.${listingHost}`) ||
+          listingHost.endsWith(`.${itemHost}`));
+      if (sameHost || isFederated || !listingHost) {
+        item_link = raw_item_link;
+      } else {
+        item_link_rejected_reason = `cross-domain ${itemHost} vs ${listingHost}`;
+      }
+    } catch {
+      item_link_rejected_reason = "invalid url";
+    }
+  }
+
+  // dce_url = lien fiche si valide, sinon on retombe sur l'URL de listing.
+  const dce_url = item_link || listing_url;
+  // source_url = lien fiche si valide, sinon URL de listing (pour "Voir l'avis original").
+  const source_url = item_link || listing_url;
 
   return {
     source: `scrape:${item._platform || "custom"}`,
@@ -45,11 +78,13 @@ function normalize(item: any) {
     region,
     execution_location: item.location || null,
     dce_url,
-    source_url: item._source_url,
+    source_url,
     status: "open",
     enriched_data: {
       scraped_at: new Date().toISOString(),
       platform: item._platform,
+      listing_url,
+      item_link_rejected_reason,
       raw: item,
     },
   };

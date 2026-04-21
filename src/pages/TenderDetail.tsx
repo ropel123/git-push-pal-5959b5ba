@@ -196,8 +196,8 @@ const TenderDetail = () => {
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {tender.reference && <p className="text-sm text-muted-foreground">Réf. {tender.reference}</p>}
-            {tender.source_url && (
-              <a href={tender.source_url} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
+            {(tender.dce_url || tender.source_url) && (
+              <a href={tender.dce_url || tender.source_url || "#"} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
                 <ExternalLink className="h-3 w-3" /> Voir l'avis original
               </a>
             )}
