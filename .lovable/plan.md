@@ -1,64 +1,69 @@
 
+# Fix du lien "Voir l'avis original"
 
-# Reset complet de la base de données
+## Le problème
 
-## Ce que tu demandes
+Sur la fiche AO (`/tenders/631293a3...`), le lien "Voir l'avis original" t'envoie sur la page de recherche générique de Ternum BFC (`?page=Entreprise.EntrepriseAdvancedSearch&AllCons`) au lieu de la fiche de la consultation.
 
-Vider toutes les données métier pour repartir de zéro, tout en gardant :
-- Le schéma des tables (structure)
-- Ton compte utilisateur et ton profil
-- Ton rôle admin
-- Les 10 URLs de sourcing validées
-- Les secrets et buckets storage
+## Cause
 
-## Ce qui sera supprimé
+Dans `upsert-tenders/index.ts` (ligne 48), on stocke dans `source_url` **l'URL de la page de listing** scrapée (celle configurée dans `sourcing_urls`) — pas le lien direct vers chaque AO.
 
-| Table | Contenu effacé |
-|---|---|
-| `tenders` | ~19 665 AO référencés |
-| `awards` | Tous les attributaires |
-| `buyers` | Tous les acheteurs |
-| `pipeline_items` | Ton pipeline (1 item) |
-| `saved_searches` | Recherches sauvegardées (peinture, etc.) |
-| `dce_downloads` | Historique téléchargements DCE |
-| `tender_analyses` | Analyses IA |
-| `pricing_strategies` | Stratégies de chiffrage |
-| `memoir_sessions` / `memoir_messages` | Conversations mémoire technique |
-| `generated_documents` | PDF/PPTX générés |
-| `notifications` | Notifications |
-| `activity_logs` | Historique d'activité |
-| `sourcing_runs` / `sourcing_logs` | Logs des runs de scraping |
-| Bucket `dce-documents` | Tous les fichiers DCE stockés |
+Pour le tender que tu regardes, la base contient :
+- `source_url` = `https://marches.ternum-bfc.fr/?page=entreprise.EntrepriseAdvancedSearch&AllCons` ← page de recherche (utilisé par "Voir l'avis original")
+- `dce_url` = `https://www.marches-publics.gouv.fr/app.php/entreprise/consultation/2734339?orgAcronyme=b4n` ← le bon lien direct
 
-## Ce qui sera conservé
+Bizarre ici : le `dce_url` pointe sur PLACE alors que la source était Ternum. C'est l'extraction Firecrawl qui a renvoyé un lien absolu mal résolu (PLACE au lieu de Ternum). À corriger aussi.
 
-- `auth.users` → ton compte
-- `profiles` → ton profil
-- `user_roles` → ton rôle admin
-- `sourcing_urls` → les 10 plateformes validées (prêtes à re-scraper)
-- `company_profile` / `company_assets` → ton onboarding entreprise
-- Bucket `company-assets` → ton logo/charte
+## Correctif
 
-## Comment
+### 1. Front — `src/pages/TenderDetail.tsx` (lignes 199-203)
 
-**1 migration SQL unique** avec :
-- `TRUNCATE ... RESTART IDENTITY CASCADE` sur les tables métier
-- Reset des compteurs `last_run_at` / `last_success_at` / `total_items_found` sur `sourcing_urls` (pour repartir propre côté UI)
-- Suppression des objets du bucket `dce-documents` via `DELETE FROM storage.objects WHERE bucket_id = 'dce-documents'`
+Faire pointer "Voir l'avis original" en priorité vers `dce_url` (le lien fiche), et ne tomber sur `source_url` que si `dce_url` est vide.
 
-## Vérifications avant exécution
+```tsx
+{(tender.dce_url || tender.source_url) && (
+  <a href={tender.dce_url || tender.source_url} target="_blank" ...>
+    <ExternalLink className="h-3 w-3" /> Voir l'avis original
+  </a>
+)}
+```
 
-Je vais d'abord (au moment de l'exécution, pas maintenant) :
-1. Lister toutes les tables réellement présentes via `supabase--read_query` pour ne rien oublier
-2. Confirmer que `company_profile` existe bien (sinon je l'ignore)
-3. Construire le `TRUNCATE` sur la liste exacte
+Effet immédiat : pour ton AO, le bouton ouvrira la fiche PLACE (`/consultation/2734339`).
 
-## Après le reset
+### 2. Backend — `supabase/functions/upsert-tenders/index.ts` (ligne 48)
 
-Tu pourras :
-- Aller sur `/sourcing` → les 10 URLs sont là, compteurs à 0
-- Lancer un run manuel sur chacune ou attendre le cron 6h
-- Le dashboard `/dashboard` affichera 0 partout jusqu'au premier scrape
+Stocker dans `source_url` **le lien fiche extrait** (`item.dce_url`) quand il est valide, et garder l'URL de listing en fallback dans `enriched_data.listing_url`.
 
-⚠️ **Action irréversible.** Une fois la migration appliquée, les 19 665 AO et ton historique sont perdus. Confirme avec "Approve" pour que je lance la migration.
+```ts
+const item_link = item.dce_url && /^https?:\/\//.test(item.dce_url) ? item.dce_url : null;
+// ...
+source_url: item_link || item._source_url,
+enriched_data: {
+  scraped_at: new Date().toISOString(),
+  platform: item._platform,
+  listing_url: item._source_url,
+  raw: item,
+},
+```
 
+### 3. Backend — `supabase/functions/scrape-list/index.ts` (prompt Firecrawl, ligne 51)
+
+Renforcer l'instruction pour que Firecrawl résolve les liens **relatifs au domaine de la page scrapée** et n'invente pas un lien vers un autre portail (PLACE, etc.) :
+
+> "L'URL ABSOLUE doit avoir le MÊME hostname que la page d'origine. Les liens relatifs (`?page=...&id=...`, `/consultation/123`) doivent être résolus contre l'URL de base. Si tu vois un lien vers un autre domaine (boamp, marches-publics.gouv.fr) qui n'est pas dans le HTML, NE l'invente PAS — laisse `dce_url` vide."
+
+Et côté code, on ajoute une garde après l'extraction : si `dce_url` n'a pas le même hostname que `_source_url` ET ne provient pas d'une plateforme connue (BOAMP/PLACE/TED en cross-publication), on l'ignore.
+
+### 4. Backfill des AO existants (optionnel)
+
+Le tender `631293a3` et probablement d'autres ont déjà le mauvais `source_url` en base. Une migration peut écraser `source_url := dce_url` pour les lignes où `source_url` contient `EntrepriseAdvancedSearch` ou `AllCons` (page de recherche générique).
+
+## Résumé des fichiers touchés
+
+- `src/pages/TenderDetail.tsx` — fallback `dce_url` → `source_url`
+- `supabase/functions/upsert-tenders/index.ts` — source_url = lien fiche
+- `supabase/functions/scrape-list/index.ts` — prompt + garde same-hostname
+- (optionnel) migration SQL de backfill
+
+Le fix #1 te débloque tout de suite sur le tender actuel. Les fix #2/#3 évitent que ça se reproduise sur les futurs scrapes.
