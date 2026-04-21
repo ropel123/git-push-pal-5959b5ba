@@ -88,20 +88,45 @@ export function detectContractType(s?: string | null): string | null {
 
 export function detectPlatformFromUrl(url: string): string {
   try {
-    const h = new URL(url).hostname.toLowerCase();
-    if (h.includes("marches-publics.info") || h.includes("mpi")) return "mpi";
-    if (h.includes("place")) return "place";
+    const u = new URL(url);
+    const h = u.hostname.toLowerCase();
+    const path = u.pathname.toLowerCase();
+
+    // Cas spécifiques d'abord (hostname + path)
+    if (h.includes("projets-achats.marches-publics.gouv.fr")) return "place";
+    if (h === "www.marches-publics.gouv.fr" || h === "marches-publics.gouv.fr") return "place";
+    if (h.includes("marches-publics.info")) return "mpi";
+    if (h.includes("marchespublics.grandest.fr")) return "mpi"; // moteur ColdFusion mpi-like
+    if (path.includes("/sdm/")) return "safetender"; // Local-trust / SDM (AURA)
+
+    // Atexo régionaux (même moteur, hostnames variés)
+    if (
+      h.includes("maximilien") ||
+      h.includes("ternum") ||
+      h.includes("alsacemarchespublics") ||
+      h.includes("ampmetropole") ||
+      h.includes("nantesmetropole") ||
+      h.includes("paysdelaloire") ||
+      h.includes("grand-nancy") ||
+      h.includes("grandlyon") ||
+      h.includes("aquitaine") ||
+      h.includes("lorraine") ||
+      h.includes("haute-garonne") && !h.includes("marches-publics.info") ||
+      h.includes("marches-publics-hopitaux") ||
+      h.includes("atexo") ||
+      h.includes("demat-ampa")
+    ) return "atexo";
+
     if (h.includes("achatpublic")) return "achatpublic";
     if (h.includes("e-marchespublics")) return "e-marchespublics";
     if (h.includes("marches-securises")) return "marches-securises";
-    if (h.includes("maximilien")) return "maximilien";
     if (h.includes("megalis")) return "megalis";
     if (h.includes("safetender")) return "safetender";
     if (h.includes("xmarches")) return "xmarches";
     if (h.includes("klekoon")) return "klekoon";
-    if (h.includes("atexo") || h.includes("demat-ampa") || h.includes("ternum")) return "atexo";
     if (h.includes("boamp")) return "boamp";
     if (h.includes("ted.europa.eu")) return "ted";
+    if (h.includes("place")) return "place";
     return "custom";
   } catch {
     return "custom";
