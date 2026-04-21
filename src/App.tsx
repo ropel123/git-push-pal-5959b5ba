@@ -19,6 +19,7 @@ import Onboarding from "./pages/Onboarding";
 import BuyerDetail from "./pages/BuyerDetail";
 import Activity from "./pages/Activity";
 import AgentMonitor from "./pages/AgentMonitor";
+import Sourcing from "./pages/Sourcing";
 
 const queryClient = new QueryClient();
 
@@ -44,6 +45,7 @@ const App = () => (
                 <Route path="/buyers/:id" element={<BuyerDetail />} />
                 <Route path="/activity" element={<Activity />} />
                 <Route path="/agent-monitor" element={<AgentMonitor />} />
+                <Route path="/sourcing" element={<Sourcing />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

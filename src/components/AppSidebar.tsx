@@ -21,7 +21,9 @@ import {
   LogOut,
   Activity,
   Bot,
+  Globe,
 } from "lucide-react";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 
 const menuItems = [
   { title: "Tableau de bord", icon: LayoutDashboard, path: "/dashboard" },
@@ -31,6 +33,10 @@ const menuItems = [
   { title: "Mon activité", icon: Activity, path: "/activity" },
   { title: "Agent IA", icon: Bot, path: "/agent-monitor" },
   { title: "Paramètres", icon: Settings, path: "/settings" },
+];
+
+const adminItems = [
+  { title: "Sourcing", icon: Globe, path: "/sourcing" },
 ];
 
 const AppSidebar = () => {
