@@ -1,129 +1,81 @@
 
 
-# Refonte du sourcing — Scraping multi-sites depuis URLs fournies
+# Insertion des 10 URLs validées dans le sourcing
 
-## Changement de stratégie
+## Ce qui va être fait
 
-**On abandonne** le sourcing via les APIs officielles BOAMP et TED.
+### 1. Insertion des 10 URLs dans `sourcing_urls`
 
-**On reconstruit** un système de sourcing basé sur une **liste d'URLs de plateformes** que tu vas me fournir (profils acheteurs, plateformes mutualisées, portails régionaux, etc.).
+Une seule opération `INSERT` (via outil insert, pas migration) avec les URLs **exactement telles que validées** par toi.
 
-## Périmètre
+| # | Plateforme | URL | Platform tag |
+|---|---|---|---|
+| 1 | Maximilien (IDF) | `https://marches.maximilien.fr/?page=entreprise.EntrepriseAdvancedSearch&AllCons` | `atexo` |
+| 2 | APProch (préavis État) | `https://projets-achats.marches-publics.gouv.fr/` | `place` |
+| 3 | Ternum BFC | `https://marches.ternum-bfc.fr/?page=entreprise.EntrepriseAdvancedSearch&AllCons` | `atexo` |
+| 4 | Grand Est | `https://marchespublics.grandest.fr/avis/index.cfm?fuseaction=pub.affResultats` | `mpi` (moteur ColdFusion `marches-publics.info`) |
+| 5 | Alsace MP | `https://plateforme.alsacemarchespublics.eu/?page=Entreprise.EntrepriseAdvancedSearch&searchAnnCons&keyWord=&categorie=0&localisations=` | `atexo` |
+| 6 | AMP Métropole | `https://marchespublics.ampmetropole.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons` | `atexo` |
+| 7 | Nantes Métropole | `https://marchespublics.nantesmetropole.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons` | `atexo` |
+| 8 | AURA | `https://marchespublics.auvergnerhonealpes.eu/sdm/ent2/gen/rechercheCsl.action?tp=1776784247743` | `safetender` (moteur SDM/Local-trust) |
+| 9 | Pays de la Loire | `https://marchespublics.paysdelaloire.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons` | `atexo` |
+| 10 | Haute-Garonne | `https://haute-garonne.marches-publics.info/avis/index.cfm?fuseaction=pub.affResultats&IDs=4150` | `mpi` |
 
-**Supprimé :**
-- `supabase/functions/scrape-boamp/` (820 lignes — appels API BOAMP)
-- `supabase/functions/scrape-ted/` (670 lignes — appels API TED)
-- Entrées `[functions.scrape-boamp]` et `[functions.scrape-ted]` dans `supabase/config.toml`
-- Crons quotidiens 02:00 et 03:00
+Chaque ligne sera insérée avec :
+- `frequency_hours = 6`
+- `is_active = true`
+- `parser_type = 'auto'`
+- `display_name` = nom lisible (ex. "Maximilien (Île-de-France)")
 
-**Non touché (intact) :**
-- `fetch-dce-agent`, `fetch-dce`, `batch-fetch-dce`
-- Tables `agent_runs`, `agent_playbooks`, `agent_anonymous_identity`, `platform_robots`
-- `AgentMonitor.tsx`, `DceAutoFetchButton`, `DceAgentFetchButton`
-- Tables `dce_uploads`, `dce_downloads`
-- Les 19 665 tenders existants restent en base
+### 2. Améliorer la détection de plateforme
 
-## Architecture cible
+Mettre à jour `detectPlatformFromUrl()` dans `supabase/functions/_shared/normalize.ts` pour reconnaître les hostnames de tes 10 URLs :
 
-```text
-┌─────────────────────────────────────────┐
-│   Table : sourcing_urls                 │
-│   - url, platform, frequency, active    │
-│   - selectors (jsonb), last_run_at      │
-└─────────────────┬───────────────────────┘
-                  │ cron toutes les 6h
-                  ▼
-        ┌─────────────────────┐
-        │  sourcing-scheduler │  ← lit les URLs actives, dispatch
-        └──────────┬──────────┘
-                   │
-         ┌─────────┴──────────┐
-         ▼                    ▼
-  ┌─────────────┐      ┌──────────────┐
-  │ scrape-list │      │ scrape-list  │   ← 1 fonction unifiée
-  │  (URL #1)   │      │  (URL #2)    │     Firecrawl + parser
-  └──────┬──────┘      └──────┬───────┘
-         │ tenders bruts      │
-         └──────────┬─────────┘
-                    ▼
-         ┌────────────────────┐
-         │  upsert-tenders    │  ← normalisation + dédup
-         └────────────────────┘
+- `maximilien` → `atexo`
+- `projets-achats.marches-publics.gouv.fr` → `place`
+- `ternum-bfc` → `atexo`
+- `marchespublics.grandest.fr` → `mpi`
+- `alsacemarchespublics.eu` → `atexo`
+- `ampmetropole` → `atexo`
+- `nantesmetropole` → `atexo`
+- `auvergnerhonealpes` (avec `/sdm/`) → `safetender`
+- `paysdelaloire` → `atexo`
+- `haute-garonne.marches-publics.info` → déjà `mpi` (existant)
+
+### 3. Affiner le prompt Firecrawl
+
+Dans `supabase/functions/scrape-list/index.ts`, le prompt sera enrichi pour mieux guider l'extraction sur ces 3 moteurs distincts (Atexo / MPI ColdFusion / SDM Local-trust) :
+
+> "Cette page est un portail de marchés publics. Extrais TOUTES les consultations affichées dans le tableau/liste. Chaque ligne contient typiquement : référence, intitulé, acheteur, date limite de remise des offres, type de procédure. Résous les liens relatifs (`?page=...&id=...`) en URLs absolues à partir de l'URL source. Ignore les filtres, la pagination et les en-têtes."
+
+### 4. Dry-run de validation sur 3 URLs
+
+Après insertion + déploiement, lancement automatique de `scrape-list` en mode `dry_run: true` sur :
+- Maximilien (Atexo représentatif)
+- Grand Est (MPI ColdFusion représentatif)
+- AURA (SDM Local-trust représentatif)
+
+Je te renvoie un rapport :
+```
+Plateforme           Items extraits   Échantillon (titre + ref)
+Maximilien           ?                ...
+Grand Est            ?                ...
+AURA                 ?                ...
 ```
 
-## Nouvelles tables
+## Ce qui n'est PAS fait dans cette étape
 
-**`sourcing_urls`** — la liste de tes URLs à scraper :
-```text
-id              uuid PK
-url             text          (URL de la page liste de consultations)
-platform        text          (mpi, place, achatpublic, atexo, custom...)
-display_name    text          (nom lisible du portail)
-frequency_hours int           (défaut 6)
-is_active       bool
-selectors       jsonb         (sélecteurs CSS optionnels pour extraction custom)
-parser_type     text          (auto | firecrawl_json | custom)
-last_run_at     timestamptz
-last_status     text
-metadata        jsonb         (acheteur, région, notes...)
-```
+- Pas de migration SQL (les 10 URLs = données, pas schéma)
+- Pas de modification de l'UI `/sourcing` (déjà en place)
+- Pas de cron supplémentaire (le cron 6h existant prendra le relais)
 
-**`ingest_cursors`** — reprise sur incident par URL.
+## Après ce ticket
 
-**Index unique** `tenders(source, reference)` pour idempotence SQL native (fini les hacks de dédup).
+Tu pourras depuis `/sourcing` :
+- Voir les 10 URLs listées
+- Désactiver celles qui ne donnent rien
+- Lancer un run manuel par URL
+- Consulter les logs détaillés en bas de page
 
-## Edge functions créées
-
-| Fonction | Rôle | LoC |
-|---|---|---|
-| `sourcing-scheduler` | Cron toutes les 6h, sélectionne les URLs dues, lance les scrapers en parallèle (concurrence limitée) | ≤ 100 |
-| `scrape-list` | Pour une URL : Firecrawl `scrape` + extraction JSON LLM (Lovable AI Gateway) → liste de consultations avec titre, référence, deadline, lien DCE, acheteur | ≤ 250 |
-| `upsert-tenders` | Normalisation unifiée (region, contract_type, status), upsert SQL `(source, reference)`, merge `enriched_data` sans écrasement, écriture `scrape_logs` + `ingest_cursors` | ≤ 150 |
-
-**Stratégie d'extraction** par URL :
-1. **`auto`** (défaut) : Firecrawl `scrape` en format `json` avec un schéma Zod (titre, ref, deadline, dce_url, buyer, montant) + prompt LLM → marche sur 80 % des plateformes sans config.
-2. **`firecrawl_json`** : schéma JSON custom passé dans `selectors`.
-3. **`custom`** : sélecteurs CSS dans `selectors` pour les cas tordus.
-
-## UI Admin (nouvelle page `/sourcing`)
-
-Onglet visible uniquement aux admins :
-
-- **Tableau des URLs** : url, plateforme, dernier run (date + résultat), nombre d'items récupérés au dernier run, statut actif/pause.
-- **Bouton "Ajouter une URL"** : modal avec url, plateforme (autocomplete), fréquence, parser_type.
-- **Bouton "Tester maintenant"** par URL : lance `scrape-list` en direct et affiche les résultats avant insert (dry-run).
-- **Bouton "Re-scraper"** : force un run immédiat.
-- **Bouton "Importer en masse"** : coller une liste d'URLs (une par ligne) avec auto-détection de la plateforme.
-- **Logs** : derniers 50 runs (statut, items found / inserted / errors, durée).
-
-Lien dans `AppSidebar` (visible admins) : "Sourcing".
-
-## Workflow utilisateur
-
-1. Tu approuves ce plan.
-2. Je supprime `scrape-boamp` / `scrape-ted` et installe la nouvelle archi vide.
-3. Tu me passes ta **liste d'URLs** (chat ou import via UI admin).
-4. Pour chaque URL : je teste en dry-run, j'ajuste le parser si besoin, j'active le cron.
-5. Le cron tourne toutes les 6h, l'admin voit la santé en direct.
-
-## Garanties
-
-- **Aucune perte** des 19 665 tenders existants.
-- **Dédup SQL** sur `(source, reference)` → 0 doublon possible.
-- **Merge** de `enriched_data` → l'agent DCE ne perd plus ses enrichissements.
-- **Reprise sur incident** via `ingest_cursors`.
-- **Coût plafonnable** (limite Firecrawl par jour configurable en table).
-- L'agent DCE existant continue de fonctionner sur les nouveaux tenders sans modification.
-
-## Détails techniques
-
-- **Firecrawl** : déjà connecté (`FIRECRAWL_API_KEY` présente). On utilise `/v2/scrape` avec `formats: [{ type: 'json', schema, prompt }]` pour extraction structurée.
-- **Pagination** : si la page liste a un `?page=N`, on boucle jusqu'à page vide ou max 20 pages.
-- **Détection plateforme** : helper qui matche le hostname → `mpi`, `place`, `achatpublic`, `atexo`, `safetender`, `klekoon`, etc. Set par défaut sur `custom` si inconnu.
-- **Parser unifié** : un seul endroit pour normaliser dates FR (`DD/MM/YYYY`), montants (`12 345,67 €`), références.
-- **Concurrence** : `Promise.all` limité à 3 URLs simultanées dans le scheduler (économie Firecrawl).
-
-## Prochaine étape après approbation
-
-J'implémente l'archi vide + UI admin, puis **j'attends ta liste d'URLs** pour les ajouter et tester une par une.
+Si une plateforme renvoie 0 résultats au dry-run, je te le signale et on ajuste (URL alternative, prompt spécifique, ou exclusion).
 
