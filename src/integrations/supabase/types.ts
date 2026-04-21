@@ -319,6 +319,53 @@ export type Database = {
           },
         ]
       }
+      ingest_cursors: {
+        Row: {
+          created_at: string
+          id: string
+          last_offset: number | null
+          last_publication_date: string | null
+          last_run_at: string | null
+          last_status: string | null
+          metadata: Json
+          source_key: string
+          sourcing_url_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_offset?: number | null
+          last_publication_date?: string | null
+          last_run_at?: string | null
+          last_status?: string | null
+          metadata?: Json
+          source_key: string
+          sourcing_url_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_offset?: number | null
+          last_publication_date?: string | null
+          last_run_at?: string | null
+          last_status?: string | null
+          metadata?: Json
+          source_key?: string
+          sourcing_url_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingest_cursors_sourcing_url_id_fkey"
+            columns: ["sourcing_url_id"]
+            isOneToOne: false
+            referencedRelation: "sourcing_urls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pipeline_comments: {
         Row: {
           content: string
@@ -543,7 +590,11 @@ export type Database = {
           id: string
           items_found: number | null
           items_inserted: number | null
+          items_skipped: number | null
+          items_updated: number | null
+          metadata: Json
           source: string
+          sourcing_url_id: string | null
           started_at: string
           status: string
         }
@@ -553,7 +604,11 @@ export type Database = {
           id?: string
           items_found?: number | null
           items_inserted?: number | null
+          items_skipped?: number | null
+          items_updated?: number | null
+          metadata?: Json
           source: string
+          sourcing_url_id?: string | null
           started_at?: string
           status?: string
         }
@@ -563,9 +618,78 @@ export type Database = {
           id?: string
           items_found?: number | null
           items_inserted?: number | null
+          items_skipped?: number | null
+          items_updated?: number | null
+          metadata?: Json
           source?: string
+          sourcing_url_id?: string | null
           started_at?: string
           status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scrape_logs_sourcing_url_id_fkey"
+            columns: ["sourcing_url_id"]
+            isOneToOne: false
+            referencedRelation: "sourcing_urls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sourcing_urls: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          frequency_hours: number
+          id: string
+          is_active: boolean
+          last_error: string | null
+          last_items_found: number | null
+          last_items_inserted: number | null
+          last_run_at: string | null
+          last_status: string | null
+          metadata: Json
+          parser_type: string
+          platform: string
+          selectors: Json
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          frequency_hours?: number
+          id?: string
+          is_active?: boolean
+          last_error?: string | null
+          last_items_found?: number | null
+          last_items_inserted?: number | null
+          last_run_at?: string | null
+          last_status?: string | null
+          metadata?: Json
+          parser_type?: string
+          platform?: string
+          selectors?: Json
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          frequency_hours?: number
+          id?: string
+          is_active?: boolean
+          last_error?: string | null
+          last_items_found?: number | null
+          last_items_inserted?: number | null
+          last_run_at?: string | null
+          last_status?: string | null
+          metadata?: Json
+          parser_type?: string
+          platform?: string
+          selectors?: Json
+          updated_at?: string
+          url?: string
         }
         Relationships: []
       }
