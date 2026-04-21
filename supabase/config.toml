@@ -1,13 +1,16 @@
 project_id = "xfqvaeshidleazgfqlze"
 
-[functions.scrape-boamp]
-verify_jwt = false
-
-[functions.scrape-ted]
-verify_jwt = false
-
 [functions.fetch-dce]
 verify_jwt = false
 
 [functions.batch-fetch-dce]
+verify_jwt = false
+
+[functions.sourcing-scheduler]
+verify_jwt = false
+
+[functions.scrape-list]
+verify_jwt = false
+
+[functions.upsert-tenders]
 verify_jwt = false
