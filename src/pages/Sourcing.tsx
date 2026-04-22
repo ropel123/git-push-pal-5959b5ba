@@ -182,6 +182,7 @@ const Sourcing = () => {
   if (!isAdmin) return null;
 
   return (
+    <TooltipProvider>
     <div className="space-y-6 p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
@@ -189,6 +190,10 @@ const Sourcing = () => {
           <p className="text-muted-foreground">URLs scrapées toutes les {urls[0]?.frequency_hours ?? 6}h pour alimenter les appels d'offres</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={reclassifyAll} disabled={running === "__all__"}>
+            {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+            Re-détecter plateformes
+          </Button>
           <Button variant="outline" onClick={() => setBulkOpen(true)}><Plus className="mr-2 h-4 w-4" />Import en masse</Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -263,7 +268,24 @@ const Sourcing = () => {
                       {u.url}
                     </a>
                   </TableCell>
-                  <TableCell><Badge variant="secondary">{u.platform}</Badge></TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <Badge variant="secondary">{u.platform}</Badge>
+                      {u.metadata?.platform_evidence && Array.isArray(u.metadata.platform_evidence) && u.metadata.platform_evidence.length > 0 && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <div className="text-xs space-y-1">
+                              <div className="font-medium">Source : {u.metadata.platform_source ?? "?"} ({Math.round((u.metadata.platform_confidence ?? 0) * 100)}%)</div>
+                              <div className="text-muted-foreground break-all">{u.metadata.platform_evidence.join(" · ")}</div>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>{u.frequency_hours}h</TableCell>
                   <TableCell className="text-xs">{u.last_run_at ? new Date(u.last_run_at).toLocaleString("fr-FR") : "—"}</TableCell>
                   <TableCell>
@@ -275,6 +297,9 @@ const Sourcing = () => {
                   </TableCell>
                   <TableCell><Switch checked={u.is_active} onCheckedChange={(v) => toggleActive(u.id, v)} /></TableCell>
                   <TableCell className="text-right space-x-1">
+                    <Button size="sm" variant="ghost" onClick={() => reclassifyOne(u.id)} disabled={running === u.id} title="Re-détecter la plateforme">
+                      <Wand2 className="h-4 w-4" />
+                    </Button>
                     <Button size="sm" variant="ghost" onClick={() => dryRun(u.id)} disabled={running === u.id} title="Test (dry-run)">
                       {running === u.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
                     </Button>
