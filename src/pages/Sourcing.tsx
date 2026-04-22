@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical } from "lucide-react";
+import { detectPlatform, PLATFORMS } from "@/lib/detectPlatform";
 
 type SourcingUrl = {
   id: string;
@@ -41,8 +42,6 @@ type ScrapeLog = {
   items_updated: number | null;
   errors: string | null;
 };
-
-const PLATFORMS = ["mpi", "place", "achatpublic", "e-marchespublics", "marches-securises", "maximilien", "megalis", "atexo", "safetender", "xmarches", "klekoon", "custom"];
 
 const Sourcing = () => {
   const navigate = useNavigate();
@@ -74,15 +73,6 @@ const Sourcing = () => {
   };
 
   useEffect(() => { if (isAdmin) load(); }, [isAdmin]);
-
-  const detectPlatform = (url: string): string => {
-    try {
-      const h = new URL(url).hostname.toLowerCase();
-      for (const p of PLATFORMS) if (h.includes(p) && p !== "custom") return p;
-      if (h.includes("marches-publics.info")) return "mpi";
-    } catch {}
-    return "custom";
-  };
 
   const addUrl = async () => {
     if (!form.url.trim()) return;
