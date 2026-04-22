@@ -114,6 +114,10 @@ function endsWithHost(host: string, suffix: string): boolean {
  * Doit rester strictement aligné avec src/lib/detectPlatform.ts.
  */
 export function detectPlatformFromUrl(url: string): string {
+  return detectPlatformFromUrlInternal(url);
+}
+
+function detectPlatformFromUrlInternal(url: string): string {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
@@ -158,4 +162,99 @@ export function detectPlatformFromUrl(url: string): string {
   } catch {
     return "custom";
   }
+}
+
+// ============================================================
+// Pipeline 3 niveaux : cache fingerprint > hostname > sonde HTTP
+// ============================================================
+import { detectPlatformByFingerprint } from "./fingerprint.ts";
+
+const FINGERPRINT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+type SupabaseLike = {
+  from: (table: string) => any;
+};
+
+export type ResolvedPlatform = {
+  platform: string;
+  source: "cache" | "hostname" | "fingerprint" | "fallback";
+  confidence: number;
+  evidence: string[];
+};
+
+/**
+ * Pipeline à 3 niveaux : cache → hostname → sonde HTTP/HTML.
+ * La sonde n'est déclenchée que si hostname retourne "custom" (ou si force=true).
+ */
+export async function resolvePlatform(
+  url: string,
+  supabase: SupabaseLike,
+  opts: { force?: boolean } = {}
+): Promise<ResolvedPlatform> {
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return { platform: "custom", source: "fallback", confidence: 0, evidence: ["bad-url"] };
+  }
+
+  // 1. Cache
+  if (!opts.force) {
+    const { data: cached } = await supabase
+      .from("platform_fingerprints")
+      .select("platform, confidence, evidence, detected_at")
+      .eq("host", host)
+      .maybeSingle();
+    if (cached) {
+      const age = Date.now() - new Date(cached.detected_at).getTime();
+      if (age < FINGERPRINT_TTL_MS) {
+        return {
+          platform: cached.platform,
+          source: "cache",
+          confidence: Number(cached.confidence) || 0,
+          evidence: Array.isArray(cached.evidence) ? cached.evidence : [],
+        };
+      }
+    }
+  }
+
+  // 2. Hostname
+  const fromHost = detectPlatformFromUrlInternal(url);
+  if (fromHost !== "custom" && !opts.force) {
+    return { platform: fromHost, source: "hostname", confidence: 0.95, evidence: [`hostname:${host}`] };
+  }
+
+  // 3. Sonde HTTP/HTML
+  const probe = await detectPlatformByFingerprint(url);
+  const finalPlatform = probe.platform !== "custom" ? probe.platform : (fromHost !== "custom" ? fromHost : "custom");
+  const finalConfidence = probe.platform !== "custom" ? probe.confidence : 0;
+  const finalEvidence = probe.platform !== "custom"
+    ? probe.evidence
+    : (fromHost !== "custom" ? [`hostname:${host}`] : probe.evidence);
+
+  if (finalPlatform !== "custom") {
+    try {
+      await supabase.from("platform_fingerprints").upsert(
+        {
+          host,
+          platform: finalPlatform,
+          confidence: finalConfidence,
+          evidence: finalEvidence,
+          detected_at: new Date().toISOString(),
+        },
+        { onConflict: "host" }
+      );
+    } catch (err) {
+      console.warn(`[resolvePlatform] cache write failed for ${host}:`, err);
+    }
+  } else {
+    console.warn(`[resolvePlatform] custom for host=${host} evidence=${finalEvidence.join(",")}`);
+  }
+
+  return {
+    platform: finalPlatform,
+    source: probe.platform !== "custom" ? "fingerprint" : (fromHost !== "custom" ? "hostname" : "fallback"),
+    confidence: finalConfidence,
+    evidence: finalEvidence,
+  };
 }

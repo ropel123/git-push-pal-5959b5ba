@@ -445,6 +445,39 @@ export type Database = {
           },
         ]
       }
+      platform_fingerprints: {
+        Row: {
+          confidence: number
+          created_at: string
+          detected_at: string
+          evidence: Json
+          host: string
+          id: string
+          platform: string
+          updated_at: string
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          detected_at?: string
+          evidence?: Json
+          host: string
+          id?: string
+          platform: string
+          updated_at?: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          detected_at?: string
+          evidence?: Json
+          host?: string
+          id?: string
+          platform?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       platform_robots: {
         Row: {
           created_at: string | null
