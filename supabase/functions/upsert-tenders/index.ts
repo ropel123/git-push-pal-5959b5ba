@@ -9,13 +9,36 @@ import {
   detectContractType,
 } from "../_shared/normalize.ts";
 
+function cleanReference(s: string): string {
+  return s
+    .replace(/^\s*(réf\.?|ref\.?|référence|reference|n°|numéro|num\.?)\s*[:°\-–]?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function makeReference(item: any): string {
-  if (item.reference && String(item.reference).trim()) return String(item.reference).trim();
+  if (item.reference && String(item.reference).trim()) {
+    const cleaned = cleanReference(String(item.reference));
+    if (cleaned) return cleaned;
+  }
   // Fallback: hash based on source + title + buyer
   const seed = `${item._source_url}|${item.title || ""}|${item.buyer_name || ""}`;
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
   return `auto-${Math.abs(h).toString(36)}`;
+}
+
+// Patterns d'URL "page de listing/résultats" (sans identifiant de consultation)
+const GENERIC_LINK_PATTERNS: RegExp[] = [
+  /fuseaction=pub\.affResultats(?![^#]*[?&]ref(Pub|Cons|Consult)=)/i,
+  /fuseaction=pub\.affPublication(?![^#]*[?&]ref(Pub|Cons|Consult)=)/i,
+  /EntrepriseAdvancedSearch/i,
+  /[?&]AllCons\b/i,
+  /page=recherche/i,
+];
+
+function isGenericListingUrl(u: string): boolean {
+  return GENERIC_LINK_PATTERNS.some((re) => re.test(u));
 }
 
 function normalize(item: any) {
