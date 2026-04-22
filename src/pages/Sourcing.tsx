@@ -229,7 +229,17 @@ const Sourcing = () => {
             <TableBody>
               {urls.map((u) => (
                 <TableRow key={u.id}>
-                  <TableCell className="max-w-[280px] truncate" title={u.url}>{u.display_name || u.url}</TableCell>
+                  <TableCell className="min-w-[360px] align-top">
+                    {u.display_name && <div className="font-medium mb-0.5">{u.display_name}</div>}
+                    <a
+                      href={u.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-muted-foreground hover:text-primary break-all"
+                    >
+                      {u.url}
+                    </a>
+                  </TableCell>
                   <TableCell><Badge variant="secondary">{u.platform}</Badge></TableCell>
                   <TableCell>{u.frequency_hours}h</TableCell>
                   <TableCell className="text-xs">{u.last_run_at ? new Date(u.last_run_at).toLocaleString("fr-FR") : "—"}</TableCell>
