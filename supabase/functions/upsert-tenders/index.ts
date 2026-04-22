@@ -65,7 +65,40 @@ function normalize(item: any) {
       try {
         const itemHost = new URL(raw_item_link).hostname.toLowerCase();
         const listingHost = listing_url ? new URL(listing_url).hostname.toLowerCase() : "";
-        const FEDERATED = ["boamp.fr", "ted.europa.eu", "marches-publics.gouv.fr"];
+        // BOAMP et TED sont définitivement exclus de la stratégie data : on n'accepte
+        // plus aucun lien fédéré vers ces publicateurs (cf. mem://constraints/strategie-data).
+        const BLOCKED_PUBLISHERS = ["boamp.fr", "ted.europa.eu"];
+        if (BLOCKED_PUBLISHERS.some((d) => itemHost.endsWith(d))) {
+          item_link_rejected_reason = `blocked publisher (${itemHost})`;
+          item_link = null;
+          return {
+            source: `scrape:${item._platform || "custom"}`,
+            reference: makeReference(item),
+            title: String(item.title || "Sans titre").slice(0, 1000),
+            description: item.description || null,
+            object: item.title || null,
+            buyer_name: item.buyer_name || null,
+            deadline,
+            publication_date: publication_date ? publication_date.slice(0, 10) : null,
+            contract_type,
+            procedure_type: item.procedure_type || null,
+            estimated_amount,
+            department: dept,
+            region,
+            execution_location: item.location || null,
+            dce_url: null,
+            source_url: null,
+            status: "open",
+            enriched_data: {
+              scraped_at: new Date().toISOString(),
+              platform: item._platform,
+              listing_url,
+              item_link_rejected_reason,
+              raw: item,
+            },
+          };
+        }
+        const FEDERATED = ["marches-publics.gouv.fr"];
         const isFederated = FEDERATED.some((d) => itemHost.endsWith(d));
         const sameHost =
           listingHost &&
