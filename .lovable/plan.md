@@ -1,90 +1,135 @@
 
 
-# Détection plateforme robuste + reclassement BDD
+# Détection de plateforme par signaux HTML/HTTP (au-delà du hostname)
 
-## Constat
+## Pourquoi
 
-Sur `/sourcing`, l'URL `https://marchespublics.auvergnerhonealpes.eu/sdm/...` est étiquetée **"safetender"**. C'est faux : ce domaine tourne sur **LocalTrust/Atexo SDM** (signature `/sdm/ent2/gen/...action`). SafeTender est un autre éditeur.
+Le hostname seul ne suffit pas : `marchespublics.auvergnerhonealpes.eu` ne dit pas qu'il tourne sur Atexo/LocalTrust. Mais chaque éditeur (Atexo, MPI, ColdFusion, achatpublic, Klekoon, SafeTender…) laisse des **signatures techniques uniques** dans les pages qu'il sert. On peut les lire en HTTP/HTML pour fiabiliser à 99 %.
 
-Cause : la détection actuelle (`hostname.includes(...)`) est trop laxiste — n'importe quel host avec `/sdm/` dans le path tombait sur la branche `safetender` à cause de l'ordre des règles dans `_shared/normalize.ts`.
+## Signaux disponibles (tous gratuits, sans clé API)
+
+### 1. Signaux HTTP (HEAD/GET — ultra rapide)
+
+```text
+Header                     Indice
+─────────────────────────────────────────────────
+Server: Apache + mod_jk    → ColdFusion/Atexo legacy
+X-Powered-By: ASP.NET      → MPI / e-marchespublics
+Set-Cookie: ATEXO_SESSID   → Atexo (toutes versions)
+Set-Cookie: CFID/CFTOKEN   → ColdFusion (MPI ancien, achatpublic)
+Set-Cookie: JSESSIONID     → Java/Atexo SDM (LocalTrust)
+Set-Cookie: PLACE_SESSION  → PLACE (DGFiP)
+```
+
+### 2. Signaux HTML (1 fetch + regex)
+
+```text
+Pattern dans le HTML                              Plateforme
+───────────────────────────────────────────────────────────────
+<meta name="generator" content="Atexo">           atexo
+/atexo-mpe/, /app_atexo/, atexoStatic             atexo
+class="atxLogo" / atx-                            atexo
+fuseaction=entreprise.AllCons                     mpi (ColdFusion)
+?refConsult= / cfm? / index.cfm                   mpi
+/sdm/ent2/gen/ + .action                          atexo SDM (LocalTrust)
+window.PLACE_CONFIG / place_logo                  place
+<script src="*safetender*">                       safetender
+data-app="achatpublic"                            achatpublic
+class*="klk-" / klekoon-                          klekoon
+favicon = /favicon-mpe.ico                        atexo MPE
+```
+
+### 3. Signaux DNS (CNAME/IP)
+
+```text
+CNAME se termine par      Plateforme
+────────────────────────────────────────
+*.atexo.com               atexo (hébergement mutualisé)
+*.localtrust.fr           atexo SDM
+*.achatpublic.com         achatpublic
+*.cloudfront.net + …      à analyser au cas par cas
+```
+
+(Optionnel — coûteux et pas toujours déterministe, on peut l'ignorer en v1.)
+
+### 4. Signaux structurels d'URL (déjà partiellement implémentés)
+
+```text
+/sdm/ent2/gen/*.action                  → atexo (LocalTrust SDM)
+/index.cfm?fuseaction=…                 → mpi (ColdFusion)
+/index.php?page=entreprise.…            → atexo MPE
+/app/Plateforme/Public/                 → place
+```
 
 ## Plan d'action
 
-### Étape 1 — Classifier centralisé robuste
+### Étape 1 — Sonde HTTP/HTML "fingerprint"
 
-Refonte de `detectPlatformFromUrl()` dans `supabase/functions/_shared/normalize.ts` avec une **table de signatures ordonnée par spécificité** (host exact > host suffix > path pattern), et **SafeTender uniquement si "safetender" littéralement dans le hostname**.
+Nouvelle fonction `detectPlatformByFingerprint(url)` côté edge function (Deno, donc fetch natif) :
 
-Règles, dans l'ordre :
+1. `fetch(url, { method: "GET", redirect: "follow" })` (timeout 8s).
+2. Inspecte dans l'ordre :
+   - **headers** (`server`, `x-powered-by`, `set-cookie`),
+   - **HTML brut** (regex sur les patterns ci-dessus),
+   - **balises** `<meta generator>`, `<link rel="icon">`, `<script src>`.
+3. Retourne `{ platform, confidence: 0..1, evidence: ["cookie:ATEXO_SESSID", "html:atexoStatic"] }`.
+4. Cache le résultat 24h dans une table `platform_fingerprints (host, platform, evidence, detected_at)` pour ne pas re-sonder à chaque scrape.
+
+### Étape 2 — Pipeline de classification à 3 niveaux
 
 ```text
-1.  hostname === marchespublics.auvergnerhonealpes.eu          → aura
-2.  hostname endsWith maximilien.fr                            → maximilien
-3.  hostname endsWith megalis.bretagne.bzh                     → megalis
-4.  hostname endsWith ternum-bfc.fr                            → ternum
-5.  hostname endsWith alsacemarchespublics.eu                  → atexo (Alsace)
-6.  hostname endsWith ampmetropole.fr / nantesmetropole.fr / 
-    paysdelaloire.fr / grand-nancy.org / grandlyon.com / 
-    aquitaine.fr / lorraine.eu / demat-ampa.fr                 → atexo
-7.  hostname contient "atexo"                                  → atexo
-8.  hostname endsWith marches-publics.info                     → mpi
-9.  hostname endsWith marchespublics.grandest.fr               → mpi
-10. hostname endsWith projets-achats.marches-publics.gouv.fr   → place
-11. hostname === marches-publics.gouv.fr / www.marches-publics.gouv.fr → place
-12. hostname endsWith achatpublic.com                          → achatpublic
-13. hostname endsWith e-marchespublics.com                     → e-marchespublics
-14. hostname endsWith marches-securises.fr                     → marches-securises
-15. hostname endsWith klekoon.com                              → klekoon
-16. hostname endsWith xmarches.fr                              → xmarches
-17. hostname contient "safetender"                             → safetender   ← STRICT
-18. path contient "/sdm/ent2/gen/"                             → atexo        ← fallback SDM
-19. path contient "/sdm/"                                      → atexo
-20. sinon                                                      → custom
+detectPlatform(url) =
+  1. fingerprint cache (host → platform, < 24h)        ← instant
+  2. detectPlatformFromUrl(url) (signatures hostname)  ← actuel
+  3. detectPlatformByFingerprint(url) (HTTP probe)     ← nouveau
+  4. fallback "custom" + log warning
 ```
 
-Différences clés :
-- `endsWith` au lieu de `includes` → empêche les faux positifs (ex. un host contenant "place" par hasard).
-- SafeTender ne tombe plus sur les SDM régionaux.
-- Les SDM (`/sdm/...`) sont par défaut **atexo**, pas safetender.
-- Ajout d'un mapping explicite `aura` pour Auvergne-Rhône-Alpes.
+Le niveau 3 ne se déclenche que si les niveaux 1+2 retournent `custom` ou un score faible. Donc 0 surcoût pour les URLs déjà connues.
 
-### Étape 2 — Reclassement des données existantes
+### Étape 3 — Reclassement des "custom" actuels
 
-Migration SQL ciblée sur `sourcing_urls` ET `tenders.source` :
+Une fonction admin `reclassify-sourcing-urls` qui :
+- prend toutes les `sourcing_urls` avec `platform = 'custom'` (ou `safetender` suspect),
+- lance le fingerprint sur chacune,
+- met à jour `platform` + écrit l'evidence dans `metadata.platform_evidence`.
 
-- `sourcing_urls` : recalcule `platform` selon les nouvelles règles via `CASE … END` SQL équivalent aux signatures ci-dessus.
-- `tenders` : remplace `source` quand mal étiqueté (ex. `scrape:safetender` pour une URL AURA → `scrape:aura`).
-- `scrape_logs` : idem pour cohérence reporting.
+Bouton dans `/sourcing` : "Re-détecter les plateformes" (admin only).
 
-### Étape 3 — Front aligné
+### Étape 4 — Affichage dans l'UI
 
-Dans `src/pages/Sourcing.tsx` :
-
-- Remplacer la fonction locale `detectPlatform()` par un import partagé qui réplique la logique du back (créer `src/lib/detectPlatform.ts` avec exactement les mêmes signatures).
-- Étendre la liste `PLATFORMS` dans le `Select` avec : `aura`, `maximilien`, `megalis`, `ternum`.
-- Afficher la plateforme avec un badge plus lisible (déjà en place).
-
-### Étape 4 — Garde-fou ingestion
-
-Dans `supabase/functions/scrape-list/index.ts` et tout endroit qui set un `source` ou `platform` :
-
-- Toujours passer par `detectPlatformFromUrl(url)` plutôt que faire confiance à une valeur héritée.
-- Si retour `custom`, log warning explicite avec le hostname pour qu'on enrichisse la table de signatures.
+Sur `/sourcing`, à côté du badge plateforme :
+- icône ℹ️ qui ouvre un tooltip avec l'evidence (ex. `cookie:ATEXO_SESSID + html:/atexo-mpe/`).
+- bouton "🔄 Re-détecter" sur chaque ligne pour forcer un refresh du fingerprint.
 
 ## Fichiers concernés
 
 ```text
-supabase/functions/_shared/normalize.ts          ← classifier robuste
-supabase/functions/scrape-list/index.ts          ← passe toujours par classifier
-src/lib/detectPlatform.ts                        ← nouveau (miroir front)
-src/pages/Sourcing.tsx                           ← utilise lib + PLATFORMS étendu
-supabase/migrations/<ts>_reclassify_platforms.sql ← reclasse sourcing_urls + tenders + scrape_logs
+supabase/functions/_shared/fingerprint.ts        ← nouveau, fetch + regex
+supabase/functions/_shared/normalize.ts          ← appelle fingerprint en fallback
+supabase/functions/reclassify-sourcing-urls/     ← nouveau, batch admin
+supabase/migrations/<ts>_platform_fingerprints.sql  ← cache table
+src/pages/Sourcing.tsx                           ← bouton re-détecter + tooltip evidence
 ```
+
+## Table cache
+
+```sql
+create table platform_fingerprints (
+  id uuid primary key default gen_random_uuid(),
+  host text not null unique,
+  platform text not null,
+  confidence numeric not null,
+  evidence jsonb not null default '[]',
+  detected_at timestamptz not null default now()
+);
+```
+
+RLS : admin only en write, authenticated en read.
 
 ## Effet attendu
 
-- L'URL Auvergne-Rhône-Alpes affiche **"aura"** (et plus jamais "safetender").
-- Toutes les SDM régionales (Maximilien, Ternum, Megalis, AURA, Alsace, AMP, etc.) tombent en **atexo** ou leur label régional dédié.
-- SafeTender réservé aux vrais hosts SafeTender.
-- Front et back partagent exactement la même logique → impossible de diverger.
-- Les lignes déjà en BDD sont reclassées en une seule migration.
+- Pour `marchespublics.auvergnerhonealpes.eu`, la sonde verra `Set-Cookie: ATEXO_SESSID` ou `/atexo-mpe/` dans le HTML → reclassée en **atexo** avec evidence vérifiable, plus jamais en "safetender".
+- Toute nouvelle URL inconnue est classée automatiquement dès le premier scrape.
+- Les évidences sont auditables dans l'UI (tu vois pourquoi on a dit "atexo").
 
