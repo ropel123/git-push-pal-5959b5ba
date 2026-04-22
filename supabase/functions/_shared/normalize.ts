@@ -114,6 +114,10 @@ function endsWithHost(host: string, suffix: string): boolean {
  * Doit rester strictement aligné avec src/lib/detectPlatform.ts.
  */
 export function detectPlatformFromUrl(url: string): string {
+  return detectPlatformFromUrlInternal(url);
+}
+
+function detectPlatformFromUrlInternal(url: string): string {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
