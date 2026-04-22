@@ -92,7 +92,12 @@ Deno.serve(async (req) => {
     if (srcErr || !src) return json({ error: "sourcing_url not found" }, 404);
 
     const startedAt = new Date().toISOString();
-    const platform = src.platform || detectPlatformFromUrl(src.url);
+    // Toujours recalculer via le classifier centralisé : on ne fait pas confiance
+    // à la valeur héritée en BDD (peut être incorrecte sur des lignes anciennes).
+    const platform = detectPlatformFromUrl(src.url);
+    if (platform !== src.platform) {
+      console.log(`[scrape-list] platform corrigé pour ${src.url}: ${src.platform} → ${platform}`);
+    }
 
     let items: any[] = [];
     let errorMsg: string | null = null;
