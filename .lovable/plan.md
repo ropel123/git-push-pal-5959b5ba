@@ -1,69 +1,129 @@
 
-# Fix du lien "Voir l'avis original"
+
+# Fix lien "Voir l'avis original" pour MPI / marchespublics.grandest.fr
 
 ## Le problème
 
-Sur la fiche AO (`/tenders/631293a3...`), le lien "Voir l'avis original" t'envoie sur la page de recherche générique de Ternum BFC (`?page=Entreprise.EntrepriseAdvancedSearch&AllCons`) au lieu de la fiche de la consultation.
+Sur l'AO `2026A0210` (et 33 autres), le lien "Voir l'avis original" renvoie sur la page de résultats générique (`?fuseaction=pub.affResultats`) au lieu de la fiche de la consultation.
 
-## Cause
+## Cause (constatée en base)
 
-Dans `upsert-tenders/index.ts` (ligne 48), on stocke dans `source_url` **l'URL de la page de listing** scrapée (celle configurée dans `sourcing_urls`) — pas le lien direct vers chaque AO.
+Il existe **deux entrées en doublon** pour la même AO :
 
-Pour le tender que tu regardes, la base contient :
-- `source_url` = `https://marches.ternum-bfc.fr/?page=entreprise.EntrepriseAdvancedSearch&AllCons` ← page de recherche (utilisé par "Voir l'avis original")
-- `dce_url` = `https://www.marches-publics.gouv.fr/app.php/entreprise/consultation/2734339?orgAcronyme=b4n` ← le bon lien direct
+| id | reference | dce_url |
+|----|-----------|---------|
+| `ecf3612b…` (la bonne) | `2026A0210` | `…?fuseaction=pub.affPublication&refPub=MPI-pub-20260801257&serveur=MPI&IDS=6067` ✅ |
+| `4c6623a3…` (celle affichée) | `réf. 2026A0210` | `…?fuseaction=pub.affResultats` ❌ |
 
-Bizarre ici : le `dce_url` pointe sur PLACE alors que la source était Ternum. C'est l'extraction Firecrawl qui a renvoyé un lien absolu mal résolu (PLACE au lieu de Ternum). À corriger aussi.
+Deux problèmes :
 
-## Correctif
+1. **Référence polluée** : Firecrawl renvoie parfois `"réf. 2026A0210"` au lieu de `"2026A0210"`. Le préfixe `réf.` casse l'unicité `(source, reference)` → la même AO est insérée deux fois.
+2. **dce_url générique** : pour la 2ᵉ extraction, Firecrawl n'a pas trouvé le lien fiche et a mis le lien de la page de résultats. Notre garde same-host dans `upsert-tenders` laisse passer (même hostname) → on stocke un lien inutile.
 
-### 1. Front — `src/pages/TenderDetail.tsx` (lignes 199-203)
+32 lignes ont une `reference` qui commence par `réf.`/`ref.`/`référence` et 34 lignes ont un `source_url` qui pointe vers une page générique (`affResultats`, `EntrepriseAdvancedSearch`, `AllCons`).
 
-Faire pointer "Voir l'avis original" en priorité vers `dce_url` (le lien fiche), et ne tomber sur `source_url` que si `dce_url` est vide.
+## Correctifs
 
-```tsx
-{(tender.dce_url || tender.source_url) && (
-  <a href={tender.dce_url || tender.source_url} target="_blank" ...>
-    <ExternalLink className="h-3 w-3" /> Voir l'avis original
-  </a>
-)}
-```
+### 1. Nettoyer la référence à l'ingestion (`supabase/functions/upsert-tenders/index.ts`)
 
-Effet immédiat : pour ton AO, le bouton ouvrira la fiche PLACE (`/consultation/2734339`).
-
-### 2. Backend — `supabase/functions/upsert-tenders/index.ts` (ligne 48)
-
-Stocker dans `source_url` **le lien fiche extrait** (`item.dce_url`) quand il est valide, et garder l'URL de listing en fallback dans `enriched_data.listing_url`.
+Dans `makeReference`, retirer les préfixes parasites :
 
 ```ts
-const item_link = item.dce_url && /^https?:\/\//.test(item.dce_url) ? item.dce_url : null;
-// ...
-source_url: item_link || item._source_url,
-enriched_data: {
-  scraped_at: new Date().toISOString(),
-  platform: item._platform,
-  listing_url: item._source_url,
-  raw: item,
-},
+function cleanReference(s: string): string {
+  return s
+    .replace(/^\s*(réf\.?|ref\.?|référence|reference|n°|numéro|num\.?)\s*[:°-]?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 ```
 
-### 3. Backend — `supabase/functions/scrape-list/index.ts` (prompt Firecrawl, ligne 51)
+→ `"réf. 2026A0210"` devient `"2026A0210"`, plus de doublons.
 
-Renforcer l'instruction pour que Firecrawl résolve les liens **relatifs au domaine de la page scrapée** et n'invente pas un lien vers un autre portail (PLACE, etc.) :
+### 2. Rejeter les `dce_url` qui pointent vers une page générique (même fichier)
 
-> "L'URL ABSOLUE doit avoir le MÊME hostname que la page d'origine. Les liens relatifs (`?page=...&id=...`, `/consultation/123`) doivent être résolus contre l'URL de base. Si tu vois un lien vers un autre domaine (boamp, marches-publics.gouv.fr) qui n'est pas dans le HTML, NE l'invente PAS — laisse `dce_url` vide."
+Liste de patterns "page de listing/résultats" à rejeter :
 
-Et côté code, on ajoute une garde après l'extraction : si `dce_url` n'a pas le même hostname que `_source_url` ET ne provient pas d'une plateforme connue (BOAMP/PLACE/TED en cross-publication), on l'ignore.
+```ts
+const GENERIC_PATHS = [
+  /fuseaction=pub\.affResultats(?!.*[?&]ref(Pub|Cons|Consult))/i, // affResultats sans refPub/refConsult
+  /EntrepriseAdvancedSearch/i,
+  /AllCons\b/i,
+  /page=recherche/i,
+];
+```
 
-### 4. Backfill des AO existants (optionnel)
+Si `raw_item_link` matche un de ces patterns → on l'ignore (`item_link = null`, raison loguée), `dce_url` retombe sur l'URL de listing (comportement actuel). Mieux : **on ne propose pas de lien "Voir l'avis original" du tout** (cf. point 4).
 
-Le tender `631293a3` et probablement d'autres ont déjà le mauvais `source_url` en base. Une migration peut écraser `source_url := dce_url` pour les lignes où `source_url` contient `EntrepriseAdvancedSearch` ou `AllCons` (page de recherche générique).
+### 3. Renforcer le prompt Firecrawl (`supabase/functions/scrape-list/index.ts`)
 
-## Résumé des fichiers touchés
+Ajouter au prompt :
 
-- `src/pages/TenderDetail.tsx` — fallback `dce_url` → `source_url`
-- `supabase/functions/upsert-tenders/index.ts` — source_url = lien fiche
-- `supabase/functions/scrape-list/index.ts` — prompt + garde same-hostname
-- (optionnel) migration SQL de backfill
+> "La référence est un identifiant brut (ex: `2026A0210`, `26CD310048`). N'inclus **jamais** les préfixes `réf.`, `ref.`, `n°`, `référence`, etc. Renvoie uniquement la valeur."
+>
+> "Pour `dce_url`, le lien doit contenir un identifiant unique de consultation (ex: `refPub=…`, `refConsult=…`, `id=123`, `/consultation/123`). Si le seul lien disponible pointe vers une page de résultats générique (`affResultats` sans paramètre, `AllCons`, `EntrepriseAdvancedSearch`), laisse `dce_url` **vide**."
 
-Le fix #1 te débloque tout de suite sur le tender actuel. Les fix #2/#3 évitent que ça se reproduise sur les futurs scrapes.
+### 4. Front (`src/pages/TenderDetail.tsx`)
+
+Ne plus afficher "Voir l'avis original" si l'URL est manifestement générique. Petit helper :
+
+```ts
+const isGenericLink = (u?: string | null) =>
+  !u || /(affResultats(?!.*ref(Pub|Cons))|EntrepriseAdvancedSearch|AllCons|page=recherche)/i.test(u);
+
+const officialUrl = !isGenericLink(tender.dce_url) ? tender.dce_url
+  : !isGenericLink(tender.source_url) ? tender.source_url
+  : null;
+```
+
+→ on ne masque le bouton que si vraiment aucune URL utile n'existe.
+
+### 5. Migration de nettoyage des données
+
+Deux opérations SQL :
+
+a. **Dédupliquer / consolider les références** :
+```sql
+UPDATE public.tenders
+SET reference = regexp_replace(reference, '^\s*(réf\.?|ref\.?|référence|reference|n°|numéro|num\.?)\s*[:°-]?\s*', '', 'i')
+WHERE reference ~* '^\s*(réf|ref|référence|reference|n°|numéro|num)';
+```
+
+b. **Supprimer les doublons** créés par cette pollution, en gardant la ligne avec le meilleur `dce_url` (celui qui contient `refPub`/`refConsult`/`/consultation/`) :
+```sql
+WITH ranked AS (
+  SELECT id, source, reference,
+    ROW_NUMBER() OVER (
+      PARTITION BY source, reference
+      ORDER BY (CASE WHEN dce_url ~* '(refPub=|refConsult=|/consultation/|IDS=\d|IDs=\d)' THEN 0 ELSE 1 END),
+               created_at DESC
+    ) AS rn
+  FROM public.tenders
+)
+DELETE FROM public.tenders t USING ranked r
+WHERE t.id = r.id AND r.rn > 1;
+```
+
+c. **Vider les `dce_url`/`source_url` génériques restants** pour les lignes uniques :
+```sql
+UPDATE public.tenders
+SET dce_url = NULL
+WHERE dce_url ~* '(fuseaction=pub\.affResultats(?!.*ref(Pub|Cons|Consult))|EntrepriseAdvancedSearch|AllCons|page=recherche)';
+```
+
+⚠️ Remarque : la table doit avoir une contrainte unique sur `(source, reference)` ; le `DELETE` doit donc tourner avant tout futur insert. À vérifier au moment de la migration ; si la contrainte manque, on l'ajoute après dédup.
+
+## Fichiers touchés
+
+```text
+supabase/functions/upsert-tenders/index.ts   ← cleanReference + filtre génériques
+supabase/functions/scrape-list/index.ts      ← prompt Firecrawl renforcé
+src/pages/TenderDetail.tsx                   ← bouton conditionnel + isGenericLink
+supabase/migrations/<timestamp>_clean_refs_and_dedup.sql
+```
+
+## Effet attendu
+
+- L'AO `2026A0210` affichera `dce_url = …refPub=MPI-pub-20260801257…` → "Voir l'avis original" ouvre la **bonne fiche**.
+- Plus de doublons `2026A0210` / `réf. 2026A0210` à l'avenir.
+- Si Firecrawl ne trouve qu'un lien générique, le bouton est simplement masqué au lieu d'envoyer l'utilisateur sur une page sans rapport.
+
