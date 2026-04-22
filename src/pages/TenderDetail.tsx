@@ -166,6 +166,15 @@ const TenderDetail = () => {
     return true;
   };
 
+  // Une URL est "générique" si elle pointe vers une page de listing/résultats
+  // au lieu de la fiche d'une consultation précise.
+  const isGenericLink = (u?: string | null): boolean => {
+    if (!u) return true;
+    return /(fuseaction=pub\.affResultats(?![^#]*[?&]ref(Pub|Cons|Consult)=)|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche)/i.test(u);
+  };
+  const dceUrl = !isGenericLink(tender.dce_url) ? tender.dce_url : null;
+  const officialUrl = dceUrl || (!isGenericLink(tender.source_url) ? tender.source_url : null);
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <Button variant="ghost" size="sm" onClick={() => navigate("/tenders")}>
@@ -196,17 +205,17 @@ const TenderDetail = () => {
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {tender.reference && <p className="text-sm text-muted-foreground">Réf. {tender.reference}</p>}
-            {(tender.dce_url || tender.source_url) && (
-              <a href={tender.dce_url || tender.source_url || "#"} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
+            {officialUrl && (
+              <a href={officialUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
                 <ExternalLink className="h-3 w-3" /> Voir l'avis original
               </a>
             )}
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          {tender.dce_url && (
+          {dceUrl && (
             <Button asChild variant="outline">
-              <a href={tender.dce_url} target="_blank" rel="noopener noreferrer">
+              <a href={dceUrl} target="_blank" rel="noopener noreferrer">
                 <FileDown className="h-4 w-4 mr-1" /> Accéder au DCE
               </a>
             </Button>
