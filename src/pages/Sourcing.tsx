@@ -30,6 +30,7 @@ type SourcingUrl = {
   last_items_found: number | null;
   last_items_inserted: number | null;
   last_error: string | null;
+  metadata: any;
 };
 
 type ScrapeLog = {
@@ -142,6 +143,37 @@ const Sourcing = () => {
     setRunning(null);
     if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
     else setTestResult(data);
+  };
+
+  const reclassifyOne = async (id: string) => {
+    setRunning(id);
+    const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
+      body: { sourcing_url_id: id },
+    });
+    setRunning(null);
+    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    else {
+      const r = data?.results?.[0];
+      toast({
+        title: "Plateforme re-détectée",
+        description: r ? `${r.before} → ${r.after} (${r.source})` : "ok",
+      });
+      load();
+    }
+  };
+
+  const reclassifyAll = async () => {
+    if (!confirm("Re-détecter toutes les URLs 'custom' / 'safetender' suspects ? (peut prendre du temps)")) return;
+    setRunning("__all__");
+    const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
+      body: { only_custom: true },
+    });
+    setRunning(null);
+    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    else {
+      toast({ title: "Reclassement terminé", description: `${data?.processed ?? 0} URLs traitées` });
+      load();
+    }
   };
 
   if (adminLoading || loading) {
