@@ -369,6 +369,7 @@ const Sourcing = () => {
         </CardContent>
       </Card>
     </div>
+    </TooltipProvider>
   );
 };
 
