@@ -226,7 +226,7 @@ const TenderDetail = () => {
             {tender.reference && <p className="text-sm text-muted-foreground">Réf. {tender.reference}</p>}
             {officialUrl && (
               <a href={officialUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
-                <ExternalLink className="h-3 w-3" /> Voir l'avis original
+                <ExternalLink className="h-3 w-3" /> {officialLabel}
               </a>
             )}
           </div>
