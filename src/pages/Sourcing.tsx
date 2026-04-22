@@ -42,7 +42,7 @@ type ScrapeLog = {
   errors: string | null;
 };
 
-const PLATFORMS = ["mpi", "place", "achatpublic", "e-marchespublics", "marches-securises", "maximilien", "megalis", "atexo", "safetender", "xmarches", "klekoon", "boamp", "ted", "custom"];
+const PLATFORMS = ["mpi", "place", "achatpublic", "e-marchespublics", "marches-securises", "maximilien", "megalis", "atexo", "safetender", "xmarches", "klekoon", "custom"];
 
 const Sourcing = () => {
   const navigate = useNavigate();

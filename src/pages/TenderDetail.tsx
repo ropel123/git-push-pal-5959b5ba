@@ -172,8 +172,9 @@ const TenderDetail = () => {
     if (!u) return true;
     return /(fuseaction=pub\.affResultats(?![^#]*[?&]ref(Pub|Cons|Consult)=)|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche)/i.test(u);
   };
-  // BOAMP et TED sont des publicateurs d'avis, pas des plateformes de retrait du DCE.
-  // Le DCE réel est sur la plateforme de l'acheteur (PLACE, Atexo, MPI, achatpublic, etc.).
+  // BOAMP et TED ont été retirés de la stratégie data : on garde la garde par
+  // sécurité au cas où d'anciennes données referaient surface, mais aucun nouveau
+  // tender ne devrait plus matcher ce filtre.
   const isPublisherUrl = (u?: string | null): boolean => {
     if (!u) return false;
     return /(boamp\.fr|ted\.europa\.eu)/i.test(u);
@@ -185,14 +186,10 @@ const TenderDetail = () => {
     : null;
 
   // Bouton "Voir l'avis original" : tolérant — on prend la 1ʳᵉ URL utile disponible.
-  const officialUrl = (!isGenericLink(tender.source_url) ? tender.source_url : null)
-    || (!isGenericLink(tender.dce_url) ? tender.dce_url : null);
+  const officialUrl = (!isGenericLink(tender.source_url) && !isPublisherUrl(tender.source_url) ? tender.source_url : null)
+    || (!isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url) ? tender.dce_url : null);
 
-  const officialLabel = officialUrl?.includes("boamp.fr")
-    ? "Voir sur BOAMP"
-    : officialUrl?.includes("ted.europa.eu")
-    ? "Voir sur TED"
-    : "Voir l'avis original";
+  const officialLabel = "Voir l'avis original";
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">

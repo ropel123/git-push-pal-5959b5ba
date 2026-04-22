@@ -124,8 +124,6 @@ export function detectPlatformFromUrl(url: string): string {
     if (h.includes("safetender")) return "safetender";
     if (h.includes("xmarches")) return "xmarches";
     if (h.includes("klekoon")) return "klekoon";
-    if (h.includes("boamp")) return "boamp";
-    if (h.includes("ted.europa.eu")) return "ted";
     if (h.includes("place")) return "place";
     return "custom";
   } catch {
