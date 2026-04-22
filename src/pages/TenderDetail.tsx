@@ -167,13 +167,32 @@ const TenderDetail = () => {
   };
 
   // Une URL est "générique" si elle pointe vers une page de listing/résultats
-  // au lieu de la fiche d'une consultation précise.
+  // sans identifiant de consultation exploitable.
   const isGenericLink = (u?: string | null): boolean => {
     if (!u) return true;
     return /(fuseaction=pub\.affResultats(?![^#]*[?&]ref(Pub|Cons|Consult)=)|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche)/i.test(u);
   };
-  const dceUrl = !isGenericLink(tender.dce_url) ? tender.dce_url : null;
-  const officialUrl = dceUrl || (!isGenericLink(tender.source_url) ? tender.source_url : null);
+  // BOAMP et TED sont des publicateurs d'avis, pas des plateformes de retrait du DCE.
+  // Le DCE réel est sur la plateforme de l'acheteur (PLACE, Atexo, MPI, achatpublic, etc.).
+  const isPublisherUrl = (u?: string | null): boolean => {
+    if (!u) return false;
+    return /(boamp\.fr|ted\.europa\.eu)/i.test(u);
+  };
+
+  // Bouton DCE : uniquement si l'URL pointe vers une vraie plateforme de retrait.
+  const dceUrl = tender.dce_url && !isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url)
+    ? tender.dce_url
+    : null;
+
+  // Bouton "Voir l'avis original" : tolérant — on prend la 1ʳᵉ URL utile disponible.
+  const officialUrl = (!isGenericLink(tender.source_url) ? tender.source_url : null)
+    || (!isGenericLink(tender.dce_url) ? tender.dce_url : null);
+
+  const officialLabel = officialUrl?.includes("boamp.fr")
+    ? "Voir sur BOAMP"
+    : officialUrl?.includes("ted.europa.eu")
+    ? "Voir sur TED"
+    : "Voir l'avis original";
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -207,7 +226,7 @@ const TenderDetail = () => {
             {tender.reference && <p className="text-sm text-muted-foreground">Réf. {tender.reference}</p>}
             {officialUrl && (
               <a href={officialUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
-                <ExternalLink className="h-3 w-3" /> Voir l'avis original
+                <ExternalLink className="h-3 w-3" /> {officialLabel}
               </a>
             )}
           </div>
