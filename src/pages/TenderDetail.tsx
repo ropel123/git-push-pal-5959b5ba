@@ -166,6 +166,15 @@ const TenderDetail = () => {
     return true;
   };
 
+  // Une URL est "générique" si elle pointe vers une page de listing/résultats
+  // au lieu de la fiche d'une consultation précise.
+  const isGenericLink = (u?: string | null): boolean => {
+    if (!u) return true;
+    return /(fuseaction=pub\.affResultats(?![^#]*[?&]ref(Pub|Cons|Consult)=)|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche)/i.test(u);
+  };
+  const dceUrl = !isGenericLink(tender.dce_url) ? tender.dce_url : null;
+  const officialUrl = dceUrl || (!isGenericLink(tender.source_url) ? tender.source_url : null);
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <Button variant="ghost" size="sm" onClick={() => navigate("/tenders")}>
