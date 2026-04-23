@@ -300,23 +300,67 @@ const Sourcing = () => {
     }
   };
 
+  const [reclassifyProgress, setReclassifyProgress] = useState<{ done: number; total: number; bySource: Record<string, number>; byPlatform: Record<string, number> } | null>(null);
+
   const reclassifyAll = async () => {
-    if (!confirm("Re-classifier toutes les URLs 'custom' / 'safetender' via Claude (OpenRouter) ? Compter ~3-5 secondes par URL.")) return;
-    setRunning("__all__");
-    const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
-      body: { only_custom: true },
-    });
-    setRunning(null);
-    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    else {
-      const bs = data?.by_source ?? {};
-      const summary = Object.entries(bs).map(([k, v]) => `${k}:${v}`).join(" · ");
-      toast({
-        title: "Reclassement IA terminé",
-        description: `${data?.processed ?? 0} URLs traitées${summary ? ` (${summary})` : ""}`,
-      });
-      load();
+    const { data: rows, error: fetchErr } = await supabase
+      .from("sourcing_urls")
+      .select("id")
+      .order("created_at", { ascending: false });
+    if (fetchErr || !rows) {
+      toast({ title: "Erreur", description: fetchErr?.message ?? "Impossible de charger les URLs", variant: "destructive" });
+      return;
     }
+    const ids = rows.map((r: any) => r.id as string);
+    if (ids.length === 0) {
+      toast({ title: "Aucune URL à traiter" });
+      return;
+    }
+    if (!confirm(`Re-classifier les ${ids.length} URLs via Claude (OpenRouter) ? Durée estimée : ~${Math.ceil(ids.length * 2.5 / 60)} min, coût ~$${(ids.length * 0.01).toFixed(2)}.`)) return;
+
+    setRunning("__all__");
+    setReclassifyProgress({ done: 0, total: ids.length, bySource: {}, byPlatform: {} });
+
+    const CONCURRENCY = 3;
+    const bySource: Record<string, number> = {};
+    const byPlatform: Record<string, number> = {};
+    let done = 0;
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < ids.length) {
+        const idx = cursor++;
+        const id = ids[idx];
+        try {
+          const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
+            body: { sourcing_url_id: id },
+          });
+          if (!error) {
+            const r = data?.results?.[0];
+            if (r) {
+              bySource[r.source] = (bySource[r.source] ?? 0) + 1;
+              byPlatform[r.after] = (byPlatform[r.after] ?? 0) + 1;
+            }
+          }
+        } catch {
+          /* ignore single-URL failures, continue */
+        }
+        done++;
+        setReclassifyProgress({ done, total: ids.length, bySource: { ...bySource }, byPlatform: { ...byPlatform } });
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
+
+    setRunning(null);
+    const sourceSummary = Object.entries(bySource).map(([k, v]) => `${k}:${v}`).join(" · ");
+    const customLeft = byPlatform.custom ?? 0;
+    toast({
+      title: "Reclassement IA terminé",
+      description: `${done}/${ids.length} traitées${sourceSummary ? ` (${sourceSummary})` : ""} — ${customLeft} restent custom`,
+    });
+    setTimeout(() => setReclassifyProgress(null), 5000);
+    load();
   };
 
   if (adminLoading || loading) {
@@ -370,6 +414,36 @@ const Sourcing = () => {
           </Dialog>
         </div>
       </div>
+
+      {reclassifyProgress && (
+        <Card>
+          <CardContent className="pt-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">
+                Reclassification IA en cours… {reclassifyProgress.done} / {reclassifyProgress.total}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {Math.round((reclassifyProgress.done / reclassifyProgress.total) * 100)}%
+              </div>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${(reclassifyProgress.done / reclassifyProgress.total) * 100}%` }}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {Object.entries(reclassifyProgress.byPlatform)
+                .sort((a, b) => b[1] - a[1])
+                .map(([p, n]) => (
+                  <Badge key={p} variant={p === "custom" ? "outline" : "secondary"}>
+                    {p}: {n}
+                  </Badge>
+                ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog open={bulkOpen} onOpenChange={(o) => { if (!bulkImporting) setBulkOpen(o); }}>
         <DialogContent>
