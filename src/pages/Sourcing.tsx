@@ -114,22 +114,90 @@ const Sourcing = () => {
     }
   };
 
-  const bulkImport = async () => {
-    const lines = bulkUrls.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (lines.length === 0) return;
-    const rows = lines.map((url) => ({
-      url,
-      platform: detectPlatform(url),
-      frequency_hours: 6,
-    }));
-    const { error } = await supabase.from("sourcing_urls").insert(rows);
-    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    else {
-      toast({ title: `${lines.length} URLs ajoutées` });
-      setBulkOpen(false);
-      setBulkUrls("");
-      load();
+  const normalizeUrl = (raw: string): string => {
+    const u = new URL(raw);
+    u.hostname = u.hostname.toLowerCase();
+    let s = u.toString();
+    // Retirer trailing slash si pathname == "/" et pas de query/hash
+    if (u.pathname === "/" && !u.search && !u.hash) {
+      s = s.replace(/\/$/, "");
     }
+    return s;
+  };
+
+  const bulkImport = async () => {
+    if (bulkImporting) return;
+    const rawLines = bulkUrls.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (rawLines.length === 0) return;
+
+    setBulkImporting(true);
+
+    const invalid: { line: string; reason: string }[] = [];
+    const seen = new Set<string>();
+    const duplicatesInPaste: string[] = [];
+    const valid: string[] = [];
+
+    for (const line of rawLines) {
+      if (!/^https?:\/\//i.test(line)) {
+        invalid.push({ line, reason: "pas une URL (doit commencer par http:// ou https://)" });
+        continue;
+      }
+      let normalized: string;
+      try {
+        normalized = normalizeUrl(line);
+      } catch {
+        invalid.push({ line, reason: "URL malformée" });
+        continue;
+      }
+      if (seen.has(normalized)) {
+        duplicatesInPaste.push(normalized);
+        continue;
+      }
+      seen.add(normalized);
+      valid.push(normalized);
+    }
+
+    // Dédoublonnage contre la base
+    let alreadyExists: string[] = [];
+    let toInsert = valid;
+    if (valid.length > 0) {
+      const { data: existing } = await supabase
+        .from("sourcing_urls")
+        .select("url")
+        .in("url", valid);
+      const existingSet = new Set((existing || []).map((r: any) => r.url));
+      alreadyExists = valid.filter((u) => existingSet.has(u));
+      toInsert = valid.filter((u) => !existingSet.has(u));
+    }
+
+    // Insert ligne par ligne, tolérant aux erreurs
+    const inserted: string[] = [];
+    const failed: { url: string; reason: string }[] = [];
+    for (const url of toInsert) {
+      const { error } = await supabase.from("sourcing_urls").insert({
+        url,
+        platform: detectPlatform(url),
+        frequency_hours: 6,
+      });
+      if (error) {
+        failed.push({ url, reason: error.message });
+      } else {
+        inserted.push(url);
+      }
+    }
+
+    setBulkImporting(false);
+    setBulkResult({ inserted, alreadyExists, duplicatesInPaste, invalid, failed });
+    setBulkOpen(false);
+    setBulkUrls("");
+    load();
+  };
+
+  const copyInvalidLines = () => {
+    if (!bulkResult) return;
+    const text = bulkResult.invalid.map((i) => i.line).join("\n");
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copié", description: `${bulkResult.invalid.length} ligne(s) invalide(s) copiée(s)` });
   };
 
   const toggleActive = async (id: string, is_active: boolean) => {
