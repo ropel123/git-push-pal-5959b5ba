@@ -258,7 +258,7 @@ export async function resolvePlatform(
   let finalConfidence = ai.confidence;
   let source: ResolvedPlatform["source"] = "ai";
   const evidence: string[] = [
-    `ai:claude-3.5-sonnet`,
+    `ai:claude-opus-4.7`,
     `confidence:${ai.confidence.toFixed(2)}`,
     `pagination:${ai.pagination_hint}`,
   ];
