@@ -165,11 +165,14 @@ function detectPlatformFromUrlInternal(url: string): string {
 }
 
 // ============================================================
-// Pipeline 3 niveaux : cache fingerprint > hostname > sonde HTTP
+// Pipeline AI-first : cache → IA (Claude via OpenRouter)
+// Le hostname est utilisé en fallback rapide ET en validation post-IA.
 // ============================================================
-import { detectPlatformByFingerprint } from "./fingerprint.ts";
+import { fetchHtmlForClassification } from "./fingerprint.ts";
+import { classifyPlatformWithAI } from "./aiClassifier.ts";
 
 const FINGERPRINT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const AI_CONFIDENCE_THRESHOLD = 0.6;
 
 type SupabaseLike = {
   from: (table: string) => any;
@@ -177,14 +180,18 @@ type SupabaseLike = {
 
 export type ResolvedPlatform = {
   platform: string;
-  source: "cache" | "hostname" | "fingerprint" | "fallback";
+  source: "cache" | "hostname" | "ai" | "fallback";
   confidence: number;
   evidence: string[];
+  pagination_hint?: string;
 };
 
 /**
- * Pipeline à 3 niveaux : cache → hostname → sonde HTTP/HTML.
- * La sonde n'est déclenchée que si hostname retourne "custom" (ou si force=true).
+ * Pipeline AI-first :
+ * 1. Cache platform_fingerprints (24h)
+ * 2. Hostname fast-path pour les hosts évidents (instantané, sans appel réseau)
+ * 3. Téléchargement HTML + appel Claude (OpenRouter)
+ * 4. Si confidence ≥ 0.6 → cache + return ; sinon → "custom" + log warning
  */
 export async function resolvePlatform(
   url: string,
@@ -208,30 +215,70 @@ export async function resolvePlatform(
     if (cached) {
       const age = Date.now() - new Date(cached.detected_at).getTime();
       if (age < FINGERPRINT_TTL_MS) {
+        const evidence = Array.isArray(cached.evidence) ? cached.evidence : [];
+        const paginationFromCache = evidence
+          .find((e: string) => typeof e === "string" && e.startsWith("pagination:"))
+          ?.split(":")[1];
         return {
           platform: cached.platform,
           source: "cache",
           confidence: Number(cached.confidence) || 0,
-          evidence: Array.isArray(cached.evidence) ? cached.evidence : [],
+          evidence,
+          pagination_hint: paginationFromCache,
         };
       }
     }
   }
 
-  // 2. Hostname
+  // 2. Hostname fast-path (cas évidents, zéro latence)
   const fromHost = detectPlatformFromUrlInternal(url);
   if (fromHost !== "custom" && !opts.force) {
-    return { platform: fromHost, source: "hostname", confidence: 0.95, evidence: [`hostname:${host}`] };
+    return {
+      platform: fromHost,
+      source: "hostname",
+      confidence: 0.95,
+      evidence: [`hostname:${host}`],
+    };
   }
 
-  // 3. Sonde HTTP/HTML
-  const probe = await detectPlatformByFingerprint(url);
-  const finalPlatform = probe.platform !== "custom" ? probe.platform : (fromHost !== "custom" ? fromHost : "custom");
-  const finalConfidence = probe.platform !== "custom" ? probe.confidence : 0;
-  const finalEvidence = probe.platform !== "custom"
-    ? probe.evidence
-    : (fromHost !== "custom" ? [`hostname:${host}`] : probe.evidence);
+  // 3. Téléchargement HTML + appel Claude
+  const fetched = await fetchHtmlForClassification(url);
+  if (!fetched.ok && !fetched.html) {
+    console.warn(`[resolvePlatform] HTML fetch failed for ${host}: ${fetched.error ?? fetched.status}`);
+    // Si fetch échoue mais hostname avait identifié quelque chose (cas force=true), on garde le hostname
+    if (fromHost !== "custom") {
+      return { platform: fromHost, source: "hostname", confidence: 0.85, evidence: [`hostname:${host}`, `fetch-failed:${fetched.error ?? fetched.status}`] };
+    }
+    return { platform: "custom", source: "fallback", confidence: 0, evidence: [`fetch-failed:${fetched.error ?? fetched.status}`] };
+  }
 
+  const ai = await classifyPlatformWithAI(url, fetched.html, fetched.headers);
+
+  let finalPlatform = ai.platform;
+  let finalConfidence = ai.confidence;
+  let source: ResolvedPlatform["source"] = "ai";
+  const evidence: string[] = [
+    `ai:claude-3.5-sonnet`,
+    `confidence:${ai.confidence.toFixed(2)}`,
+    `pagination:${ai.pagination_hint}`,
+  ];
+  if (ai.reasoning) evidence.push(`reasoning:${ai.reasoning}`);
+
+  // Threshold : sous le seuil → custom, sauf si hostname avait trouvé mieux
+  if (ai.confidence < AI_CONFIDENCE_THRESHOLD || finalPlatform === "custom") {
+    if (fromHost !== "custom") {
+      finalPlatform = fromHost;
+      finalConfidence = 0.85;
+      source = "hostname";
+      evidence.push(`fallback-hostname:${host}`);
+    } else {
+      finalPlatform = "custom";
+      source = "fallback";
+      console.warn(`[resolvePlatform] custom for host=${host} ai=${ai.platform}@${ai.confidence} reasoning="${ai.reasoning}"`);
+    }
+  }
+
+  // Cache (uniquement si on a une vraie plateforme)
   if (finalPlatform !== "custom") {
     try {
       await supabase.from("platform_fingerprints").upsert(
@@ -239,7 +286,7 @@ export async function resolvePlatform(
           host,
           platform: finalPlatform,
           confidence: finalConfidence,
-          evidence: finalEvidence,
+          evidence,
           detected_at: new Date().toISOString(),
         },
         { onConflict: "host" }
@@ -247,14 +294,13 @@ export async function resolvePlatform(
     } catch (err) {
       console.warn(`[resolvePlatform] cache write failed for ${host}:`, err);
     }
-  } else {
-    console.warn(`[resolvePlatform] custom for host=${host} evidence=${finalEvidence.join(",")}`);
   }
 
   return {
     platform: finalPlatform,
-    source: probe.platform !== "custom" ? "fingerprint" : (fromHost !== "custom" ? "hostname" : "fallback"),
+    source,
     confidence: finalConfidence,
-    evidence: finalEvidence,
+    evidence,
+    pagination_hint: ai.pagination_hint,
   };
 }
