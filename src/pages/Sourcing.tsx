@@ -60,6 +60,16 @@ const Sourcing = () => {
   const [testResult, setTestResult] = useState<any>(null);
   const [editing, setEditing] = useState<SourcingUrl | null>(null);
   const [editForm, setEditForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6, is_active: true });
+  const [saving, setSaving] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!highlightedId) return;
+    const el = document.getElementById(`row-${highlightedId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setHighlightedId(null), 3000);
+    return () => clearTimeout(t);
+  }, [highlightedId, urls]);
 
   useEffect(() => {
     if (!adminLoading && isAdmin === false) navigate("/dashboard");
