@@ -301,7 +301,7 @@ const Sourcing = () => {
   };
 
   const reclassifyAll = async () => {
-    if (!confirm("Re-détecter toutes les URLs 'custom' / 'safetender' suspects ? (peut prendre du temps)")) return;
+    if (!confirm("Re-classifier toutes les URLs 'custom' / 'safetender' via Claude (OpenRouter) ? Compter ~3-5 secondes par URL.")) return;
     setRunning("__all__");
     const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
       body: { only_custom: true },
@@ -309,7 +309,12 @@ const Sourcing = () => {
     setRunning(null);
     if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
     else {
-      toast({ title: "Reclassement terminé", description: `${data?.processed ?? 0} URLs traitées` });
+      const bs = data?.by_source ?? {};
+      const summary = Object.entries(bs).map(([k, v]) => `${k}:${v}`).join(" · ");
+      toast({
+        title: "Reclassement IA terminé",
+        description: `${data?.processed ?? 0} URLs traitées${summary ? ` (${summary})` : ""}`,
+      });
       load();
     }
   };
@@ -330,7 +335,7 @@ const Sourcing = () => {
         <div className="flex gap-2">
           <Button variant="outline" onClick={reclassifyAll} disabled={running === "__all__"}>
             {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-            Re-détecter plateformes
+            Re-classifier (via IA)
           </Button>
           <Button variant="outline" onClick={() => setBulkOpen(true)}><Plus className="mr-2 h-4 w-4" />Import en masse</Button>
           <Dialog open={open} onOpenChange={setOpen}>
