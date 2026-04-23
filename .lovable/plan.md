@@ -1,26 +1,52 @@
 
 
-# Récap des URLs à enregistrer depuis `urls_format_scrap.xlsx`
+# Édition des URLs de sourcing
 
-## Plan
+Ajout d'une fonction "Modifier" sur chaque ligne de la table `/sourcing`, en plus des plans déjà actés (badges détaillés + job d'attribution).
 
-1. Copier `user-uploads://urls_format_scrap.xlsx` → `/tmp/urls_scrap.xlsx`.
-2. Lire toutes les feuilles avec `openpyxl` (texte des cellules + `cell.hyperlink.target`).
-3. Extraire les URLs (`https?://...`) et le contexte de la même ligne (libellé, acheteur si présent).
-4. Classifier chaque URL via la même logique que `src/lib/detectPlatform.ts` (hostname + path → `aura`, `atexo`, `mpi`, `place`, `maximilien`, `megalis`, `ternum`, `klekoon`, `safetender`, `custom`, etc.). Pas de sondage HTTP.
-5. Restituer dans le chat :
-   - **Récap chiffré** : total URLs, répartition par plateforme, liste des `custom`.
-   - **Tableau Markdown** trié par plateforme (`# | Plateforme | URL | Nom`).
-6. Générer aussi un CSV téléchargeable `/mnt/documents/urls_format_scrap_classified.csv` (`url, platform, display_name, sheet, row`) pour que tu aies le fichier sous la main.
+## Nouveau bouton "Éditer"
 
-## Ce que je ne fais pas
+Dans la colonne Actions de chaque URL, ajouter une icône crayon (`Pencil` de `lucide-react`) entre `Wand2` et `FlaskConical`.
 
-- Pas d'`INSERT` dans `sourcing_urls`.
-- Pas de migration SQL.
-- Pas d'appel à `reclassify-sourcing-urls` ni au fingerprint HTTP.
+Au clic → ouvre un Dialog d'édition pré-rempli avec les valeurs actuelles.
 
-## Livrable
+## Dialog "Modifier l'URL"
 
-- Récap + tableau directement dans la conversation.
-- CSV : `/mnt/documents/urls_format_scrap_classified.csv`.
+Mêmes champs que le dialog d'ajout, mais pré-remplis :
+
+- **URL** (`Input`) — modifiable
+- **Plateforme** (`Select` sur `PLATFORMS`) — modifiable, avec un bouton "Auto-détecter" qui relance `detectPlatform(url)` sur la valeur courante
+- **Nom affiché** (`Input`) — modifiable
+- **Fréquence (heures)** (`Input number`) — modifiable
+- **Actif** (`Switch`) — modifiable (doublon du switch de la table, mais pratique ici)
+
+Footer : `Annuler` + `Enregistrer`.
+
+## Logique côté front
+
+- Nouvel état `editing: SourcingUrl | null`.
+- `openEdit(u)` → set `editing` + remplit un `editForm`.
+- `saveEdit()` → `supabase.from("sourcing_urls").update({ url, platform, display_name, frequency_hours, is_active }).eq("id", editing.id)` puis `load()` + toast.
+- Si l'URL change, on **réinitialise** `last_run_at`, `last_status`, `last_items_found`, `last_items_inserted`, `last_error` à `null` (les anciens stats ne valent plus pour la nouvelle URL).
+
+## Garde-fou
+
+- Validation : URL non vide, doit commencer par `http`.
+- Si la nouvelle URL existe déjà sur une autre ligne → toast d'erreur (la contrainte unique en base remonte de toute façon, on l'affiche proprement).
+
+## Fichier concerné
+
+```text
+src/pages/Sourcing.tsx   ← +bouton Pencil, +Dialog edit, +saveEdit()
+```
+
+Pas de migration SQL, pas de modif edge function : la table `sourcing_urls` accepte déjà ces UPDATE via les policies admin existantes.
+
+## Rappel des autres chantiers en attente
+
+Pour mémoire (pas inclus dans cette passe, à confirmer après) :
+1. Badges détaillés `3 nouv · 7 MAJ · 0 skip` + tooltip diagnostic.
+2. Job d'attribution (détecter les AO `awarded` après deadline).
+
+Dis-moi si tu veux qu'on enchaîne sur l'un des deux après l'édition, ou si on s'en tient à l'édition pour l'instant.
 
