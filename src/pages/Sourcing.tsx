@@ -56,6 +56,14 @@ const Sourcing = () => {
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkUrls, setBulkUrls] = useState("");
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkResult, setBulkResult] = useState<null | {
+    inserted: string[];
+    alreadyExists: string[];
+    duplicatesInPaste: string[];
+    invalid: { line: string; reason: string }[];
+    failed: { url: string; reason: string }[];
+  }>(null);
   const [form, setForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6 });
   const [testResult, setTestResult] = useState<any>(null);
   const [editing, setEditing] = useState<SourcingUrl | null>(null);
