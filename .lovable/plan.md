@@ -1,63 +1,36 @@
 
 
-# Import en masse robuste — page Sourcing
+# Wipe sourcing — passe 2
 
-## Problèmes observés sur ta capture
+Tu veux re-vider la table `sourcing_urls` (et ses logs associés) qui s'est repeuplée pendant les tests d'import.
 
-1. **Lignes non-URL acceptées** : `Recherche avancée - Portail des marchés publics`, `Nos consultations | Aéroport…` passent dans le textarea et font planter l'insert.
-2. **Doublons internes** : la même URL collée 2 fois dans le textarea → la 1re passe, la 2e remonte `duplicate key value violates unique constraint "sourcing_urls_url_key"` et **stoppe tout l'import** (rien d'autre n'est inséré après l'erreur).
-3. **Aucun feedback ligne par ligne** : un seul toast d'erreur générique, impossible de savoir laquelle a échoué ni ce qui est passé.
+## Ce qui sera effacé
 
-## Solution — pipeline de parsing + insertion tolérante
+| Table | Raison |
+|---|---|
+| `sourcing_urls` | demande directe — tous les liens supprimés |
+| `scrape_logs` | rattaché aux URLs supprimées |
+| `ingest_cursors` | rattaché aux URLs supprimées |
 
-### 1. Parsing strict côté front (avant tout appel réseau)
+## Ce qui est préservé
 
-Pour chaque ligne du textarea :
-- `trim()` + ignorer lignes vides.
-- Tester que ça commence par `http://` ou `https://`.
-- Tenter `new URL(line)` → si throw, ligne rejetée.
-- Normaliser : retirer trailing slash, lowercase hostname.
+- `tenders`, `award_notices`, `pipeline_items`, `dce_*`, `agent_runs` → intacts (déjà à 0 depuis le wipe précédent de toute façon).
+- `profiles`, `user_roles`, `agent_playbooks`, `platform_*`, `alerts`, `saved_searches` → intacts.
 
-→ Construire 3 listes : `valid[]`, `invalid[]` (avec raison), `duplicatesInPaste[]` (URLs présentes 2× dans le textarea).
+## Migration SQL
 
-### 2. Dédoublonnage contre la base
-
-Avant insert : `select url from sourcing_urls where url in (...)` → écarter celles déjà présentes, les ranger dans `alreadyExists[]`.
-
-### 3. Insert ligne par ligne (pas en batch)
-
-Boucle `for (const url of valid)` avec `insert().select()` individuel. Chaque échec est attrapé localement et n'arrête PAS la boucle. On compte `inserted`, `failed[]`.
-
-### 4. Récap final dans une Dialog (pas un toast)
-
-À la fin, ouvrir une Dialog "Résultat de l'import" avec 4 sections pliables :
-
-```text
-✓ 12 URLs importées
-⚠ 3 URLs déjà présentes (skippées)
-⚠ 2 doublons dans votre liste (1re version gardée)
-✗ 4 lignes invalides :
-  - "Recherche avancée - Portail des marchés publics" (pas une URL)
-  - "Nos consultations | Aéroport…" (pas une URL)
+```sql
+DELETE FROM scrape_logs;
+DELETE FROM ingest_cursors;
+DELETE FROM sourcing_urls;
 ```
 
-Bouton "Copier les lignes invalides" pour les récupérer et les corriger.
+Pas de FK, ordre purement cosmétique.
 
-### 5. Auto-détection plateforme conservée
+## Effet UI attendu
 
-Pour chaque URL valide insérée : `platform = detectPlatform(url)` (déjà fait actuellement, on garde).
+- `/sourcing` : "URLs configurées (0)".
+- Les autres pages CRM/Tenders : déjà vides, inchangées.
 
-## Fichier concerné
-
-```text
-src/pages/Sourcing.tsx   ← refactor de handleBulkImport()
-```
-
-Aucune migration SQL, aucune edge function. ~60 lignes ajoutées.
-
-## Effet attendu
-
-- Tu peux coller n'importe quel mix d'URLs + texte sans casser l'import.
-- Les doublons sont signalés clairement, pas bloquants.
-- Tu vois exactement ce qui est passé / ce qui a été refusé / pourquoi.
+Approuve pour que je lance la migration.
 
