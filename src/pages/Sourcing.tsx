@@ -352,8 +352,10 @@ const Sourcing = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)}>Annuler</Button>
-            <Button onClick={saveEdit}>Enregistrer</Button>
+            <Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Annuler</Button>
+            <Button onClick={saveEdit} disabled={saving}>
+              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Enregistrement…</> : "Enregistrer"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
