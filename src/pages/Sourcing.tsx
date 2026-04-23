@@ -284,6 +284,59 @@ const Sourcing = () => {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Modifier l'URL de sourcing</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>URL</Label>
+              <Input
+                value={editForm.url}
+                onChange={(e) => setEditForm({ ...editForm, url: e.target.value })}
+                placeholder="https://..."
+              />
+            </div>
+            <div>
+              <Label>Plateforme</Label>
+              <div className="flex gap-2">
+                <Select value={editForm.platform} onValueChange={(v) => setEditForm({ ...editForm, platform: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditForm({ ...editForm, platform: detectPlatform(editForm.url) })}
+                  title="Auto-détecter depuis l'URL"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div>
+              <Label>Nom affiché (optionnel)</Label>
+              <Input value={editForm.display_name} onChange={(e) => setEditForm({ ...editForm, display_name: e.target.value })} />
+            </div>
+            <div>
+              <Label>Fréquence (heures)</Label>
+              <Input
+                type="number"
+                value={editForm.frequency_hours}
+                onChange={(e) => setEditForm({ ...editForm, frequency_hours: parseInt(e.target.value) || 6 })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label>Actif</Label>
+              <Switch checked={editForm.is_active} onCheckedChange={(v) => setEditForm({ ...editForm, is_active: v })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>Annuler</Button>
+            <Button onClick={saveEdit}>Enregistrer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle>URLs configurées ({urls.length})</CardTitle>
