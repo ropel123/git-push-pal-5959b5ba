@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2 } from "lucide-react";
+import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { detectPlatform, PLATFORMS } from "@/lib/detectPlatform";
 
@@ -58,6 +58,8 @@ const Sourcing = () => {
   const [bulkUrls, setBulkUrls] = useState("");
   const [form, setForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6 });
   const [testResult, setTestResult] = useState<any>(null);
+  const [editing, setEditing] = useState<SourcingUrl | null>(null);
+  const [editForm, setEditForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6, is_active: true });
 
   useEffect(() => {
     if (!adminLoading && isAdmin === false) navigate("/dashboard");
@@ -120,6 +122,52 @@ const Sourcing = () => {
   const remove = async (id: string) => {
     if (!confirm("Supprimer cette URL ?")) return;
     await supabase.from("sourcing_urls").delete().eq("id", id);
+    load();
+  };
+
+  const openEdit = (u: SourcingUrl) => {
+    setEditing(u);
+    setEditForm({
+      url: u.url,
+      platform: u.platform,
+      display_name: u.display_name ?? "",
+      frequency_hours: u.frequency_hours,
+      is_active: u.is_active,
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    const newUrl = editForm.url.trim();
+    if (!newUrl || !/^https?:\/\//i.test(newUrl)) {
+      toast({ title: "URL invalide", description: "L'URL doit commencer par http(s)://", variant: "destructive" });
+      return;
+    }
+    const urlChanged = newUrl !== editing.url;
+    const update: any = {
+      url: newUrl,
+      platform: editForm.platform,
+      display_name: editForm.display_name.trim() || null,
+      frequency_hours: editForm.frequency_hours,
+      is_active: editForm.is_active,
+    };
+    if (urlChanged) {
+      update.last_run_at = null;
+      update.last_status = null;
+      update.last_items_found = null;
+      update.last_items_inserted = null;
+      update.last_error = null;
+    }
+    const { error } = await supabase.from("sourcing_urls").update(update).eq("id", editing.id);
+    if (error) {
+      const msg = error.message.includes("duplicate") || error.message.includes("unique")
+        ? "Cette URL existe déjà sur une autre ligne."
+        : error.message;
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+      return;
+    }
+    toast({ title: "URL mise à jour" });
+    setEditing(null);
     load();
   };
 
@@ -236,6 +284,59 @@ const Sourcing = () => {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Modifier l'URL de sourcing</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>URL</Label>
+              <Input
+                value={editForm.url}
+                onChange={(e) => setEditForm({ ...editForm, url: e.target.value })}
+                placeholder="https://..."
+              />
+            </div>
+            <div>
+              <Label>Plateforme</Label>
+              <div className="flex gap-2">
+                <Select value={editForm.platform} onValueChange={(v) => setEditForm({ ...editForm, platform: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditForm({ ...editForm, platform: detectPlatform(editForm.url) })}
+                  title="Auto-détecter depuis l'URL"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div>
+              <Label>Nom affiché (optionnel)</Label>
+              <Input value={editForm.display_name} onChange={(e) => setEditForm({ ...editForm, display_name: e.target.value })} />
+            </div>
+            <div>
+              <Label>Fréquence (heures)</Label>
+              <Input
+                type="number"
+                value={editForm.frequency_hours}
+                onChange={(e) => setEditForm({ ...editForm, frequency_hours: parseInt(e.target.value) || 6 })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label>Actif</Label>
+              <Switch checked={editForm.is_active} onCheckedChange={(v) => setEditForm({ ...editForm, is_active: v })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>Annuler</Button>
+            <Button onClick={saveEdit}>Enregistrer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle>URLs configurées ({urls.length})</CardTitle>
@@ -299,6 +400,9 @@ const Sourcing = () => {
                   <TableCell className="text-right space-x-1">
                     <Button size="sm" variant="ghost" onClick={() => reclassifyOne(u.id)} disabled={running === u.id} title="Re-détecter la plateforme">
                       <Wand2 className="h-4 w-4" />
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => openEdit(u)} title="Modifier">
+                      <Pencil className="h-4 w-4" />
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => dryRun(u.id)} disabled={running === u.id} title="Test (dry-run)">
                       {running === u.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
