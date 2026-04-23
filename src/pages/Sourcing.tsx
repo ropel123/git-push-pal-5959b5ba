@@ -366,11 +366,94 @@ const Sourcing = () => {
         </div>
       </div>
 
-      <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+      <Dialog open={bulkOpen} onOpenChange={(o) => { if (!bulkImporting) setBulkOpen(o); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Import en masse</DialogTitle><DialogDescription /></DialogHeader>
-          <Textarea rows={12} placeholder="Une URL par ligne…" value={bulkUrls} onChange={(e) => setBulkUrls(e.target.value)} />
-          <DialogFooter><Button onClick={bulkImport}>Importer</Button></DialogFooter>
+          <DialogHeader>
+            <DialogTitle>Import en masse</DialogTitle>
+            <DialogDescription>Une URL par ligne. Les lignes vides, non-URL et doublons sont filtrés automatiquement.</DialogDescription>
+          </DialogHeader>
+          <Textarea rows={12} placeholder={"https://exemple.fr/marches\nhttps://autre-site.fr/consultations"} value={bulkUrls} onChange={(e) => setBulkUrls(e.target.value)} disabled={bulkImporting} />
+          <DialogFooter>
+            <Button onClick={bulkImport} disabled={bulkImporting}>
+              {bulkImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {bulkImporting ? "Import en cours…" : "Importer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!bulkResult} onOpenChange={(o) => { if (!o) setBulkResult(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Résultat de l'import</DialogTitle>
+            <DialogDescription>Récapitulatif détaillé de chaque ligne traitée.</DialogDescription>
+          </DialogHeader>
+          {bulkResult && (
+            <div className="space-y-4 text-sm">
+              <div className="flex items-center gap-2 text-emerald-500">
+                <span className="font-mono">✓</span>
+                <span className="font-medium">{bulkResult.inserted.length} URL(s) importée(s)</span>
+              </div>
+
+              {bulkResult.alreadyExists.length > 0 && (
+                <details className="rounded border border-border p-3">
+                  <summary className="cursor-pointer text-amber-500 font-medium">
+                    ⚠ {bulkResult.alreadyExists.length} déjà présente(s) en base — ignorée(s)
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground break-all">
+                    {bulkResult.alreadyExists.map((u) => <li key={u}>{u}</li>)}
+                  </ul>
+                </details>
+              )}
+
+              {bulkResult.duplicatesInPaste.length > 0 && (
+                <details className="rounded border border-border p-3">
+                  <summary className="cursor-pointer text-amber-500 font-medium">
+                    ⚠ {bulkResult.duplicatesInPaste.length} doublon(s) dans votre liste — 1re version gardée
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground break-all">
+                    {bulkResult.duplicatesInPaste.map((u, i) => <li key={`${u}-${i}`}>{u}</li>)}
+                  </ul>
+                </details>
+              )}
+
+              {bulkResult.invalid.length > 0 && (
+                <details className="rounded border border-destructive/50 p-3" open>
+                  <summary className="cursor-pointer text-destructive font-medium flex items-center justify-between gap-2">
+                    <span>✗ {bulkResult.invalid.length} ligne(s) invalide(s)</span>
+                    <Button size="sm" variant="outline" onClick={(e) => { e.preventDefault(); copyInvalidLines(); }}>
+                      Copier
+                    </Button>
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {bulkResult.invalid.map((i, idx) => (
+                      <li key={idx} className="break-all">
+                        <span className="text-foreground">"{i.line}"</span> — {i.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              {bulkResult.failed.length > 0 && (
+                <details className="rounded border border-destructive/50 p-3" open>
+                  <summary className="cursor-pointer text-destructive font-medium">
+                    ✗ {bulkResult.failed.length} échec(s) d'insertion
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {bulkResult.failed.map((f, idx) => (
+                      <li key={idx} className="break-all">
+                        <span className="text-foreground">{f.url}</span> — {f.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setBulkResult(null)}>Fermer</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
