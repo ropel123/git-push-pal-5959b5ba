@@ -125,6 +125,52 @@ const Sourcing = () => {
     load();
   };
 
+  const openEdit = (u: SourcingUrl) => {
+    setEditing(u);
+    setEditForm({
+      url: u.url,
+      platform: u.platform,
+      display_name: u.display_name ?? "",
+      frequency_hours: u.frequency_hours,
+      is_active: u.is_active,
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    const newUrl = editForm.url.trim();
+    if (!newUrl || !/^https?:\/\//i.test(newUrl)) {
+      toast({ title: "URL invalide", description: "L'URL doit commencer par http(s)://", variant: "destructive" });
+      return;
+    }
+    const urlChanged = newUrl !== editing.url;
+    const update: any = {
+      url: newUrl,
+      platform: editForm.platform,
+      display_name: editForm.display_name.trim() || null,
+      frequency_hours: editForm.frequency_hours,
+      is_active: editForm.is_active,
+    };
+    if (urlChanged) {
+      update.last_run_at = null;
+      update.last_status = null;
+      update.last_items_found = null;
+      update.last_items_inserted = null;
+      update.last_error = null;
+    }
+    const { error } = await supabase.from("sourcing_urls").update(update).eq("id", editing.id);
+    if (error) {
+      const msg = error.message.includes("duplicate") || error.message.includes("unique")
+        ? "Cette URL existe déjà sur une autre ligne."
+        : error.message;
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+      return;
+    }
+    toast({ title: "URL mise à jour" });
+    setEditing(null);
+    load();
+  };
+
   const runNow = async (id: string) => {
     setRunning(id);
     const { data, error } = await supabase.functions.invoke("scrape-list", {
