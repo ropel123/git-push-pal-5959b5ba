@@ -298,9 +298,16 @@ const Sourcing = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o && !saving) setEditing(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Modifier l'URL de sourcing</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Modifier l'URL de sourcing</DialogTitle>
+            {editing && (
+              <p className="text-xs text-muted-foreground break-all">
+                ancien : {editing.url} · #{editing.id.slice(0, 8)}
+              </p>
+            )}
+          </DialogHeader>
           <div className="space-y-4">
             <div>
               <Label>URL</Label>
