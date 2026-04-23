@@ -415,6 +415,36 @@ const Sourcing = () => {
         </div>
       </div>
 
+      {reclassifyProgress && (
+        <Card>
+          <CardContent className="pt-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">
+                Reclassification IA en cours… {reclassifyProgress.done} / {reclassifyProgress.total}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {Math.round((reclassifyProgress.done / reclassifyProgress.total) * 100)}%
+              </div>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${(reclassifyProgress.done / reclassifyProgress.total) * 100}%` }}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {Object.entries(reclassifyProgress.byPlatform)
+                .sort((a, b) => b[1] - a[1])
+                .map(([p, n]) => (
+                  <Badge key={p} variant={p === "custom" ? "outline" : "secondary"}>
+                    {p}: {n}
+                  </Badge>
+                ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Dialog open={bulkOpen} onOpenChange={(o) => { if (!bulkImporting) setBulkOpen(o); }}>
         <DialogContent>
           <DialogHeader>
