@@ -1,58 +1,59 @@
 
 
-# Repère stable sur la ligne en cours d'édition (page Sourcing)
+# Suppression totale — Sourcing + Appels d'offres
 
-## Problème
+## Périmètre
 
-Quand tu modifies une URL, après "Enregistrer" la liste recharge et tu perds visuellement la ligne sur laquelle tu travaillais. Pas de scroll-to, pas de highlight, et si l'URL a changé tu ne sais plus laquelle c'était.
+Wipe complet via migration SQL (DELETE, pas DROP — les tables et schémas restent).
 
-## Solution — 3 ancrages
+## Données effacées
 
-### 1. ID stable sur chaque `<TableRow>`
+| Table | Lignes actuelles | Raison |
+|---|---|---|
+| `sourcing_urls` | 77 | demande directe |
+| `tenders` | 1252 | demande directe |
+| `award_notices` | 124 | rattaché aux tenders |
+| `tender_analyses` | 0 | rattaché aux tenders |
+| `pipeline_items` | 0 | rattaché aux tenders |
+| `pipeline_comments` | 0 | rattaché aux pipeline_items |
+| `dce_downloads` | 5 | rattaché aux tenders |
+| `dce_uploads` | 5 | rattaché aux tenders |
+| `agent_runs` | 4 | rattaché aux tenders |
+| `scrape_logs` | 109 | rattaché aux sourcing_urls |
+| `ingest_cursors` | 0 | rattaché aux sourcing_urls |
 
-Chaque ligne reçoit un `id={`row-${u.id}`}` et un `data-row-id={u.id}`. Permet le scroll-to programmatique et le ciblage CSS sans dépendre de l'ordre.
+## Données préservées
 
-### 2. Highlight de la ligne juste éditée (3s)
+- `profiles`, `user_roles`, `agent_anonymous_identity`, `agent_playbooks`, `platform_robots`, `platform_fingerprints`, `alerts`, `saved_searches` → intacts.
+- Buckets storage `dce-documents` / `company-assets` → **non touchés** par cette migration. Si tu veux purger aussi les fichiers DCE physiques dans le bucket, dis-le, je le ferai séparément (la suppression des lignes `dce_downloads`/`dce_uploads` ne supprime pas les blobs).
 
-- Nouvel état `highlightedId: string | null`.
-- À la fin de `saveEdit()` (succès) → `setHighlightedId(editing.id)` AVANT `load()`.
-- Sur la ligne correspondante : classe conditionnelle `bg-primary/10 ring-1 ring-primary/40 transition-colors duration-500`.
-- `setTimeout(() => setHighlightedId(null), 3000)` pour retirer le highlight.
+## Migration SQL (ordre = dépendances logiques d'abord)
 
-### 3. Auto-scroll vers la ligne éditée
+```sql
+DELETE FROM pipeline_comments;
+DELETE FROM pipeline_items;
+DELETE FROM tender_analyses;
+DELETE FROM dce_downloads;
+DELETE FROM dce_uploads;
+DELETE FROM agent_runs;
+DELETE FROM award_notices;
+DELETE FROM tenders;
 
-Après `load()`, dans un `useEffect([highlightedId, urls])` :
-```
-document.getElementById(`row-${highlightedId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-```
-
-Garantit que même si la ligne était hors viewport (table longue), elle revient au centre.
-
-## Bonus stabilité — pendant l'édition
-
-Dans le header du Dialog, afficher en sous-titre l'ancienne URL et l'ID court :
-
-```
-Modifier l'URL de sourcing
-ancien : https://… · #a1b2c3d4
-```
-
-Comme ça même si tu changes l'URL en cours de saisie, tu sais toujours quelle ligne tu modifies. Utilise `editing.url` (snapshot pris à `openEdit`) qui ne bouge pas tant que le dialog est ouvert.
-
-## Garde-fou anti race-condition
-
-- Désactiver le bouton "Enregistrer" pendant la sauvegarde (`saving` state) pour empêcher un double-clic qui ouvrirait deux updates.
-- Bloquer la fermeture accidentelle du dialog (`onOpenChange`) pendant `saving`.
-
-## Fichier concerné
-
-```text
-src/pages/Sourcing.tsx
+DELETE FROM scrape_logs;
+DELETE FROM ingest_cursors;
+DELETE FROM sourcing_urls;
 ```
 
-Aucune migration, aucun changement edge function. Pur front, ~30 lignes ajoutées.
+Pas de FK déclarées entre ces tables, donc aucun risque d'erreur de contrainte — l'ordre est juste là pour rester cohérent.
 
-## Effet attendu
+## Effet UI attendu
 
-Après "Enregistrer" : la liste recharge → la ligne éditée est mise en surbrillance orange douce pendant 3s et défile au centre de l'écran. Plus aucun risque de "perdre" la ligne sur laquelle tu travaillais, même si tu enchaînes 10 modifications.
+- `/sourcing` : liste vide ("URLs configurées (0)").
+- `/tenders` : "0 résultat(s)".
+- `/pipeline`, `/awards`, `/activity` : vides.
+- Le scheduler tourne toujours mais n'a plus rien à faire tant qu'on n'ajoute pas de nouvelles URLs.
+
+## Confirmation requise
+
+Action **destructive et irréversible** (1252 AO + 77 URLs + 124 attributions + 109 logs). Approuve le plan pour que je lance la migration.
 
