@@ -1,111 +1,59 @@
 
 
-# Classification IA en premier plan — pipeline simplifié via OpenRouter (Claude)
+# Lancer la classification IA de toutes les URLs de sourcing
 
-## Idée
+## Action
 
-Au lieu d'empiler 4 niveaux (cache → hostname regex → sonde HTTP regex → IA), on **simplifie radicalement** : l'IA est le moteur principal. Le cache reste, le reste disparaît.
+Appel one-shot de l'edge function `reclassify-sourcing-urls` sur les **130 URLs** de la table `sourcing_urls`, sans filtre, avec `force: true` côté `resolvePlatform` (déjà le comportement par défaut de cette function).
 
-```text
-AVANT : Cache → Hostname regex → Sonde HTTP regex → IA → fallback
-APRÈS : Cache → IA (avec contexte URL + HTML) → fallback
-```
+## Comment
 
-## Pourquoi c'est plus simple (et meilleur)
+Depuis l'UI `/sourcing` (admin), bouton **"Reclassifier (via IA)"** déjà branché → click → `supabase.functions.invoke('reclassify-sourcing-urls', { body: {} })`.
 
-- **Moins de code** : suppression de `fingerprint.ts` (regex statiques fragiles), suppression de la grosse fonction `detectPlatformFromUrlInternal` dans `normalize.ts` côté détection (on la garde juste pour validation finale).
-- **Une seule source de vérité** : Claude voit URL + HTML + headers d'un coup et tranche. Plus de "le hostname dit X mais la sonde dit Y" à arbitrer.
-- **Couvre les cas tordus dès le départ** : pas besoin d'écrire 30 règles regex pour Omnikles, AJI, AWS, eu-supply, Notes Domino — Claude les reconnaît nativement.
-- **Bonus pagination** : Claude renvoie aussi `pagination_hint` (`url`/`actions`/`single`) en lisant le DOM → préparé pour la prochaine étape scraping multi-page.
+Body vide = toutes les URLs (pas de filtre `only_custom`, pas d'`sourcing_url_id`).
 
-## Ce qu'on garde quand même
+## Déroulé attendu
 
-- **Cache `platform_fingerprints`** (24 h par hostname) : 1 seul appel IA par host, jamais répété → coût maîtrisé.
-- **Validation enum stricte** côté tool calling : Claude ne peut renvoyer que des valeurs de la liste blanche `PLATFORMS`. Si confidence < 0.6 → `custom`.
-- **Fallback hostname ultra-court** : juste pour les 5-6 hosts évidents où on veut une réponse instantanée sans appel réseau (`marches-publics.gouv.fr` → `place`, etc.). Reste optionnel.
+1. Function itère sur les 130 lignes.
+2. Pour chaque URL : `resolvePlatform(url, supabase, { force: true })` → bypass cache → fetch HTML 8 ko → appel Claude 3.5 Sonnet via OpenRouter (tool calling enum fermé).
+3. Update de `sourcing_urls.platform` + `metadata.platform_evidence` / `platform_source` / `platform_confidence` / `platform_detected_at` / `pagination_hint`.
+4. Cache écrit dans `platform_fingerprints` (24 h TTL par hostname).
 
-## Architecture finale
+## Durée et coût estimés
 
-```text
-resolvePlatform(url, supabase):
-  1. Cache hit récent (< 24h) ? → return
-  2. Téléchargement HTML (1 GET, 8 ko)
-  3. Appel Claude via OpenRouter avec { url, html, headers }
-  4. Si confidence ≥ 0.6 → cache + return
-  5. Sinon → "custom" + log warning
-```
+- **~5-8 min** en série (130 × ~2-3 s par appel Claude).
+- **~$1.30** côté OpenRouter (Claude 3.5 Sonnet, 130 × ~3 200 tokens in + 200 tokens out).
+- Aucun crédit Firecrawl consommé (juste un GET HTTP direct).
 
-## Provider : OpenRouter + Claude 3.5 Sonnet
+## Suivi pendant le run
 
-Endpoint : `POST https://openrouter.ai/api/v1/chat/completions`
-Auth : `Bearer ${OPENROUTER_API_KEY}` (déjà présent dans les secrets)
-Modèle : `anthropic/claude-3.5-sonnet` (cohérent avec `mem://architecture/strategie-ia`)
+- Logs en direct : Edge Functions → `reclassify-sourcing-urls` → Logs.
+- À la fin : retour JSON avec récap `{ ok, processed: 130, by_source: { ai: N, hostname: M, ... }, results: [...] }`.
 
-Tool calling forcé pour réponse structurée :
+## Vérification après run
 
-```json
-{
-  "platform": "atexo|mpi|place|achatpublic|e-marchespublics|marches-securises|klekoon|xmarches|maximilien|megalis|ternum|aura|safetender|omnikles|aws|eu-supply|synapse|centrale-marches|francemarches|aji|domino|custom",
-  "confidence": 0.0-1.0,
-  "reasoning": "1 phrase",
-  "pagination_hint": "url|actions|single|unknown"
-}
-```
-
-## Garde-fous
-
-- **Threshold 0.6** : sinon `custom` (mieux ne pas savoir que mal classer).
-- **Enum fermé** : Claude ne peut pas inventer.
-- **Retry 1×** sur 429 (backoff 2 s).
-- **Fallback silencieux** : si OpenRouter down ou key invalide → `custom`, run continue.
-- **Cache prioritaire** : si déjà classifié < 24 h, zéro appel IA.
-- **Pas de boucle infinie** : 1 appel max par URL et par run.
+Une fois terminé, requête de contrôle pour voir la nouvelle répartition par plateforme (avant : 76 `custom` / 130). Objectif : tomber à ~5-10 `custom`, le reste réparti sur `atexo`, `mpi`, `omnikles`, `aws`, `domino`, etc.
 
 ## Fichiers touchés
 
-```text
-supabase/functions/_shared/aiClassifier.ts            ← NEW : appel OpenRouter + tool calling
-supabase/functions/_shared/normalize.ts               ← simplifie resolvePlatform() (~60 lignes en moins)
-supabase/functions/_shared/fingerprint.ts             ← garde uniquement le fetch HTML (regex supprimées)
-supabase/functions/reclassify-sourcing-urls/index.ts  ← simplifié, plus besoin de paramètre use_ai
-src/lib/detectPlatform.ts                             ← étend PLATFORMS (mirror : 8 nouveaux noms)
-src/pages/Sourcing.tsx                                ← bouton "Reclassifier toutes les URLs (via IA)"
-```
+Aucun. Toute la mécanique est déjà en place depuis le run précédent. C'est juste un déclenchement.
 
-Aucune migration SQL.
+## Risques
 
-## Nouvelles plateformes ajoutées à `PLATFORMS`
+- **Timeout edge function** (limite ~60 s par défaut sur Supabase) : 130 appels × 2-3 s = 260-400 s → **dépassement quasi certain**. Il faut soit :
+  - **Option A (recommandée)** : batcher côté client — boucler 5 par 5 en appelant la function avec `sourcing_url_id` une URL à la fois (plus lent mais résilient).
+  - **Option B** : ajouter un mode batch côté function (`{ batch_size: 5, offset: N }`) et boucler côté client.
+  - **Option C** : laisser tel quel, accepter l'échec partiel, relancer.
 
-`omnikles`, `aws`, `eu-supply`, `synapse`, `centrale-marches`, `francemarches`, `aji`, `domino` — vocabulaire enrichi pour Claude.
-
-## Coût OpenRouter estimé
-
-- 130 URLs × ~3 200 tokens entrée + 200 tokens sortie ≈ **~$1.30** pour le run initial (Claude 3.5 Sonnet : ~$3/M in, ~$15/M out).
-- Ensuite : 1 appel par nouveau hostname jamais vu. Cache 24 h sur les autres.
-- Pour comparaison, Gemini 3 Flash via Lovable AI Gateway serait ~10× moins cher (~$0.13). À toi de choisir : tu as dit OpenRouter + Claude → on part là-dessus, mais c'est un choix conscient.
-
-## Effet attendu
-
-| | Avant | Après |
-|---|---|---|
-| URLs `custom` | 76 (60 %) | ~5-10 (5-8 %) |
-| Plateformes nommées | 11 | 19 |
-| URLs avec `pagination_hint` | 0 | ~120 |
-| Lignes de code regex à maintenir | ~150 | ~10 (fallback hostname) |
-| Complexité du pipeline | 4 niveaux | 2 niveaux |
-
-## Risques et arbitrages
-
-- **Latence** : 1 appel Claude ≈ 2-4 s par URL non cachée. Pour reclassifier 130 URLs en série → ~5-8 min. Acceptable pour un run admin one-shot. Si besoin, parallélisation 5×.
-- **Dépendance OpenRouter** : si l'API tombe, plus aucune classification possible (vs avant où le hostname regex tenait le coup). Mitigation : fallback explicite `custom` + log + on garde les valeurs déjà en cache.
-- **Hallucination** : risque mitigé par enum fermé + threshold confidence. Si Claude n'est pas sûr → `custom`, pas de mauvaise étiquette.
+Je pars sur **Option A** : modification mineure du bouton `/sourcing` pour boucler côté client URL par URL avec une barre de progression et un toast final, au lieu d'un seul appel monolithique qui va timeout.
 
 ## Plan d'exécution
 
-1. Créer `aiClassifier.ts` (appel OpenRouter + tool calling).
-2. Simplifier `normalize.ts` : nouveau `resolvePlatform()` à 2 niveaux.
-3. Élaguer `fingerprint.ts` : ne garder que le fetch HTML brut.
-4. Étendre `PLATFORMS` côté front + back.
-5. Brancher le bouton "Reclassifier (via IA)" sur `/sourcing` (admin only).
-6. Lancer un run one-shot sur les 130 URLs → tu vois le résultat dans `/sourcing`.
+1. Récupérer la liste des 130 `sourcing_urls.id` côté front (admin).
+2. Boucler avec `Promise` séquentiel + concurrence 3 max : pour chaque ID, `supabase.functions.invoke('reclassify-sourcing-urls', { body: { sourcing_url_id: id } })`.
+3. Afficher progress live (X / 130) + compteur par plateforme en temps réel.
+4. Toast final : `130 traitées, dont N par IA, M restent custom`.
+5. Refresh de la liste affichée.
+
+Aucune migration SQL, aucune nouvelle function. Juste un patch front sur `src/pages/Sourcing.tsx` (handler du bouton existant).
 
