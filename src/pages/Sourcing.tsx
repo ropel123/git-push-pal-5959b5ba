@@ -56,6 +56,14 @@ const Sourcing = () => {
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkUrls, setBulkUrls] = useState("");
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkResult, setBulkResult] = useState<null | {
+    inserted: string[];
+    alreadyExists: string[];
+    duplicatesInPaste: string[];
+    invalid: { line: string; reason: string }[];
+    failed: { url: string; reason: string }[];
+  }>(null);
   const [form, setForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6 });
   const [testResult, setTestResult] = useState<any>(null);
   const [editing, setEditing] = useState<SourcingUrl | null>(null);
@@ -106,22 +114,90 @@ const Sourcing = () => {
     }
   };
 
-  const bulkImport = async () => {
-    const lines = bulkUrls.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (lines.length === 0) return;
-    const rows = lines.map((url) => ({
-      url,
-      platform: detectPlatform(url),
-      frequency_hours: 6,
-    }));
-    const { error } = await supabase.from("sourcing_urls").insert(rows);
-    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    else {
-      toast({ title: `${lines.length} URLs ajoutées` });
-      setBulkOpen(false);
-      setBulkUrls("");
-      load();
+  const normalizeUrl = (raw: string): string => {
+    const u = new URL(raw);
+    u.hostname = u.hostname.toLowerCase();
+    let s = u.toString();
+    // Retirer trailing slash si pathname == "/" et pas de query/hash
+    if (u.pathname === "/" && !u.search && !u.hash) {
+      s = s.replace(/\/$/, "");
     }
+    return s;
+  };
+
+  const bulkImport = async () => {
+    if (bulkImporting) return;
+    const rawLines = bulkUrls.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (rawLines.length === 0) return;
+
+    setBulkImporting(true);
+
+    const invalid: { line: string; reason: string }[] = [];
+    const seen = new Set<string>();
+    const duplicatesInPaste: string[] = [];
+    const valid: string[] = [];
+
+    for (const line of rawLines) {
+      if (!/^https?:\/\//i.test(line)) {
+        invalid.push({ line, reason: "pas une URL (doit commencer par http:// ou https://)" });
+        continue;
+      }
+      let normalized: string;
+      try {
+        normalized = normalizeUrl(line);
+      } catch {
+        invalid.push({ line, reason: "URL malformée" });
+        continue;
+      }
+      if (seen.has(normalized)) {
+        duplicatesInPaste.push(normalized);
+        continue;
+      }
+      seen.add(normalized);
+      valid.push(normalized);
+    }
+
+    // Dédoublonnage contre la base
+    let alreadyExists: string[] = [];
+    let toInsert = valid;
+    if (valid.length > 0) {
+      const { data: existing } = await supabase
+        .from("sourcing_urls")
+        .select("url")
+        .in("url", valid);
+      const existingSet = new Set((existing || []).map((r: any) => r.url));
+      alreadyExists = valid.filter((u) => existingSet.has(u));
+      toInsert = valid.filter((u) => !existingSet.has(u));
+    }
+
+    // Insert ligne par ligne, tolérant aux erreurs
+    const inserted: string[] = [];
+    const failed: { url: string; reason: string }[] = [];
+    for (const url of toInsert) {
+      const { error } = await supabase.from("sourcing_urls").insert({
+        url,
+        platform: detectPlatform(url),
+        frequency_hours: 6,
+      });
+      if (error) {
+        failed.push({ url, reason: error.message });
+      } else {
+        inserted.push(url);
+      }
+    }
+
+    setBulkImporting(false);
+    setBulkResult({ inserted, alreadyExists, duplicatesInPaste, invalid, failed });
+    setBulkOpen(false);
+    setBulkUrls("");
+    load();
+  };
+
+  const copyInvalidLines = () => {
+    if (!bulkResult) return;
+    const text = bulkResult.invalid.map((i) => i.line).join("\n");
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copié", description: `${bulkResult.invalid.length} ligne(s) invalide(s) copiée(s)` });
   };
 
   const toggleActive = async (id: string, is_active: boolean) => {
@@ -290,11 +366,94 @@ const Sourcing = () => {
         </div>
       </div>
 
-      <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+      <Dialog open={bulkOpen} onOpenChange={(o) => { if (!bulkImporting) setBulkOpen(o); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Import en masse</DialogTitle><DialogDescription /></DialogHeader>
-          <Textarea rows={12} placeholder="Une URL par ligne…" value={bulkUrls} onChange={(e) => setBulkUrls(e.target.value)} />
-          <DialogFooter><Button onClick={bulkImport}>Importer</Button></DialogFooter>
+          <DialogHeader>
+            <DialogTitle>Import en masse</DialogTitle>
+            <DialogDescription>Une URL par ligne. Les lignes vides, non-URL et doublons sont filtrés automatiquement.</DialogDescription>
+          </DialogHeader>
+          <Textarea rows={12} placeholder={"https://exemple.fr/marches\nhttps://autre-site.fr/consultations"} value={bulkUrls} onChange={(e) => setBulkUrls(e.target.value)} disabled={bulkImporting} />
+          <DialogFooter>
+            <Button onClick={bulkImport} disabled={bulkImporting}>
+              {bulkImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {bulkImporting ? "Import en cours…" : "Importer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!bulkResult} onOpenChange={(o) => { if (!o) setBulkResult(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Résultat de l'import</DialogTitle>
+            <DialogDescription>Récapitulatif détaillé de chaque ligne traitée.</DialogDescription>
+          </DialogHeader>
+          {bulkResult && (
+            <div className="space-y-4 text-sm">
+              <div className="flex items-center gap-2 text-emerald-500">
+                <span className="font-mono">✓</span>
+                <span className="font-medium">{bulkResult.inserted.length} URL(s) importée(s)</span>
+              </div>
+
+              {bulkResult.alreadyExists.length > 0 && (
+                <details className="rounded border border-border p-3">
+                  <summary className="cursor-pointer text-amber-500 font-medium">
+                    ⚠ {bulkResult.alreadyExists.length} déjà présente(s) en base — ignorée(s)
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground break-all">
+                    {bulkResult.alreadyExists.map((u) => <li key={u}>{u}</li>)}
+                  </ul>
+                </details>
+              )}
+
+              {bulkResult.duplicatesInPaste.length > 0 && (
+                <details className="rounded border border-border p-3">
+                  <summary className="cursor-pointer text-amber-500 font-medium">
+                    ⚠ {bulkResult.duplicatesInPaste.length} doublon(s) dans votre liste — 1re version gardée
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground break-all">
+                    {bulkResult.duplicatesInPaste.map((u, i) => <li key={`${u}-${i}`}>{u}</li>)}
+                  </ul>
+                </details>
+              )}
+
+              {bulkResult.invalid.length > 0 && (
+                <details className="rounded border border-destructive/50 p-3" open>
+                  <summary className="cursor-pointer text-destructive font-medium flex items-center justify-between gap-2">
+                    <span>✗ {bulkResult.invalid.length} ligne(s) invalide(s)</span>
+                    <Button size="sm" variant="outline" onClick={(e) => { e.preventDefault(); copyInvalidLines(); }}>
+                      Copier
+                    </Button>
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {bulkResult.invalid.map((i, idx) => (
+                      <li key={idx} className="break-all">
+                        <span className="text-foreground">"{i.line}"</span> — {i.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              {bulkResult.failed.length > 0 && (
+                <details className="rounded border border-destructive/50 p-3" open>
+                  <summary className="cursor-pointer text-destructive font-medium">
+                    ✗ {bulkResult.failed.length} échec(s) d'insertion
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {bulkResult.failed.map((f, idx) => (
+                      <li key={idx} className="break-all">
+                        <span className="text-foreground">{f.url}</span> — {f.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setBulkResult(null)}>Fermer</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
