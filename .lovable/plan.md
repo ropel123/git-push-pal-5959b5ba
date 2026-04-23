@@ -1,52 +1,58 @@
 
 
-# Édition des URLs de sourcing
+# Repère stable sur la ligne en cours d'édition (page Sourcing)
 
-Ajout d'une fonction "Modifier" sur chaque ligne de la table `/sourcing`, en plus des plans déjà actés (badges détaillés + job d'attribution).
+## Problème
 
-## Nouveau bouton "Éditer"
+Quand tu modifies une URL, après "Enregistrer" la liste recharge et tu perds visuellement la ligne sur laquelle tu travaillais. Pas de scroll-to, pas de highlight, et si l'URL a changé tu ne sais plus laquelle c'était.
 
-Dans la colonne Actions de chaque URL, ajouter une icône crayon (`Pencil` de `lucide-react`) entre `Wand2` et `FlaskConical`.
+## Solution — 3 ancrages
 
-Au clic → ouvre un Dialog d'édition pré-rempli avec les valeurs actuelles.
+### 1. ID stable sur chaque `<TableRow>`
 
-## Dialog "Modifier l'URL"
+Chaque ligne reçoit un `id={`row-${u.id}`}` et un `data-row-id={u.id}`. Permet le scroll-to programmatique et le ciblage CSS sans dépendre de l'ordre.
 
-Mêmes champs que le dialog d'ajout, mais pré-remplis :
+### 2. Highlight de la ligne juste éditée (3s)
 
-- **URL** (`Input`) — modifiable
-- **Plateforme** (`Select` sur `PLATFORMS`) — modifiable, avec un bouton "Auto-détecter" qui relance `detectPlatform(url)` sur la valeur courante
-- **Nom affiché** (`Input`) — modifiable
-- **Fréquence (heures)** (`Input number`) — modifiable
-- **Actif** (`Switch`) — modifiable (doublon du switch de la table, mais pratique ici)
+- Nouvel état `highlightedId: string | null`.
+- À la fin de `saveEdit()` (succès) → `setHighlightedId(editing.id)` AVANT `load()`.
+- Sur la ligne correspondante : classe conditionnelle `bg-primary/10 ring-1 ring-primary/40 transition-colors duration-500`.
+- `setTimeout(() => setHighlightedId(null), 3000)` pour retirer le highlight.
 
-Footer : `Annuler` + `Enregistrer`.
+### 3. Auto-scroll vers la ligne éditée
 
-## Logique côté front
+Après `load()`, dans un `useEffect([highlightedId, urls])` :
+```
+document.getElementById(`row-${highlightedId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+```
 
-- Nouvel état `editing: SourcingUrl | null`.
-- `openEdit(u)` → set `editing` + remplit un `editForm`.
-- `saveEdit()` → `supabase.from("sourcing_urls").update({ url, platform, display_name, frequency_hours, is_active }).eq("id", editing.id)` puis `load()` + toast.
-- Si l'URL change, on **réinitialise** `last_run_at`, `last_status`, `last_items_found`, `last_items_inserted`, `last_error` à `null` (les anciens stats ne valent plus pour la nouvelle URL).
+Garantit que même si la ligne était hors viewport (table longue), elle revient au centre.
 
-## Garde-fou
+## Bonus stabilité — pendant l'édition
 
-- Validation : URL non vide, doit commencer par `http`.
-- Si la nouvelle URL existe déjà sur une autre ligne → toast d'erreur (la contrainte unique en base remonte de toute façon, on l'affiche proprement).
+Dans le header du Dialog, afficher en sous-titre l'ancienne URL et l'ID court :
+
+```
+Modifier l'URL de sourcing
+ancien : https://… · #a1b2c3d4
+```
+
+Comme ça même si tu changes l'URL en cours de saisie, tu sais toujours quelle ligne tu modifies. Utilise `editing.url` (snapshot pris à `openEdit`) qui ne bouge pas tant que le dialog est ouvert.
+
+## Garde-fou anti race-condition
+
+- Désactiver le bouton "Enregistrer" pendant la sauvegarde (`saving` state) pour empêcher un double-clic qui ouvrirait deux updates.
+- Bloquer la fermeture accidentelle du dialog (`onOpenChange`) pendant `saving`.
 
 ## Fichier concerné
 
 ```text
-src/pages/Sourcing.tsx   ← +bouton Pencil, +Dialog edit, +saveEdit()
+src/pages/Sourcing.tsx
 ```
 
-Pas de migration SQL, pas de modif edge function : la table `sourcing_urls` accepte déjà ces UPDATE via les policies admin existantes.
+Aucune migration, aucun changement edge function. Pur front, ~30 lignes ajoutées.
 
-## Rappel des autres chantiers en attente
+## Effet attendu
 
-Pour mémoire (pas inclus dans cette passe, à confirmer après) :
-1. Badges détaillés `3 nouv · 7 MAJ · 0 skip` + tooltip diagnostic.
-2. Job d'attribution (détecter les AO `awarded` après deadline).
-
-Dis-moi si tu veux qu'on enchaîne sur l'un des deux après l'édition, ou si on s'en tient à l'édition pour l'instant.
+Après "Enregistrer" : la liste recharge → la ligne éditée est mise en surbrillance orange douce pendant 3s et défile au centre de l'écran. Plus aucun risque de "perdre" la ligne sur laquelle tu travaillais, même si tu enchaînes 10 modifications.
 
