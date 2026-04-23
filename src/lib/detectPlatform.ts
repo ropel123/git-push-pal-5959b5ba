@@ -78,5 +78,14 @@ export const PLATFORMS = [
   "safetender",
   "xmarches",
   "klekoon",
+  // Plateformes additionnelles reconnues par la classification IA (Claude)
+  "omnikles",
+  "aws",
+  "eu-supply",
+  "synapse",
+  "centrale-marches",
+  "francemarches",
+  "aji",
+  "domino",
   "custom",
 ];

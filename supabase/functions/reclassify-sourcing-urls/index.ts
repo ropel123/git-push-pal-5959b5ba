@@ -40,9 +40,14 @@ Deno.serve(async (req) => {
     const { data: rows, error } = await query;
     if (error) return json({ error: error.message }, 500);
 
-    const results: Array<{ id: string; url: string; before: string; after: string; evidence: string[]; source: string }> = [];
+    const results: Array<{
+      id: string; url: string; before: string; after: string;
+      evidence: string[]; source: string; confidence: number; pagination_hint?: string;
+    }> = [];
+    const bySource: Record<string, number> = {};
 
     for (const row of rows ?? []) {
+      // force: true bypass le cache pour vraiment relancer l'IA
       const resolved = await resolvePlatform(row.url, supabase, { force: true });
       const newMetadata = {
         ...(typeof row.metadata === "object" && row.metadata !== null ? row.metadata : {}),
@@ -50,12 +55,14 @@ Deno.serve(async (req) => {
         platform_source: resolved.source,
         platform_confidence: resolved.confidence,
         platform_detected_at: new Date().toISOString(),
+        ...(resolved.pagination_hint ? { pagination_hint: resolved.pagination_hint } : {}),
       };
       await supabase
         .from("sourcing_urls")
         .update({ platform: resolved.platform, metadata: newMetadata })
         .eq("id", row.id);
 
+      bySource[resolved.source] = (bySource[resolved.source] ?? 0) + 1;
       results.push({
         id: row.id,
         url: row.url,
@@ -63,10 +70,12 @@ Deno.serve(async (req) => {
         after: resolved.platform,
         evidence: resolved.evidence,
         source: resolved.source,
+        confidence: resolved.confidence,
+        pagination_hint: resolved.pagination_hint,
       });
     }
 
-    return json({ ok: true, processed: results.length, results });
+    return json({ ok: true, processed: results.length, by_source: bySource, results });
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
