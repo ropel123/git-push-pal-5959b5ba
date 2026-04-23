@@ -1,59 +1,63 @@
 
 
-# Suppression totale — Sourcing + Appels d'offres
+# Import en masse robuste — page Sourcing
 
-## Périmètre
+## Problèmes observés sur ta capture
 
-Wipe complet via migration SQL (DELETE, pas DROP — les tables et schémas restent).
+1. **Lignes non-URL acceptées** : `Recherche avancée - Portail des marchés publics`, `Nos consultations | Aéroport…` passent dans le textarea et font planter l'insert.
+2. **Doublons internes** : la même URL collée 2 fois dans le textarea → la 1re passe, la 2e remonte `duplicate key value violates unique constraint "sourcing_urls_url_key"` et **stoppe tout l'import** (rien d'autre n'est inséré après l'erreur).
+3. **Aucun feedback ligne par ligne** : un seul toast d'erreur générique, impossible de savoir laquelle a échoué ni ce qui est passé.
 
-## Données effacées
+## Solution — pipeline de parsing + insertion tolérante
 
-| Table | Lignes actuelles | Raison |
-|---|---|---|
-| `sourcing_urls` | 77 | demande directe |
-| `tenders` | 1252 | demande directe |
-| `award_notices` | 124 | rattaché aux tenders |
-| `tender_analyses` | 0 | rattaché aux tenders |
-| `pipeline_items` | 0 | rattaché aux tenders |
-| `pipeline_comments` | 0 | rattaché aux pipeline_items |
-| `dce_downloads` | 5 | rattaché aux tenders |
-| `dce_uploads` | 5 | rattaché aux tenders |
-| `agent_runs` | 4 | rattaché aux tenders |
-| `scrape_logs` | 109 | rattaché aux sourcing_urls |
-| `ingest_cursors` | 0 | rattaché aux sourcing_urls |
+### 1. Parsing strict côté front (avant tout appel réseau)
 
-## Données préservées
+Pour chaque ligne du textarea :
+- `trim()` + ignorer lignes vides.
+- Tester que ça commence par `http://` ou `https://`.
+- Tenter `new URL(line)` → si throw, ligne rejetée.
+- Normaliser : retirer trailing slash, lowercase hostname.
 
-- `profiles`, `user_roles`, `agent_anonymous_identity`, `agent_playbooks`, `platform_robots`, `platform_fingerprints`, `alerts`, `saved_searches` → intacts.
-- Buckets storage `dce-documents` / `company-assets` → **non touchés** par cette migration. Si tu veux purger aussi les fichiers DCE physiques dans le bucket, dis-le, je le ferai séparément (la suppression des lignes `dce_downloads`/`dce_uploads` ne supprime pas les blobs).
+→ Construire 3 listes : `valid[]`, `invalid[]` (avec raison), `duplicatesInPaste[]` (URLs présentes 2× dans le textarea).
 
-## Migration SQL (ordre = dépendances logiques d'abord)
+### 2. Dédoublonnage contre la base
 
-```sql
-DELETE FROM pipeline_comments;
-DELETE FROM pipeline_items;
-DELETE FROM tender_analyses;
-DELETE FROM dce_downloads;
-DELETE FROM dce_uploads;
-DELETE FROM agent_runs;
-DELETE FROM award_notices;
-DELETE FROM tenders;
+Avant insert : `select url from sourcing_urls where url in (...)` → écarter celles déjà présentes, les ranger dans `alreadyExists[]`.
 
-DELETE FROM scrape_logs;
-DELETE FROM ingest_cursors;
-DELETE FROM sourcing_urls;
+### 3. Insert ligne par ligne (pas en batch)
+
+Boucle `for (const url of valid)` avec `insert().select()` individuel. Chaque échec est attrapé localement et n'arrête PAS la boucle. On compte `inserted`, `failed[]`.
+
+### 4. Récap final dans une Dialog (pas un toast)
+
+À la fin, ouvrir une Dialog "Résultat de l'import" avec 4 sections pliables :
+
+```text
+✓ 12 URLs importées
+⚠ 3 URLs déjà présentes (skippées)
+⚠ 2 doublons dans votre liste (1re version gardée)
+✗ 4 lignes invalides :
+  - "Recherche avancée - Portail des marchés publics" (pas une URL)
+  - "Nos consultations | Aéroport…" (pas une URL)
 ```
 
-Pas de FK déclarées entre ces tables, donc aucun risque d'erreur de contrainte — l'ordre est juste là pour rester cohérent.
+Bouton "Copier les lignes invalides" pour les récupérer et les corriger.
 
-## Effet UI attendu
+### 5. Auto-détection plateforme conservée
 
-- `/sourcing` : liste vide ("URLs configurées (0)").
-- `/tenders` : "0 résultat(s)".
-- `/pipeline`, `/awards`, `/activity` : vides.
-- Le scheduler tourne toujours mais n'a plus rien à faire tant qu'on n'ajoute pas de nouvelles URLs.
+Pour chaque URL valide insérée : `platform = detectPlatform(url)` (déjà fait actuellement, on garde).
 
-## Confirmation requise
+## Fichier concerné
 
-Action **destructive et irréversible** (1252 AO + 77 URLs + 124 attributions + 109 logs). Approuve le plan pour que je lance la migration.
+```text
+src/pages/Sourcing.tsx   ← refactor de handleBulkImport()
+```
+
+Aucune migration SQL, aucune edge function. ~60 lignes ajoutées.
+
+## Effet attendu
+
+- Tu peux coller n'importe quel mix d'URLs + texte sans casser l'import.
+- Les doublons sont signalés clairement, pas bloquants.
+- Tu vois exactement ce qui est passé / ce qui a été refusé / pourquoi.
 
