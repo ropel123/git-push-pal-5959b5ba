@@ -58,6 +58,8 @@ const Sourcing = () => {
   const [bulkUrls, setBulkUrls] = useState("");
   const [form, setForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6 });
   const [testResult, setTestResult] = useState<any>(null);
+  const [editing, setEditing] = useState<SourcingUrl | null>(null);
+  const [editForm, setEditForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6, is_active: true });
 
   useEffect(() => {
     if (!adminLoading && isAdmin === false) navigate("/dashboard");
