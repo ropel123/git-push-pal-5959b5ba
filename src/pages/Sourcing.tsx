@@ -380,7 +380,12 @@ const Sourcing = () => {
             </TableHeader>
             <TableBody>
               {urls.map((u) => (
-                <TableRow key={u.id}>
+                <TableRow
+                  key={u.id}
+                  id={`row-${u.id}`}
+                  data-row-id={u.id}
+                  className={highlightedId === u.id ? "bg-primary/10 ring-1 ring-primary/40 transition-colors duration-500" : "transition-colors duration-500"}
+                >
                   <TableCell className="min-w-[360px] align-top">
                     {u.display_name && <div className="font-medium mb-0.5">{u.display_name}</div>}
                     <a
