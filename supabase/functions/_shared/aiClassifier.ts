@@ -19,7 +19,7 @@ export type AIClassificationResult = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "anthropic/claude-3.5-sonnet";
+const MODEL = "anthropic/claude-sonnet-4.5";
 
 const SYSTEM_PROMPT = `Tu es un expert français des plateformes de marchés publics (DCE, profils acheteurs).
 On te donne une URL + un extrait HTML + des en-têtes HTTP. Tu DOIS renvoyer ton verdict via l'outil \`classify_platform\` et UNIQUEMENT via cet outil.
