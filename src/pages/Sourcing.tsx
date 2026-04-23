@@ -348,6 +348,9 @@ const Sourcing = () => {
                     <Button size="sm" variant="ghost" onClick={() => reclassifyOne(u.id)} disabled={running === u.id} title="Re-détecter la plateforme">
                       <Wand2 className="h-4 w-4" />
                     </Button>
+                    <Button size="sm" variant="ghost" onClick={() => openEdit(u)} title="Modifier">
+                      <Pencil className="h-4 w-4" />
+                    </Button>
                     <Button size="sm" variant="ghost" onClick={() => dryRun(u.id)} disabled={running === u.id} title="Test (dry-run)">
                       {running === u.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
                     </Button>
