@@ -147,12 +147,13 @@ const Sourcing = () => {
   };
 
   const saveEdit = async () => {
-    if (!editing) return;
+    if (!editing || saving) return;
     const newUrl = editForm.url.trim();
     if (!newUrl || !/^https?:\/\//i.test(newUrl)) {
       toast({ title: "URL invalide", description: "L'URL doit commencer par http(s)://", variant: "destructive" });
       return;
     }
+    setSaving(true);
     const urlChanged = newUrl !== editing.url;
     const update: any = {
       url: newUrl,
@@ -168,7 +169,9 @@ const Sourcing = () => {
       update.last_items_inserted = null;
       update.last_error = null;
     }
-    const { error } = await supabase.from("sourcing_urls").update(update).eq("id", editing.id);
+    const editedId = editing.id;
+    const { error } = await supabase.from("sourcing_urls").update(update).eq("id", editedId);
+    setSaving(false);
     if (error) {
       const msg = error.message.includes("duplicate") || error.message.includes("unique")
         ? "Cette URL existe déjà sur une autre ligne."
@@ -178,7 +181,8 @@ const Sourcing = () => {
     }
     toast({ title: "URL mise à jour" });
     setEditing(null);
-    load();
+    setHighlightedId(editedId);
+    await load();
   };
 
   const runNow = async (id: string) => {
