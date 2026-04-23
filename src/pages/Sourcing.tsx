@@ -60,6 +60,16 @@ const Sourcing = () => {
   const [testResult, setTestResult] = useState<any>(null);
   const [editing, setEditing] = useState<SourcingUrl | null>(null);
   const [editForm, setEditForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6, is_active: true });
+  const [saving, setSaving] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!highlightedId) return;
+    const el = document.getElementById(`row-${highlightedId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setHighlightedId(null), 3000);
+    return () => clearTimeout(t);
+  }, [highlightedId, urls]);
 
   useEffect(() => {
     if (!adminLoading && isAdmin === false) navigate("/dashboard");
@@ -137,12 +147,13 @@ const Sourcing = () => {
   };
 
   const saveEdit = async () => {
-    if (!editing) return;
+    if (!editing || saving) return;
     const newUrl = editForm.url.trim();
     if (!newUrl || !/^https?:\/\//i.test(newUrl)) {
       toast({ title: "URL invalide", description: "L'URL doit commencer par http(s)://", variant: "destructive" });
       return;
     }
+    setSaving(true);
     const urlChanged = newUrl !== editing.url;
     const update: any = {
       url: newUrl,
@@ -158,7 +169,9 @@ const Sourcing = () => {
       update.last_items_inserted = null;
       update.last_error = null;
     }
-    const { error } = await supabase.from("sourcing_urls").update(update).eq("id", editing.id);
+    const editedId = editing.id;
+    const { error } = await supabase.from("sourcing_urls").update(update).eq("id", editedId);
+    setSaving(false);
     if (error) {
       const msg = error.message.includes("duplicate") || error.message.includes("unique")
         ? "Cette URL existe déjà sur une autre ligne."
@@ -168,7 +181,8 @@ const Sourcing = () => {
     }
     toast({ title: "URL mise à jour" });
     setEditing(null);
-    load();
+    setHighlightedId(editedId);
+    await load();
   };
 
   const runNow = async (id: string) => {
@@ -284,9 +298,16 @@ const Sourcing = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o && !saving) setEditing(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Modifier l'URL de sourcing</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Modifier l'URL de sourcing</DialogTitle>
+            {editing && (
+              <p className="text-xs text-muted-foreground break-all">
+                ancien : {editing.url} · #{editing.id.slice(0, 8)}
+              </p>
+            )}
+          </DialogHeader>
           <div className="space-y-4">
             <div>
               <Label>URL</Label>
@@ -331,8 +352,10 @@ const Sourcing = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)}>Annuler</Button>
-            <Button onClick={saveEdit}>Enregistrer</Button>
+            <Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Annuler</Button>
+            <Button onClick={saveEdit} disabled={saving}>
+              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Enregistrement…</> : "Enregistrer"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -357,7 +380,12 @@ const Sourcing = () => {
             </TableHeader>
             <TableBody>
               {urls.map((u) => (
-                <TableRow key={u.id}>
+                <TableRow
+                  key={u.id}
+                  id={`row-${u.id}`}
+                  data-row-id={u.id}
+                  className={highlightedId === u.id ? "bg-primary/10 ring-1 ring-primary/40 transition-colors duration-500" : "transition-colors duration-500"}
+                >
                   <TableCell className="min-w-[360px] align-top">
                     {u.display_name && <div className="font-medium mb-0.5">{u.display_name}</div>}
                     <a
