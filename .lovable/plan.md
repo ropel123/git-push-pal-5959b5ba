@@ -1,305 +1,239 @@
+## Plan v3.2 — Atexo robuste (puis pattern dupliqué sur autres familles)
 
-# Moteur de scraping multi-pages v3 — règles codées + Agent Scout (Claude)
+### 🎯 Objectif
 
-## Vision
+Sur l'URL test `portail.marchespublics.nc/...&AllCons` :
+- **Avant** : 10 items récupérés sur ~40 disponibles
+- **Après** : 35-40 items récupérés (objectif ≥90% de couverture)
 
-On ne construit pas un scraper, on construit un **framework autonome d'adaptation web** :
-- **v2** : règles déclaratives codées par plateforme (rapide mais figé)
-- **v3 (ce plan)** : règles apprises par Agent Scout (Claude) + fallback v2 + auto-réparation
-- **v4 (futur)** : auto-optimisation continue à partir des métriques de runs
+Atexo est le pire cas (ASP.NET stateful + POST + VIEWSTATE). Si on le rend robuste, le pattern marche partout.
 
-**Principe d'or** : l'IA propose, le code décide. L'IA ne tourne JAMAIS au runtime, uniquement offline (ajout d'URL ou réparation).
+---
 
-## Inventaire actuel (rappel)
+### 📐 Architecture — Nouvelle stratégie `atexo` en 3 couches
 
-91 URLs non-custom actives à travers 17 plateformes (atexo 27, achatpublic 16, mpi 15, omnikles 12…). Aujourd'hui : page 1 uniquement, perte 80-95%.
-
-## Architecture
+Ordre **STRICT** (pas l'inverse) :
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│ PHASE 1 — Onboarding URL (offline, 1 fois)                 │
-│  ┌────────────────────────┐                                │
-│  │ Pre-processor DOM      │  ← ÉTAPE CRITIQUE              │
-│  │ - clean HTML (no JS/CSS)│                               │
-│  │ - extract links         │                               │
-│  │ - text sample           │                               │
-│  └──────────┬──────────────┘                               │
-│             ▼                                               │
-│  ┌────────────────────────┐                                │
-│  │ Agent Scout (Claude)   │  ← ~$0.005-0.01/URL            │
-│  │ génère playbook v1     │                                │
-│  └──────────┬──────────────┘                               │
-│             ▼                                               │
-│  ┌────────────────────────┐                                │
-│  │ Validation côté code    │ confidence>=0.7 ? selectors ok?│
-│  └──────────┬──────────────┘                               │
-│             ▼                                               │
-│  agent_playbooks (versionné, ancien préservé)              │
-└─────────────────────────────────────────────────────────────┘
+1. MAP-FIRST       → firecrawl.map filtré /consultation/{id}
+   ├─ si ≥30 IDs uniques → STOP, on a tout
+   └─ sinon → on garde les IDs trouvés et on passe à 2
 
-┌─────────────────────────────────────────────────────────────┐
-│ PHASE 2 — Runtime (toutes les 6h, ZERO IA)                 │
-│                                                             │
-│  Lookup playbook → exécute strategy                        │
-│       │                                                     │
-│       ├─ confidence >= 0.9 → full auto                     │
-│       ├─ 0.7-0.9 → exec + log warning                      │
-│       └─ < 0.7 → fallback PAGINATION_RULES (v2 codé)       │
-│                                                             │
-│  Pendant l'exécution, le CODE applique les stop rules :    │
-│       if (newUniqueLinks === 0) stop;                      │
-│       if (page > maxPages) stop;                           │
-│       if (samePageHash) stop;                              │
-│       if (callsUsed > MAX_CALLS_PER_URL) stop;             │
-└─────────────────────────────────────────────────────────────┘
+2. LIST + pageSize=20  → 1 scrape avec &listePageSizeBottom=20
+   ├─ extrait les IDs de la page 1 (jusqu'à 20)
+   ├─ extrait nombrePageBottom (total pages réelles)
+   ├─ MERGE avec les IDs du Map
+   └─ si totalPages = 1 ou ratio_couverture ≥ 90% → STOP
 
-┌─────────────────────────────────────────────────────────────┐
-│ PHASE 3 — Auto-healing (déclenché par signal STRUCTUREL)   │
-│                                                             │
-│  fail_count >= 2 ET last_error_type IN (                   │
-│    'selector_not_found',                                    │
-│    'pagination_broken',                                     │
-│    'list_empty_with_data_in_dom'                           │
-│  ) → re-trigger Agent Scout (= Healer)                     │
-│                                                             │
-│  Network/timeout/Firecrawl 5xx → simple retry, pas de heal │
-└─────────────────────────────────────────────────────────────┘
+3. ACTIONS pagination  → loop basée sur totalPages connu
+   ├─ pour i de 2 à min(totalPages, MAX_PAGES=4)
+   ├─ 1 scrape Firecrawl avec actions:[wait, click(next), wait, scrape]
+   └─ MERGE IDs
 
-┌─────────────────────────────────────────────────────────────┐
-│ PHASE 4 — Agent Live (manuel uniquement, bouton UI)        │
-│  Browserbase + Claude pour cas extrêmes (1-clic "Débloquer")│
-└─────────────────────────────────────────────────────────────┘
+4. DEDUP par ID consultation extrait du href (/consultation/(\d+))
 ```
 
-## Pre-processor DOM (clé du gain de tokens / précision)
+**Limites strictes** : max 6 calls Firecrawl par URL Atexo (1 map + 1 list + 4 actions max). Au-delà → arrêt.
 
-`supabase/functions/_shared/domPreprocessor.ts` :
+---
 
-```ts
-export function preprocess(html: string, baseUrl: string) {
-  // 1. parser DOM (deno-dom)
-  // 2. supprimer <script>, <style>, <svg>, <noscript>, <iframe>
-  // 3. supprimer comments, attrs inutiles (style, onclick, data-*)
-  // 4. extraire <body> uniquement
-  // 5. tronquer à ~30 KB max (les listes utiles sont en haut)
-  return {
-    url: baseUrl,
-    clean_dom: cleanedHtml,           // ~5-10 KB au lieu de 200 KB
-    links: extractLinks(html, baseUrl), // tous les href absolutisés
-    text_sample: extractText(html).slice(0, 3000),
-    structural_hints: {
-      has_table: /<table[^>]*>[\s\S]*?<\/table>/.test(html),
-      has_pagination_widget: /pagination|next|suivant|page-/i.test(html),
-      form_count: (html.match(/<form/g) || []).length,
-    },
-  };
-}
-```
+### 🔧 Modifications de code
 
-Gain : **-70% tokens** envoyés à Claude → Scout passe de $0.03 à $0.005 par URL.
+#### A. Nouveau module `_shared/atexoExecutor.ts` (dédié)
 
-## Format playbook (versionné + signaux exploitables)
+Pourquoi un module dédié ? Atexo a une logique trop spécifique (ID-based dedup, 3 couches en cascade) pour rester dans le `playbookExecutor` générique. On garde le générique pour les autres familles.
 
 ```ts
-type Playbook = {
-  // Versioning (jamais d'overwrite, on insert une nouvelle version)
-  version: number;                  // 1, 2, 3…
-  created_at: string;
-  last_validated_at: string;
-  fail_count: number;
-  last_error_type?: ErrorType;
-  is_active: boolean;               // un seul playbook actif par URL
+export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult> {
+  const allIds = new Map<string, ConsultationItem>(); // ID → item
+  const stats = { map_urls: 0, list_urls: 0, actions_pages: 0, total_pages_detected: 0 };
 
-  // Décision
-  list_strategy: "template" | "hybrid" | "map" | "manual";
-  pagination_hint: "numbered" | "next_button" | "infinite_scroll" | "none" | "unknown";
-  confidence: number;               // 0-1 → décide auto / fallback / manuel
-
-  // Pagination déterministe (si numbered)
-  pagination?: {
-    type: "url_param" | "url_path" | "form_post";
-    param?: string;                 // ex: "PageNumber"
-    first_page: number;             // 0 ou 1
-    url_template?: string;          // "{base}&PageNumber={n}"
-    max_pages_observed?: number;
-  };
-
-  // Sélecteurs CSS (utilisés par le pre-processor au runtime, PAS par l'IA)
-  selectors: {
-    list_rows: string;
-    detail_link: string;
-    next_page_indicator?: string;
-  };
-
-  // Évidence (debug + audit)
-  evidence: string;                 // ex: "table.atexo-results detected"
-  scout_model: string;              // claude-sonnet-4-5
-  scout_tokens_used: number;
-};
-
-type ErrorType =
-  | "selector_not_found"           // → trigger Healer
-  | "pagination_broken"            // → trigger Healer
-  | "list_empty_with_data_in_dom"  // → trigger Healer
-  | "network_timeout"              // → simple retry
-  | "firecrawl_5xx"                // → simple retry
-  | "rate_limited";                // → backoff
-```
-
-## Exploitation du `confidence` (concret)
-
-```ts
-function executePlaybook(pb: Playbook, url: string) {
-  if (pb.confidence < 0.5) {
-    return { skip: true, reason: "manual_review_required" };
+  // === COUCHE 1 : MAP ===
+  const mapRes = await firecrawlMap(baseHost, apiKey, { search: "consultation" });
+  for (const url of mapRes.links) {
+    const id = extractConsultationId(url);
+    if (id) allIds.set(id, { id, url, source: "map" });
   }
-  if (pb.confidence < 0.7) {
-    return executeFallbackV2(url);  // règles codées PAGINATION_RULES
+  stats.map_urls = allIds.size;
+
+  // Heuristique : si Map a ramené ≥30 IDs et la page d'accueil dit "moins de X"
+  // → on s'arrête (avant: estimer X via list page 1 quand même)
+
+  // === COUCHE 2 : LIST + pageSize=20 ===
+  const listUrl = addParam(ctx.url, "listePageSizeBottom", "20");
+  const listRes = await firecrawlScrapeStructured(listUrl, apiKey, { wantHtml: true });
+  for (const t of listRes.tenders) {
+    const id = extractConsultationId(t.dce_url);
+    if (id && !allIds.has(id)) allIds.set(id, { id, ...t, source: "list" });
   }
-  if (pb.confidence < 0.9) {
-    const result = executePlaybookStrategy(pb, url);
-    logWarning(`Low confidence playbook (${pb.confidence})`);
-    return result;
+  stats.list_urls = listRes.tenders.length;
+  stats.total_pages_detected = parseTotalPages(listRes.raw_html); // depuis #...nombrePageBottom
+
+  // Stop conditions
+  if (stats.total_pages_detected <= 1) return finalize(allIds, "single_page", stats);
+  if (allIds.size / (stats.total_pages_detected * 20) >= 0.9) return finalize(...);
+
+  // === COUCHE 3 : ACTIONS pagination ===
+  const MAX_ACTION_PAGES = Math.min(stats.total_pages_detected - 1, 4);
+  for (let i = 0; i < MAX_ACTION_PAGES; i++) {
+    if (calls >= MAX_CALLS_PER_URL) break;
+    const actionRes = await firecrawlScrapeWithActions(listUrl, apiKey, [
+      { type: "wait", milliseconds: 1500 },
+      { type: "click", selector: "a[title*='page suivante'], a[title*='Aller à la page suivante']" },
+      { type: "wait", milliseconds: 2000 },
+      { type: "scrape" }
+    ]);
+    stats.actions_pages++;
+    for (const t of actionRes.tenders) {
+      const id = extractConsultationId(t.dce_url);
+      if (id && !allIds.has(id)) allIds.set(id, { id, ...t, source: "actions" });
+    }
   }
-  return executePlaybookStrategy(pb, url);  // full auto
+
+  return finalize(allIds, "completed", stats);
 }
 ```
 
-## Stop rules (côté CODE, jamais déléguées à l'IA)
+#### B. Étendre `firecrawlScrape.ts` avec une variante `withActions`
 
 ```ts
-const seenFingerprints = new Set<string>();
-const seenPageHashes = new Set<string>();
-
-for (let p = pb.pagination.first_page; p <= MAX_PAGES; p++) {
-  const html = await fetchPage(buildUrl(p));
-  const pageHash = sha1(html);
-  if (seenPageHashes.has(pageHash)) break;       // page identique = fin
-  seenPageHashes.add(pageHash);
-
-  const items = extractWithSelectors(html, pb.selectors);
-  const newItems = items.filter(it => !seenFingerprints.has(fp(it)));
-  if (newItems.length === 0) break;              // VRAI signal de fin
-  newItems.forEach(it => seenFingerprints.add(fp(it)));
-  results.push(...newItems);
-
-  if (callsUsed >= MAX_CALLS_PER_URL) break;     // budget par URL
-  if (newItems.length < pb.expected_page_size / 2) break; // page partielle = dernière
-}
+export async function firecrawlScrapeWithActions(
+  url: string,
+  apiKey: string,
+  actions: FirecrawlAction[],
+  opts?: ScrapeOptions
+): Promise<ScrapeResult>
 ```
 
-## Stratégie Hybrid (l'optim qui fait la diff, exploitée à fond)
+Réutilise la même extraction JSON (`TENDER_SCHEMA`) + `links`, juste avec `actions` dans le body.
 
-Pour atexo / achatpublic / mpi (gros volumes, listes peu informatives) :
-
-1. Page 1 liste → extraire 10-30 **liens détail**
-2. **STOP pagination liste**, on ne fait pas page 2-N
-3. Scraper chaque page détail directement (parallèle, max 3) → données 3-5x plus riches
-4. Si run suivant : même page 1, dédup par seen_urls cache → on ne re-scrape que les nouveaux détails
-
-Gain : -80% appels Firecrawl, +300% qualité data.
-
-## Auto-healing — trigger structurel uniquement
+#### C. Helpers nouveaux dans `paginationRules.ts`
 
 ```ts
-// Dans scrape-list, après échec :
-const errorType = classifyError(error);
-const shouldHeal = (
-  pb.fail_count >= 2 &&
-  ["selector_not_found", "pagination_broken", "list_empty_with_data_in_dom"]
-    .includes(errorType)
-);
-if (shouldHeal) {
-  await triggerHealer(sourcing_url_id);  // re-Scout, crée playbook v(N+1)
+export function extractConsultationId(url: string | undefined): string | null {
+  if (!url) return null;
+  // Match: /consultation/3014, /consultation/3014?orgAcronyme=xxx
+  const m = url.match(/\/consultation\/(\d+)/);
+  return m ? m[1] : null;
 }
-// errors network/timeout/5xx → simple retry, fail_count NON incrémenté
+
+export function parseTotalPages(html: string | null): number {
+  if (!html) return 1;
+  // Cherche <span id="...nombrePageBottom">N</span>
+  const m = html.match(/nombrePageBottom["'][^>]*>(\d+)</);
+  return m ? parseInt(m[1], 10) : 1;
+}
+
+export function addParam(url: string, key: string, value: string): string {
+  const u = new URL(url);
+  u.searchParams.set(key, value);
+  return u.toString();
+}
 ```
 
-## Schéma DB
+#### D. Routing dans `scrape-list/index.ts`
 
-### Modification `agent_playbooks` (table existante)
-```sql
-alter table agent_playbooks
-  add column sourcing_url_id uuid references sourcing_urls(id) on delete cascade,
-  add column version integer not null default 1,
-  add column confidence numeric not null default 0,
-  add column pagination_hint text,
-  add column last_validated_at timestamptz,
-  add column fail_count integer not null default 0,
-  add column last_error_type text,
-  add column scout_model text,
-  add column scout_tokens_used integer,
-  add column evidence text;
-
-create index on agent_playbooks (sourcing_url_id, is_active);
-create unique index on agent_playbooks (sourcing_url_id, version);
--- Pas d'overwrite : un nouveau playbook = nouvelle ligne, ancien désactivé
+```ts
+if (platform === "atexo") {
+  result = await executeAtexo(ctx);
+} else {
+  result = await playbookExecutor(ctx); // générique pour les autres
+}
 ```
 
-### Nouvelle table `sourcing_seen_urls` (cache anti-doublon)
-```sql
-create table sourcing_seen_urls (
-  sourcing_url_id uuid not null references sourcing_urls(id) on delete cascade,
-  url_hash text not null,
-  first_seen_at timestamptz not null default now(),
-  last_seen_at timestamptz not null default now(),
-  primary key (sourcing_url_id, url_hash)
-);
-create index on sourcing_seen_urls (sourcing_url_id, last_seen_at);
--- TTL via cron quotidien : DELETE WHERE last_seen_at < now() - interval '30 days'
+---
+
+### 📊 Logging enrichi (metadata `scrape_logs`)
+
+Au lieu du metadata actuel, on log :
+
+```json
+{
+  "platform": "atexo",
+  "strategy": "atexo_3layer",
+  "stats": {
+    "map_urls_found": 32,
+    "list_urls_found": 20,
+    "actions_pages_scraped": 2,
+    "total_pages_detected": 4,
+    "unique_consultations": 37,
+    "items_per_page_actual": [20, 18]
+  },
+  "calls_firecrawl": 4,
+  "stopped_by": "completed",
+  "coverage_ratio": 0.925
+}
 ```
 
-## Code à créer / modifier
+→ Permet de voir d'un coup d'œil si la stratégie Atexo fait son job.
 
-### Nouveaux fichiers
-- `supabase/functions/_shared/domPreprocessor.ts` — clean HTML + extract links/text
-- `supabase/functions/_shared/paginationRules.ts` — table v2 (fallback déclaratif)
-- `supabase/functions/_shared/playbookExecutor.ts` — exécute un playbook avec stop rules dures
-- `supabase/functions/_shared/firecrawlMap.ts` — wrapper Map filtré (cap 100 URLs détail)
-- `supabase/functions/scout-playbook/index.ts` — Agent Scout (Claude via Anthropic API)
-- `supabase/functions/heal-playbook/index.ts` — Healer (re-Scout déclenché par signal structurel)
+---
 
-### Fichiers modifiés
-- `supabase/functions/scrape-list/index.ts` — orchestrateur : lookup playbook → executor → fallback v2 → log
-- `src/pages/Sourcing.tsx` :
-  - colonne "Playbook" (version + confidence + last_validated)
-  - bouton "Analyser avec IA" (déclenche Scout manuellement)
-  - bouton "Débloquer" (déclenche Agent Live Browserbase, sur les URLs en échec répété)
-  - mode FAST/DEEP/SMART par URL
+### 🧪 Validation après déploiement
 
-### Migration data
-- Reclassifications préalables (5 URLs mal taguées) :
-  - `aws/colombes.fr` → `custom`
-  - `domino/extranet.bordeaux.aeroport.fr` → `custom`
-  - `e-marchespublics/www.e-marchespublics.com` racine → supprimer
-  - `omnikles/*.safetender.com` (×2) → reclasser `safetender`
-  - `eu-supply/synapse-entreprises.com` racine → supprimer
+1. Lancer un run sur `portail.marchespublics.nc/...&AllCons` en mode SMART
+2. Vérifier dans `scrape_logs` :
+   - `unique_consultations` ≥ 35
+   - `coverage_ratio` ≥ 0.85
+   - `calls_firecrawl` ≤ 6
+3. Vérifier dans `tenders` : 30+ nouvelles consultations avec `dce_url` distinct
+4. Vérifier l'idempotence : 2e run consécutif → 0 inserted (cache `sourcing_seen_urls` actif)
 
-## Quand l'IA tourne (et combien ça coûte)
+---
 
-| Événement | Fréquence | Coût Claude |
+### 🚧 Garde-fous coût
+
+| Garde-fou | Valeur |
+|---|---|
+| Max calls Firecrawl / URL Atexo | **6** (1 map + 1 list + 4 actions) |
+| Max liens Map gardés | 100 (déjà en place) |
+| Max pages via actions | **4** (au-delà = budget) |
+| Hard timeout par scrape | 25s (déjà en place) |
+| Total wait dans actions | <10s (compatible limite Firecrawl 60s) |
+
+Coût estimé par run Atexo complet : **~$0.06** (6 calls × ~$0.01)
+
+---
+
+### 📦 Fichiers touchés
+
+**Créés :**
+- `supabase/functions/_shared/atexoExecutor.ts` (nouveau, ~180 lignes)
+
+**Modifiés :**
+- `supabase/functions/_shared/firecrawlScrape.ts` (+ `firecrawlScrapeWithActions`)
+- `supabase/functions/_shared/paginationRules.ts` (+ helpers `extractConsultationId`, `parseTotalPages`, `addParam`)
+- `supabase/functions/scrape-list/index.ts` (routing platform=atexo + logging stats)
+
+**Pas touchés (volontairement) :**
+- `playbookExecutor.ts` reste pour autres plateformes
+- `scout-playbook` / `heal-playbook` pas modifiés cette fois (Atexo a sa logique en dur, pas de playbook IA)
+- Pas de migration BDD
+
+---
+
+### 🗺️ Vision long terme (après validation Atexo)
+
+Une fois Atexo stable, on duplique le pattern :
+
+| Famille | Module dédié probable | Stratégie clé |
 |---|---|---|
-| Ajout d'URL → Scout auto | ~5 nouvelles URLs/mois | ~$0.05 |
-| Bouton "Analyser avec IA" → Scout manuel | à la demande | ~$0.01/clic |
-| Healer (signal structurel) | ~5-10/mois estimés | ~$0.10 |
-| Agent Live (Browserbase + Claude) | manuel uniquement | ~$0.30/clic |
+| **achatpublic.com** | `achatpublicExecutor.ts` | similaire (ASP.NET aussi) |
+| **MPI / sarthe-mp** | `mpiExecutor.ts` | actions click sur "Suivant" |
+| **klekoon / omnikles** | playbook générique map-only | URLs plates → map suffit |
+| **e-marchespublics** | playbook template (template OK) | `?page=N` fonctionne |
 
-**Total Anthropic estimé : $5-20/mois**. Le vrai coût reste Firecrawl (~$50-150/mois selon volume).
+---
 
-## Onboarding Scout — auto ou manuel ?
+### ✅ Ajustements de ta review intégrés
 
-Je propose **manuel par défaut** : quand l'admin ajoute une URL, un bouton "Analyser avec IA" propose de générer le playbook. L'admin garde le contrôle des coûts ET valide la confidence avant activation. Auto-Scout activable globalement via un toggle Settings.
-
-## Hors scope (v4 future)
-- Auto-optimisation continue (apprendre des runs réussis pour affiner les selectors)
-- Adapter API native PLACE
-- Login automatisé Omnikles (déjà via `agent_playbooks` + Browserbase pour cas spécifiques)
-- Playbook partagé entre projets (pattern multi-tenant)
-
-## Questions ouvertes
-
-1. **Modèle Scout** : `claude-sonnet-4-5` (qualité top, ~$0.005-0.01/URL après pre-processing) ou `claude-haiku-4-5` (3x moins cher mais selectors moins fiables) ? Je recommande Sonnet vu le faible volume.
-2. **Onboarding Scout** : manuel via bouton (recommandé) ou auto à l'ajout ?
-3. **Agent Live (Browserbase)** : on l'inclut dans cette v3 ou on le repousse à plus tard ? Coût d'implémentation = +1-2h.
-4. **Reclassifications BDD** : je te génère un script SQL séparé que tu valides avant exécution, ou j'exécute les 5 corrections d'office ?
+| Demande | Statut |
+|---|---|
+| MAP en priorité (pas fallback) | ✅ Couche 1 |
+| ID-based dedup | ✅ `extractConsultationId` partout |
+| Loop basée sur `totalPages` | ✅ `parseTotalPages` du DOM |
+| Pas de click aveugle | ✅ Loop bornée par totalPages connu |
+| Limite URLs Map | ✅ 100 hard cap (déjà) |
+| Logging stats détaillé | ✅ `coverage_ratio` + breakdown |
+| pageSize=20 systématique | ✅ Couche 2 |
+| Pas de scrape massif map results | ✅ On extrait juste les IDs des liens map (pas de scrape par URL) |
