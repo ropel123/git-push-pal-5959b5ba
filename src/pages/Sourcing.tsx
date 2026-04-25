@@ -657,10 +657,54 @@ const Sourcing = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>URLs configurées ({urls.length})</CardTitle>
+          <CardTitle>
+            URLs configurées ({filtersActive ? `${filteredUrls.length} / ${urls.length}` : urls.length})
+          </CardTitle>
           <CardDescription>Le scheduler tourne automatiquement, ou utilisez les boutons pour tester / forcer.</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex flex-wrap gap-2 mb-4">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher par URL ou nom…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+            <Select value={platformFilter} onValueChange={setPlatformFilter}>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Plateforme" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes plateformes</SelectItem>
+                {platformCounts.map(([p, n]) => (
+                  <SelectItem key={p} value={p}>{p} ({n})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Statut" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous statuts</SelectItem>
+                <SelectItem value="success">Succès</SelectItem>
+                <SelectItem value="error">Erreur</SelectItem>
+                <SelectItem value="never">Jamais lancé</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={activeFilter} onValueChange={setActiveFilter}>
+              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Actif" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous</SelectItem>
+                <SelectItem value="active">Actifs</SelectItem>
+                <SelectItem value="inactive">Inactifs</SelectItem>
+              </SelectContent>
+            </Select>
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
+                <X className="mr-1 h-4 w-4" /> Réinitialiser
+              </Button>
+            )}
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
