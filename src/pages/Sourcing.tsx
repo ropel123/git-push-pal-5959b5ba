@@ -718,7 +718,7 @@ const Sourcing = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {urls.map((u) => (
+              {filteredUrls.map((u) => (
                 <TableRow
                   key={u.id}
                   id={`row-${u.id}`}
@@ -783,8 +783,10 @@ const Sourcing = () => {
                   </TableCell>
                 </TableRow>
               ))}
-              {urls.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Aucune URL configurée. Ajoutez-en une pour commencer.</TableCell></TableRow>
+              {filteredUrls.length === 0 && (
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  {urls.length === 0 ? "Aucune URL configurée. Ajoutez-en une pour commencer." : "Aucune URL ne correspond aux filtres."}
+                </TableCell></TableRow>
               )}
             </TableBody>
           </Table>
