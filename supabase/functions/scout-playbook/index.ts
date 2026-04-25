@@ -199,9 +199,11 @@ Deno.serve(async (req) => {
         list_strategy: pb.list_strategy,
         pagination_hint: pb.pagination_hint,
         confidence: pb.confidence,
-        config: { pagination: pb.pagination ?? {} },
+        config: {
+          pagination: pb.pagination ?? {},
+          selectors: pb.selectors ?? {},
+        },
         steps: [],
-        selectors: pb.selectors ?? {},
         evidence: pb.evidence,
         scout_model: SCOUT_MODEL,
         scout_tokens_used: result.tokens,
