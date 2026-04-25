@@ -86,7 +86,7 @@ export function detectContractType(s?: string | null): string | null {
   return null;
 }
 
-// Liste des hostnames qui tournent sur Atexo (LocalTrust / SDM) sans avoir
+// Hostnames qui tournent sur Atexo (LocalTrust / SDM) sans avoir
 // "atexo" littéralement dans le hostname.
 const ATEXO_HOST_SUFFIXES = [
   "ampmetropole.fr",
@@ -99,6 +99,8 @@ const ATEXO_HOST_SUFFIXES = [
   "demat-ampa.fr",
   "marches-publics-hopitaux.fr",
   "alsacemarchespublics.eu",
+  "solaere.recia.fr",       // RECIA Centre-Val de Loire
+  "webmarche.recia.fr",
 ];
 
 function endsWithHost(host: string, suffix: string): boolean {
@@ -107,10 +109,7 @@ function endsWithHost(host: string, suffix: string): boolean {
 
 /**
  * Classifie une URL vers une plateforme connue.
- * Règles ordonnées par spécificité : host exact > suffixe host > path.
- * SafeTender n'est attribué QUE si "safetender" est littéralement dans le hostname.
- * Les SDM (/sdm/...) tombent par défaut en "atexo", pas en "safetender".
- *
+ * Règles ordonnées par spécificité : host exact > suffixe host > path > pattern URL.
  * Doit rester strictement aligné avec src/lib/detectPlatform.ts.
  */
 export function detectPlatformFromUrl(url: string): string {
@@ -122,6 +121,8 @@ function detectPlatformFromUrlInternal(url: string): string {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
     const path = u.pathname.toLowerCase();
+    const search = u.search.toLowerCase();
+    const fullPath = path + search;
 
     // 1. Hostname exacts / suffixes régionaux dédiés
     if (host === "marchespublics.auvergnerhonealpes.eu") return "aura";
@@ -129,7 +130,7 @@ function detectPlatformFromUrlInternal(url: string): string {
     if (endsWithHost(host, "megalis.bretagne.bzh")) return "megalis";
     if (endsWithHost(host, "ternum-bfc.fr")) return "ternum";
 
-    // 2. Atexo (SDM/LocalTrust régionaux)
+    // 2. Atexo (SDM/LocalTrust régionaux + RECIA + suffixes)
     for (const sfx of ATEXO_HOST_SUFFIXES) {
       if (endsWithHost(host, sfx)) return "atexo";
     }
@@ -143,21 +144,41 @@ function detectPlatformFromUrlInternal(url: string): string {
     if (endsWithHost(host, "projets-achats.marches-publics.gouv.fr")) return "place";
     if (host === "marches-publics.gouv.fr" || host === "www.marches-publics.gouv.fr") return "place";
 
-    // 5. Autres éditeurs
+    // 5. Autres éditeurs (hostname)
     if (endsWithHost(host, "achatpublic.com")) return "achatpublic";
     if (endsWithHost(host, "e-marchespublics.com")) return "e-marchespublics";
     if (endsWithHost(host, "marches-securises.fr")) return "marches-securises";
     if (endsWithHost(host, "klekoon.com")) return "klekoon";
     if (endsWithHost(host, "xmarches.fr")) return "xmarches";
+    if (endsWithHost(host, "omnikles.com")) return "omnikles";
+    if (endsWithHost(host, "synapse-entreprises.com")) return "synapse";
+    if (endsWithHost(host, "centraledesmarches.com")) return "centrale-marches";
+    if (endsWithHost(host, "francemarches.com")) return "francemarches";
+    if (endsWithHost(host, "aji-france.com")) return "aji";
+    if (endsWithHost(host, "eu-supply.com")) return "eu-supply";
 
     // 6. SafeTender STRICT (uniquement si "safetender" littéralement dans le hostname)
     if (host.includes("safetender")) return "safetender";
 
-    // 7. Fallback SDM (LocalTrust) → atexo (et NON safetender)
+    // 7. Patterns d'URL universels (signature SDM/LocalTrust quel que soit le hostname)
+    // ?page=Entreprise.EntrepriseAdvancedSearch est LE marqueur canonique d'Atexo SDM
+    if (search.includes("page=entreprise.entrepriseadvancedsearch")) return "atexo";
     if (path.includes("/sdm/ent2/gen/")) return "atexo";
     if (path.includes("/sdm/")) return "atexo";
+    if (path.includes("/app_atexo/")) return "atexo";
 
-    console.warn(`[detectPlatformFromUrl] Plateforme inconnue pour host=${host} path=${path} → custom`);
+    // ColdFusion → MPI
+    if (path.endsWith(".cfm") && search.includes("fuseaction=")) return "mpi";
+
+    // Omnikles patterns
+    if (path.includes("/okmarche/")) return "omnikles";
+    if (path.includes("/xmarches/okmarche/")) return "omnikles";
+
+    // Domino (Lotus Notes)
+    if (search.includes("openform") || search.includes("readform")) return "domino";
+    if (path.includes(".nsf/")) return "domino";
+
+    console.warn(`[detectPlatformFromUrl] Plateforme inconnue pour host=${host} path=${fullPath} → custom`);
     return "custom";
   } catch {
     return "custom";
@@ -165,14 +186,17 @@ function detectPlatformFromUrlInternal(url: string): string {
 }
 
 // ============================================================
-// Pipeline AI-first : cache → IA (Claude via OpenRouter)
-// Le hostname est utilisé en fallback rapide ET en validation post-IA.
+// Pipeline déterministe en cascade :
+// 1. Cache platform_fingerprints (24h)
+// 2. Hostname étendu (gratuit, 0ms)
+// 3. Signatures DOM via fetch HTML local (déterministe, gratuit)
+// 4. IA en dernier recours (Claude Haiku via Anthropic web_fetch)
 // ============================================================
 import { fetchHtmlForClassification } from "./fingerprint.ts";
+import { detectPlatformFromHtml } from "./detectPlatformFromHtml.ts";
 import { classifyWithProvider, modelLabel, type AIProvider, DEFAULT_PROVIDER } from "./classifyDispatcher.ts";
 
 const FINGERPRINT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const AI_CONFIDENCE_THRESHOLD = 0.6;
 
 type SupabaseLike = {
   from: (table: string) => any;
@@ -242,29 +266,55 @@ export async function resolvePlatform(
     };
   }
 
-  // 3. Classification IA
-  // - provider "anthropic" : web_fetch côté Anthropic, on n'a PAS besoin de fetch local
-  // - provider "openrouter" : on doit fetch le HTML nous-même
-  let html = "";
-  let headers = new Headers();
-  if (provider === "openrouter") {
-    const fetched = await fetchHtmlForClassification(url);
-    if (!fetched.ok && !fetched.html) {
-      console.warn(`[resolvePlatform] HTML fetch failed for ${host}: ${fetched.error ?? fetched.status}`);
-      if (fromHost !== "custom") {
-        return { platform: fromHost, source: "hostname", confidence: 0.85, evidence: [`hostname:${host}`, `fetch-failed:${fetched.error ?? fetched.status}`] };
+  // 3. Couche DOM déterministe : on fetch le HTML et on cherche des signatures sans IA
+  const fetched = await fetchHtmlForClassification(url);
+  let html = fetched.html;
+  let headers = fetched.headers;
+
+  if (html) {
+    const domMatch = detectPlatformFromHtml(html);
+    if (domMatch) {
+      const evidence = [
+        `dom-signature`,
+        `evidence:${domMatch.evidence}`,
+        `pagination:${domMatch.pagination_hint}`,
+      ];
+      // Cache + return
+      try {
+        await supabase.from("platform_fingerprints").upsert(
+          {
+            host,
+            platform: domMatch.platform,
+            confidence: domMatch.confidence,
+            evidence,
+            detected_at: new Date().toISOString(),
+          },
+          { onConflict: "host" }
+        );
+      } catch (err) {
+        console.warn(`[resolvePlatform] cache write failed for ${host}:`, err);
       }
-      return { platform: "custom", source: "fallback", confidence: 0, evidence: [`fetch-failed:${fetched.error ?? fetched.status}`] };
+      return {
+        platform: domMatch.platform,
+        source: "ai",            // on reste compatible avec l'enum existant
+        confidence: domMatch.confidence,
+        evidence,
+        pagination_hint: domMatch.pagination_hint,
+      };
     }
-    html = fetched.html;
-    headers = fetched.headers;
+  } else if (!fetched.ok && provider === "openrouter") {
+    // OpenRouter a besoin du HTML local ; sans HTML on ne peut rien faire
+    console.warn(`[resolvePlatform] HTML fetch failed for ${host}: ${fetched.error ?? fetched.status}`);
+    return { platform: "custom", source: "fallback", confidence: 0, evidence: [`fetch-failed:${fetched.error ?? fetched.status}`] };
   }
 
+  // 4. Classification IA (dernier recours)
+  // - provider "anthropic" : web_fetch côté Anthropic, peut classifier même sans HTML local
+  // - provider "openrouter" : utilise le HTML qu'on vient de fetch
   const ai = await classifyWithProvider({ url, htmlSnippet: html, responseHeaders: headers, provider });
 
-  let finalPlatform = ai.platform;
-  let finalConfidence = ai.confidence;
-  let source: ResolvedPlatform["source"] = "ai";
+  const finalPlatform = ai.platform;
+  const finalConfidence = ai.confidence;
   const evidence: string[] = [
     `ai:${modelLabel(provider)}`,
     `confidence:${ai.confidence.toFixed(2)}`,
@@ -272,18 +322,10 @@ export async function resolvePlatform(
   ];
   if (ai.reasoning) evidence.push(`reasoning:${ai.reasoning}`);
 
-  // Threshold : sous le seuil → custom, sauf si hostname avait trouvé mieux
-  if (ai.confidence < AI_CONFIDENCE_THRESHOLD || finalPlatform === "custom") {
-    if (fromHost !== "custom") {
-      finalPlatform = fromHost;
-      finalConfidence = 0.85;
-      source = "hostname";
-      evidence.push(`fallback-hostname:${host}`);
-    } else {
-      finalPlatform = "custom";
-      source = "fallback";
-      console.warn(`[resolvePlatform] custom for host=${host} ai=${ai.platform}@${ai.confidence} reasoning="${ai.reasoning}"`);
-    }
+  // Pas de seuil : on fait confiance au verdict de l'agent.
+  // Si l'agent renvoie "custom", c'est qu'il a vraiment rien trouvé.
+  if (finalPlatform === "custom") {
+    console.warn(`[resolvePlatform] custom for host=${host} ai=${ai.platform}@${ai.confidence} reasoning="${ai.reasoning}"`);
   }
 
   // Cache (uniquement si on a une vraie plateforme)
@@ -306,7 +348,7 @@ export async function resolvePlatform(
 
   return {
     platform: finalPlatform,
-    source,
+    source: finalPlatform === "custom" ? "fallback" : "ai",
     confidence: finalConfidence,
     evidence,
     pagination_hint: ai.pagination_hint,
