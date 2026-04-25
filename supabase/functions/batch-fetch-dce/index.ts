@@ -81,7 +81,7 @@ async function scrapePage(url: string, firecrawlKey: string): Promise<{
       },
     }
   } catch (err) {
-    return { files: null, enriched: null, error: `Scrape failed: ${err.message}` }
+    return { files: null, enriched: null, error: `Scrape failed: ${err instanceof Error ? err.message : String(err)}` }
   }
 }
 
@@ -208,7 +208,7 @@ Deno.serve(async (req) => {
       success: results.filter(r => r.status === 'success').length,
       enriched_only: results.filter(r => r.status === 'enriched_only').length,
       failed: results.filter(r => r.status === 'failed').length,
-      total_in_db: processedIds.size + results.length,
+      total_in_db: results.length,
       results,
     }
 
@@ -219,7 +219,7 @@ Deno.serve(async (req) => {
     })
   } catch (err) {
     console.error('Batch error:', err)
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

@@ -87,7 +87,7 @@ async function fetchPlace(url: string): Promise<{ files: ArrayBuffer[] | null; e
       },
     }
   } catch (err) {
-    return { files: null, enriched: null, error: `PLACE scrape failed: ${err.message}` }
+    return { files: null, enriched: null, error: `PLACE scrape failed: ${err instanceof Error ? err.message : String(err)}` }
   }
 }
 
@@ -157,7 +157,7 @@ async function fetchGeneric(url: string): Promise<{ files: ArrayBuffer[] | null;
       },
     }
   } catch (err) {
-    return { files: null, enriched: null, error: `Scrape failed: ${err.message}` }
+    return { files: null, enriched: null, error: `Scrape failed: ${err instanceof Error ? err.message : String(err)}` }
   }
 }
 
@@ -303,7 +303,7 @@ Deno.serve(async (req) => {
     })
   } catch (err) {
     console.error('Unhandled error:', err)
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
