@@ -42,10 +42,12 @@ import {
 } from "./pradoClient.ts";
 import type { ExecutorContext, ExecutorResult } from "./playbookExecutor.ts";
 
-// PRADO mode — HTTP only, very cheap, can afford more pages
-const MAX_PAGES_PER_RUN = 8;
+// PRADO mode — HTTP only, very cheap, can afford many pages
+// Cap raised from 8 → 25: covers 99% of Atexo platforms (most have 5-20 pages).
+// At ~1s per POST, full sweep stays well under MAX_TOTAL_TIME_MS.
+const MAX_PAGES_PER_RUN = 25;
 const TIMEOUT_PER_POST_MS = 15_000;
-const MAX_TOTAL_TIME_MS = 90_000;
+const MAX_TOTAL_TIME_MS = 120_000;
 
 // Firecrawl fallback — kept for non-PRADO Atexo-like portals
 const MAX_CALLS_PER_URL_FC = 5;
@@ -80,6 +82,12 @@ type AtexoStats = {
   event_targets_used: string[];
   hidden_inputs_count: number;
   pagestate_lost: boolean;
+  // Sweep telemetry
+  max_pages_cap: number;
+  pages_planned: number;
+  time_elapsed_ms: number;
+  stop_reason_detail: string;
+  consecutive_http_errors: number;
 };
 
 function baseHostUrl(fullUrl: string): string {
@@ -152,7 +160,13 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
     event_targets_used: [],
     hidden_inputs_count: 0,
     pagestate_lost: false,
+    max_pages_cap: MAX_PAGES_PER_RUN,
+    pages_planned: 0,
+    time_elapsed_ms: 0,
+    stop_reason_detail: "",
+    consecutive_http_errors: 0,
   };
+  const runStartTime = Date.now();
   let calls = 0;
   let stoppedBy: ExecutorResult["stopped_by"] = "single_page";
 
@@ -281,6 +295,11 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
     calls = stats.actions_pages_scraped + 1; // approximation; calls counter already incremented
   }
 
+  stats.time_elapsed_ms = Date.now() - runStartTime;
+  if (!stats.stop_reason_detail) {
+    stats.stop_reason_detail = `${stoppedBy} (totalPages=${stats.total_pages_detected}, scraped=${1 + stats.actions_pages_scraped}, cap=${MAX_PAGES_PER_RUN})`;
+  }
+
   return finalize(ctx, allIds, stats, calls + stats.actions_pages_scraped /* prado pages = HTTP, ~free */, stoppedBy);
 }
 
@@ -302,11 +321,22 @@ async function runPradoEventChain(
   const startTime = Date.now();
 
   const totalPages = stats.total_pages_detected;
-  const pagesToFetch = Math.min(totalPages - 1, MAX_PAGES_PER_RUN);
+  // Adaptive sweep: if totalPages fits in our cap, scrape everything.
+  // Otherwise plafonne à MAX_PAGES_PER_RUN.
+  const remainingPages = Math.max(0, totalPages - 1);
+  const pagesToFetch = Math.min(remainingPages, MAX_PAGES_PER_RUN);
+  stats.pages_planned = pagesToFetch;
+  const fullSweep = pagesToFetch === remainingPages;
+  console.log(
+    `[atexo:prado] sweep plan: totalPages=${totalPages}, pagesToFetch=${pagesToFetch}, fullSweep=${fullSweep}, cap=${MAX_PAGES_PER_RUN}`,
+  );
+
+  let consecutiveHttpErrors = 0;
 
   for (let i = 0; i < pagesToFetch; i++) {
     if (Date.now() - startTime > MAX_TOTAL_TIME_MS) {
       console.warn(`[atexo:prado] global timeout after ${i} pages`);
+      stats.stop_reason_detail = `time_budget exceeded after ${i} pages (${Date.now() - startTime}ms)`;
       return "budget";
     }
 
@@ -337,15 +367,28 @@ async function runPradoEventChain(
       clearTimeout(timer);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn(`[atexo:prado] POST page ${targetPageNumber} failed: ${msg}`);
-      return "error";
+      consecutiveHttpErrors++;
+      stats.consecutive_http_errors = consecutiveHttpErrors;
+      console.warn(`[atexo:prado] POST page ${targetPageNumber} failed (${consecutiveHttpErrors}/2): ${msg}`);
+      if (consecutiveHttpErrors >= 2) {
+        stats.stop_reason_detail = `2 consecutive POST failures: ${msg}`;
+        return "error";
+      }
+      continue;
     }
 
     stats.http_status_per_page.push(result.status);
     if (result.status >= 400) {
-      console.warn(`[atexo:prado] HTTP ${result.status} on page ${targetPageNumber} — abort`);
-      return "error";
+      consecutiveHttpErrors++;
+      stats.consecutive_http_errors = consecutiveHttpErrors;
+      console.warn(`[atexo:prado] HTTP ${result.status} on page ${targetPageNumber} (${consecutiveHttpErrors}/2)`);
+      if (consecutiveHttpErrors >= 2) {
+        stats.stop_reason_detail = `2 consecutive HTTP errors (last=${result.status})`;
+        return "error";
+      }
+      continue;
     }
+    consecutiveHttpErrors = 0;
 
     // STATE CHAINING — adopt the new state for the next iteration
     state = result.state;
@@ -409,6 +452,12 @@ async function runPradoEventChain(
     }
   }
 
+  // Finished the planned loop without early-exit
+  if (fullSweep) {
+    stats.stop_reason_detail = `full sweep completed: ${pagesToFetch + 1} pages drained (totalPages=${totalPages})`;
+  } else {
+    stats.stop_reason_detail = `cap reached: scraped ${pagesToFetch + 1}/${totalPages} pages (cap=${MAX_PAGES_PER_RUN})`;
+  }
   return "max_pages";
 }
 
