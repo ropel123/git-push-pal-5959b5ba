@@ -1,55 +1,75 @@
-## Problème identifié
+## Constat
 
-Le moteur PRADO marche parfaitement (90 IDs uniques, 0 doublon, PRADO_PAGESTATE tourne à chaque page, status 200 partout). Le seul problème : un **plafond codé en dur** dans `atexoExecutor.ts` :
+`marches.maximilien.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons` est bien une instance Atexo SDM (même moteur PRADO, même `PRADO_PAGESTATE`, même structure de pagination event-driven). Pareil pour :
+- **maximilien** (Île-de-France)
+- **aura** (Auvergne-Rhône-Alpes — `marchespublics.auvergnerhonealpes.eu`)
+- **megalis** (Bretagne)
+- **ternum** (Bourgogne-Franche-Comté)
+
+Aujourd'hui ces 4 plateformes sont détectées avec leur **label régional** (par souci de reporting), mais dans `scrape-list/index.ts` l'aiguillage est strict :
 
 ```ts
-const MAX_PAGES_PER_RUN = 8;
-// → page initiale + 8 paginations = 9 pages max
+platform === "atexo" ? executeAtexo(...) : execute(...)
 ```
 
-Résultat observé sur les 18-20 pages disponibles :
-- `marchespublics596280` : 90/200 (9 pages / 20) — `stopped_by: max_pages`
-- `alsacemarchespublics` : 30/180 (3 pages / 18)
-- `meuse` : même cause attendue
+→ Donc maximilien & co passent par le `playbookExecutor` générique (Firecrawl + sélecteurs CSS) au lieu du moteur PRADO musclé. C'est pour ça qu'on rate la pagination stateful sur ces sites.
 
-## Solution
+## Solution : famille `atexo`
 
-### 1. Augmenter `MAX_PAGES_PER_RUN` à 25
-- Couvre 99% des plateformes Atexo (la plupart ont 5-20 pages)
-- 25 pages × ~10 items = jusqu'à 250 consultations par run
-- À ~1s par page POST, run total < 30s (largement sous le timeout edge function de 150s)
+Plutôt que renommer `maximilien → atexo` (on perd le label régional utile en UI/reporting), on introduit une notion de **"famille d'engine"** :
 
-### 2. Ajouter un mode "full sweep" déclenché par `total_pages_detected`
-- Si `totalPages <= 30` détecté en page 1 → on scrape tout (`pagesToFetch = totalPages - 1`)
-- Si `totalPages > 30` → on plafonne à 25 et on log `stopped_by: max_pages` (rare, plateformes nationales type UGAP)
-- Évite de gaspiller des cycles sur les petites plateformes (2-5 pages) ET d'en perdre sur les moyennes (15-20 pages)
-
-### 3. Garde-fous additionnels
-- **Budget temps** : si `Date.now() - startTime > 90_000` ms → stop avec `stopped_by: time_budget`
-- **Stagnation** : si 2 pages consécutives donnent 0 nouveau ID → stop avec `stopped_by: no_new_items` (déjà en place, conservé)
-- **Erreurs HTTP** : si 2 POST consécutifs renvoient status != 200 → stop avec `stopped_by: http_error`
-
-### 4. Logs enrichis
-Ajouter dans `_atexo_stats` :
-- `max_pages_cap` (la limite effective utilisée pour ce run)
-- `time_elapsed_ms`
-- `stop_reason_detail` (ex: "totalPages=18 ≤ cap=25, full sweep")
-
-## Fichier modifié
-
-- `supabase/functions/_shared/atexoExecutor.ts` :
-  - L46 : `MAX_PAGES_PER_RUN = 25`
-  - L305 : logique `pagesToFetch` adaptative selon `totalPages`
-  - Ajout du budget temps + détection erreurs HTTP consécutives
-  - Enrichissement des stats retournées
-
-## Résultat attendu pour Alsace (18 pages)
-
-```
-pages_scraped: 18
-unique_consultations: ~180
-stopped_by: total_pages_reached
-coverage_ratio: 1.0
+### 1. Nouvelle constante `ATEXO_FAMILY`
+Dans `supabase/functions/_shared/normalize.ts` :
+```ts
+export const ATEXO_FAMILY = new Set([
+  "atexo",
+  "maximilien",
+  "aura",
+  "megalis",
+  "ternum",
+]);
+export function isAtexoFamily(platform: string): boolean {
+  return ATEXO_FAMILY.has(platform);
+}
 ```
 
-Aucun changement côté DB, côté frontend, ni côté `pradoClient.ts`.
+### 2. Aiguillage dans `scrape-list/index.ts`
+Remplacer :
+```ts
+platform === "atexo" ? executeAtexo(...) : execute(...)
+```
+par :
+```ts
+isAtexoFamily(platform) ? executeAtexo({...args, platform}) : execute(...)
+```
+
+→ Le label `maximilien` (etc.) reste en DB (`scrape_logs.metadata.platform`, `tenders.platform`), mais l'**engine** utilisé est PRADO. Best of both worlds.
+
+### 3. Garde-fou dans `atexoExecutor.ts`
+Ajouter en tête de `executeAtexo` un check léger : si l'URL ne contient pas `page=Entreprise.EntrepriseAdvancedSearch` ET pas de `/sdm/`, on log un warning et on tombe direct en Firecrawl fallback (au lieu de tenter PRADO sur une page non-SDM).
+
+### 4. Pas touche au front
+`src/lib/detectPlatform.ts` reste tel quel — il continue de renvoyer `"maximilien"` pour l'affichage UI. La famille n'est utilisée que côté edge function pour choisir le moteur.
+
+## Fichiers modifiés
+
+- `supabase/functions/_shared/normalize.ts` — ajout `ATEXO_FAMILY` + `isAtexoFamily()`
+- `supabase/functions/scrape-list/index.ts` — aiguillage via `isAtexoFamily(platform)`
+- `supabase/functions/_shared/atexoExecutor.ts` — garde-fou URL non-SDM (mineur)
+
+## Résultat attendu
+
+Pour `marches.maximilien.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons` :
+```
+[atexo] engine=prado_event_chain, hidden_inputs=28, pagestate=XXk bytes
+[atexo] page 1 (HTTP): 10 IDs, totalPages=N
+[atexo:prado] sweep plan: totalPages=N, fullSweep=true, cap=25
+... (rotation PRADO_PAGESTATE sur toutes les pages)
+[atexo] DONE engine=prado_event_chain unique=~10*N coverage=1.0
+```
+
+Avec le label `platform: "maximilien"` conservé en DB.
+
+## Bonus
+
+Cette refacto rend trivial l'ajout de futures instances Atexo (ex: `marches-publics.bretagne-paysdelaloire.fr` ou autres skins régionaux) : il suffira d'ajouter une ligne dans `ATEXO_FAMILY`.
