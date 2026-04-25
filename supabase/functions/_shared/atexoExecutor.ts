@@ -112,9 +112,10 @@ const NEXT_PAGE_SELECTORS = [
 ].join(", ");
 
 /**
- * Pagination input-driven : remplir numPageBottom + click submit caché.
- * Plus fiable qu'un click "page suivante" sur les sites stateful (postback ASP.NET).
- * On évite press Enter à cause d'un bug Firecrawl connu (#705).
+ * Pagination input-driven : remplir numPageBottom + Enter.
+ * ASP.NET WebForms a un "default submit button" automatique sur les inputs texte
+ * → press Enter déclenche le postback (DefaultButtonBottom est display:none donc
+ * non cliquable directement par Playwright).
  */
 function buildInputDrivenActions(targetPage: number): FirecrawlAction[] {
   return [
@@ -127,9 +128,10 @@ function buildInputDrivenActions(targetPage: number): FirecrawlAction[] {
     { type: "press", key: "Backspace" },
     { type: "write", text: String(targetPage) },
     { type: "wait", milliseconds: 300 },
-    // Soumet via le bouton hidden d'Atexo (plus fiable que press Enter)
-    { type: "click", selector: SUBMIT_BUTTON_SELECTOR },
-    { type: "wait", milliseconds: 2500 },
+    // ASP.NET WebForms : Enter sur un input texte déclenche le default submit button
+    { type: "press", key: "Enter" },
+    // Attend le postback AJAX
+    { type: "wait", milliseconds: 3000 },
     { type: "scrape" },
   ];
 }
