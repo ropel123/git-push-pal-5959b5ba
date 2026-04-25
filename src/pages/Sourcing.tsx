@@ -381,6 +381,15 @@ const Sourcing = () => {
           <p className="text-muted-foreground">URLs scrapées toutes les {urls[0]?.frequency_hours ?? 6}h pour alimenter les appels d'offres</p>
         </div>
         <div className="flex gap-2">
+          <Select value={aiProvider} onValueChange={(v) => setAiProvider(v as "anthropic" | "openrouter")}>
+            <SelectTrigger className="w-[280px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="anthropic">Anthropic Haiku 4.5 (rapide, ~$0.40/130)</SelectItem>
+              <SelectItem value="openrouter">OpenRouter Opus 4.7 (deep, ~$3.10/130)</SelectItem>
+            </SelectContent>
+          </Select>
           <Button variant="outline" onClick={reclassifyAll} disabled={running === "__all__"}>
             {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
             Re-classifier (via IA)
