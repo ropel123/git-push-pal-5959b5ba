@@ -1,103 +1,62 @@
 
 
-# Choix runtime entre OpenRouter et Anthropic direct + passage à Haiku 4.5 avec web_fetch
+# Fix dropdown invisible + procédure de vérification
 
-## Objectif
+## Pourquoi tu ne vois pas le dropdown
 
-Permettre de choisir, depuis l'UI `/sourcing`, le **provider IA** utilisé pour la classification :
-- **OpenRouter** (actuel) → Claude Opus 4.7, on fetche le HTML nous-mêmes côté edge function
-- **Anthropic direct** (nouveau) → Claude Haiku 4.5 avec l'outil server-side `web_fetch_20250910` (Anthropic fetche l'URL pour nous, 1 seul appel API)
+Sur ton viewport de 1106px, la barre du haut de `/sourcing` contient déjà 3 éléments larges (Re-classifier, Import en masse, Ajouter une URL) côte-à-côte dans un `flex gap-2` sans `flex-wrap`. En ajoutant le Select 280px, l'ensemble dépasse la largeur dispo et le navigateur **rogne ou pousse hors écran** le premier élément (le Select). Il est dans le DOM mais visuellement invisible derrière les autres ou sous le titre.
 
-L'utilisateur sélectionne le provider dans un dropdown à côté du bouton "Reclassifier (via IA)". Le choix est passé à l'edge function qui dispatch vers le bon classifier.
+## Fix UI
 
-## Comparatif des deux providers
+Regrouper le Select + le bouton Re-classifier dans un **petit "control panel"** encadré, plus compact, et autoriser le wrap de la barre :
 
-| Critère | OpenRouter / Opus 4.7 (actuel) | Anthropic / Haiku 4.5 + web_fetch (nouveau) |
-|---|---|---|
-| Fetch HTML | côté edge function (`fingerprint.ts`) | côté Anthropic (server-side tool) |
-| Appels API par URL | 1 fetch + 1 IA | 1 seul appel IA |
-| Modèle | Claude Opus 4.7 | Claude Haiku 4.5 |
-| Coût / URL | ~$0.024 | ~$0.003 |
-| Coût pour 130 URLs | ~$3.10 | ~$0.40 |
-| Latence | 5-8 s | 2-4 s |
-| Force raisonnement | Maximum | Bon (suffisant pour classification) |
-| Robustesse fetch | Notre fetch peut être bloqué (cloudflare, etc.) | Anthropic gère les redirections / headers proprement |
-
-**Reco** : on garde OpenRouter/Opus 4.7 pour les cas tordus, on ajoute Anthropic/Haiku 4.5 comme option par défaut (8× moins cher, plus rapide, fetch fiable).
-
-## Ce qui change
-
-### 1. Nouveau secret Supabase
-- Ajouter `ANTHROPIC_API_KEY` (clé directe Anthropic, séparée d'OpenRouter).
-
-### 2. Nouveau classifier Anthropic direct
-Création de `supabase/functions/_shared/aiClassifierAnthropic.ts` :
-- Endpoint : `https://api.anthropic.com/v1/messages`
-- Header beta obligatoire : `anthropic-beta: web-fetch-2025-09-10`
-- Header version : `anthropic-version: 2023-06-01`
-- Modèle : `claude-haiku-4-5-20251001`
-- Outils :
-  - `web_fetch_20250910` (server-side Anthropic) avec `max_uses: 2` et `max_content_tokens: 8000`
-  - `classify_platform` (notre tool, même schéma JSON que dans le classifier actuel : enum fermé 22 plateformes + `pagination_hint`)
-- Flow : on envoie juste l'URL → Claude fetche → Claude appelle notre tool → on extrait le `tool_use`
-- Garde-fous : retry 3× avec backoff exponentiel sur 429/5xx, fallback silencieux sur `custom` en cas d'erreur, seuil `confidence >= 0.8` (sinon rétrogradation `custom`)
-- Trace evidence : `ai:claude-haiku-4-5+web-fetch`
-
-### 3. Refactor du classifier existant
-`supabase/functions/_shared/aiClassifier.ts` (OpenRouter/Opus 4.7) reste tel quel, juste exposé via une fonction `classifyWithOpenRouter` pour cohérence de nommage.
-
-### 4. Dispatcher
-Création de `supabase/functions/_shared/classifyDispatcher.ts` :
-- Signature : `classifyPlatform(url, htmlSnippet, headers, provider)` où `provider ∈ { 'openrouter', 'anthropic' }`
-- Si `anthropic` → `aiClassifierAnthropic` (n'utilise pas `htmlSnippet`/`headers`, web_fetch fait le job)
-- Si `openrouter` → `aiClassifier` actuel
-- Défaut : `anthropic` (plus rapide, moins cher)
-
-### 5. Edge function `reclassify-sourcing-urls`
-- Accepte un nouveau champ `provider` dans le body : `'openrouter' | 'anthropic'` (défaut `anthropic`)
-- Passe ce provider au dispatcher
-- Si provider = `anthropic` : on skip notre fetch HTML (gain de latence) et on appelle directement le classifier Anthropic avec juste l'URL
-- Si provider = `openrouter` : flow actuel inchangé (fetch HTML local + appel IA)
-- Stocke `provider` dans `metadata.classification_provider` pour traçabilité
-
-### 6. UI `/sourcing`
-- Ajout d'un `<Select>` "Provider IA" à côté du bouton "Reclassifier (via IA)" :
-  - Option 1 : "Anthropic Haiku 4.5 (rapide, $0.40)" — défaut
-  - Option 2 : "OpenRouter Opus 4.7 (deep reasoning, $3.10)"
-- État local `selectedProvider` passé dans chaque `supabase.functions.invoke('reclassify-sourcing-urls', { body: { sourcing_url_id, provider } })`
-- Le toast final mentionne le provider utilisé.
-
-### 7. Mémoire
-Mise à jour `mem://architecture/strategie-ia` :
-- Provider par défaut classification : Anthropic Haiku 4.5 + web_fetch
-- Provider deep reasoning (option) : OpenRouter Opus 4.7
-- Fallback : Lovable AI Gateway (Gemini)
-
-## Fichiers touchés
+- `flex flex-wrap gap-2 items-center justify-end` sur le conteneur des actions → si pas la place, le bloc IA passe sur une 2ᵉ ligne au lieu d'être tronqué.
+- Bloc IA avec bordure + icône baguette + label "Provider IA :" + Select compact (h-8, w-230px) + bouton "Re-classifier" → visuellement clair que les deux vont ensemble.
+- Le label est masqué en < md pour gagner de la place.
 
 ```text
-NOUVEAU  supabase/functions/_shared/aiClassifierAnthropic.ts
-NOUVEAU  supabase/functions/_shared/classifyDispatcher.ts
-EDIT     supabase/functions/_shared/aiClassifier.ts                 ← export nommé
-EDIT     supabase/functions/reclassify-sourcing-urls/index.ts       ← param provider + dispatch
-EDIT     src/pages/Sourcing.tsx                                     ← Select provider + invoke avec provider
-EDIT     mem://architecture/strategie-ia                            ← stratégie 2 providers
+[Provider IA: ▼ Haiku 4.5 + web_fetch (~$0.40)] [Re-classifier]
+                                                ^^^ encadré, groupé
+[Import en masse] [+ Ajouter une URL]
 ```
 
-Aucune migration SQL (la table `platform_fingerprints` existe déjà, son schéma `evidence jsonb` accepte la nouvelle trace sans changement).
+## Comment vérifier que c'est opérationnel
+
+Une fois le fix UI poussé, je te donne une **séquence de vérification en 3 étapes** :
+
+### 1. Vérifier que le secret Anthropic est bien actif
+Je ping l'edge function `reclassify-sourcing-urls` avec une URL de test et `provider: "anthropic"`. Si `ANTHROPIC_API_KEY` était manquante, on verrait `evidence: ["ai:claude-haiku-4-5+web-fetch", ..., "reasoning:no-api-key"]` dans la réponse. Sinon on a un vrai verdict.
+
+### 2. Test A/B sur 1 URL difficile (toi, manuellement dans l'UI)
+- Sélectionne **"Haiku 4.5 + web_fetch"** dans le dropdown.
+- Clique l'icône baguette (Wand2) sur **une seule ligne** de la table (action `reclassifyOne`, pas le bouton "Re-classifier" global qui touche les 130).
+- Le toast affiche `before → after (source · anthropic)`.
+- Recommence avec **"Opus 4.7 deep"** sur la même ligne pour comparer.
+
+### 3. Lecture des logs côté serveur (je le fais pour toi)
+Après ton clic, je lis `supabase--edge_function_logs reclassify-sourcing-urls` et je te confirme :
+- Le provider effectivement utilisé (`provider: "anthropic"` ou `"openrouter"` dans le body reçu).
+- Pour Anthropic : présence du log `[aiClassifierAnthropic]` (warnings éventuels sur 429, low-confidence, etc.).
+- La latence end-to-end (Haiku doit être ~2-4s, Opus ~5-8s).
+- Le contenu de `evidence` stocké dans `metadata.platform_evidence` (lecture SQL sur `sourcing_urls`).
+
+### 4. Vérif SQL finale (je le fais pour toi)
+```sql
+SELECT url, platform,
+       metadata->>'classification_provider' AS provider,
+       metadata->>'platform_confidence' AS conf,
+       metadata->'platform_evidence' AS evidence,
+       metadata->>'platform_detected_at' AS at
+FROM sourcing_urls
+ORDER BY (metadata->>'platform_detected_at') DESC NULLS LAST
+LIMIT 5;
+```
+Si les 5 dernières lignes ont bien `classification_provider = "anthropic"` et un `evidence[0]` qui commence par `ai:claude-haiku-4-5+web-fetch` → c'est opérationnel.
 
 ## Plan d'exécution
 
-1. Ajouter le secret `ANTHROPIC_API_KEY` (je te le demanderai quand on passera en mode build).
-2. Créer `aiClassifierAnthropic.ts` avec web_fetch + tool calling + garde-fous.
-3. Créer le dispatcher `classifyDispatcher.ts`.
-4. Patcher `reclassify-sourcing-urls/index.ts` pour accepter et router selon `provider`.
-5. Ajouter le `Select` provider dans `src/pages/Sourcing.tsx`.
-6. Mettre à jour `mem://architecture/strategie-ia`.
-7. Tu choisis "Anthropic Haiku 4.5" et tu cliques "Reclassifier (via IA)" → run à ~$0.40 sur les 130 URLs.
-8. Si certaines URLs restent `custom`, tu rebascules sur "OpenRouter Opus 4.7" sur ces lignes seulement → coût marginal ~$0.50.
-
-## Limite à connaître
-
-`web_fetch` d'Anthropic ne contourne pas tout : si une page est protégée par JS lourd (SPA pure) ou par anti-bot Cloudflare aggressif, Anthropic verra la même page vide que nous. Pour ces cas-là, il faudra l'étape "résolution de lien acheteur" du plan précédent (extraction de liens candidats). Mais sur des portails publics standards (atexo, mpi, place, etc.), web_fetch est très fiable.
+1. Patcher `src/pages/Sourcing.tsx` lignes 383-396 → bloc IA encadré + flex-wrap.
+2. Tu me dis quand tu vois le dropdown.
+3. Tu cliques la baguette sur 1 URL avec chaque provider.
+4. Je lis les logs + la table → je te confirme par écrit que les 2 providers sont opérationnels avec les vraies latences et le vrai provider tracé en base.
 
