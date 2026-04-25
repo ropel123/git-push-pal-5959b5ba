@@ -336,10 +336,10 @@ const Sourcing = () => {
       let description = "ok";
       if (r) {
         const conf = typeof r.confidence === "number" ? ` ${r.confidence.toFixed(2)}` : "";
-        const reason = typeof r.reasoning === "string" && r.reasoning.startsWith("low-confidence:")
-          ? ` low-conf${conf}`
-          : conf;
-        description = `${r.before} → ${r.after} (${r.source}${reason} · ${aiProvider})`;
+        const evidence: string[] = Array.isArray(r.evidence) ? r.evidence : [];
+        const isLowConf = evidence.some((e: string) => typeof e === "string" && e.includes("low-confidence:"));
+        const tag = isLowConf ? `low-conf${conf}` : `${r.source}${conf}`;
+        description = `${r.before} → ${r.after} (${tag} · ${aiProvider})`;
       }
       toast({ title: "Plateforme re-détectée", description });
       load();
