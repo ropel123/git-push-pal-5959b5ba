@@ -158,6 +158,8 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
     unique_consultations: 0,
     items_per_page_actual: [],
     coverage_ratio: 0,
+    pagination_mode: "none",
+    dom_stuck_detected: false,
   };
   let calls = 0;
   let stoppedBy: ExecutorResult["stopped_by"] = "single_page";
@@ -220,9 +222,13 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
   } else if (ctx.mode === "FAST") {
     stoppedBy = "fast_mode";
   } else {
-    // ============== COUCHE 2 : ACTIONS pagination ==============
+    // ============== COUCHE 2 : ACTIONS pagination input-driven ==============
     const pagesToFetch = Math.min(stats.total_pages_detected - 1, MAX_ACTION_PAGES);
     let consecutiveNoNew = 0;
+    let useClickFallback = false;
+
+    // IDs de la page précédente, pour détecter "DOM stuck" (= AJAX qui ne refresh pas)
+    let prevPageIds = new Set(htmlIds);
 
     for (let pageOffset = 0; pageOffset < pagesToFetch; pageOffset++) {
       if (calls >= MAX_CALLS_PER_URL) {
@@ -230,14 +236,12 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
         break;
       }
 
-      // On clique (pageOffset+1) fois "page suivante" depuis la page 1
-      const actions: FirecrawlAction[] = [];
-      for (let click = 0; click <= pageOffset; click++) {
-        actions.push({ type: "wait", milliseconds: 1500 });
-        actions.push({ type: "click", selector: NEXT_PAGE_SELECTORS });
-      }
-      actions.push({ type: "wait", milliseconds: 2500 });
-      actions.push({ type: "scrape" });
+      const targetPage = pageOffset + 2; // page 1 déjà faite, on attaque page 2
+
+      // Choix de la stratégie d'actions
+      const actions = useClickFallback
+        ? buildClickNextActions(pageOffset + 1)
+        : buildInputDrivenActions(targetPage);
 
       try {
         const actionRes = await firecrawlScrapeWithActions(
@@ -248,11 +252,41 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
         );
         calls++;
         stats.actions_pages_scraped++;
+        if (stats.pagination_mode === "none") {
+          stats.pagination_mode = useClickFallback ? "click_fallback" : "input";
+        }
 
         const beforeCount = allIds.size;
 
-        // 2a. IDs depuis le HTML brut de cette page
+        // IDs depuis le HTML brut de cette page
         const pageIds = extractIdsFromHtml(actionRes.raw_html);
+        const pageIdSet = new Set(pageIds);
+
+        // === Détection DOM stuck : exactement les mêmes IDs que la page précédente ===
+        const sameAsPrev =
+          pageIds.length > 0 &&
+          pageIds.length === prevPageIds.size &&
+          pageIds.every((id) => prevPageIds.has(id));
+
+        if (sameAsPrev) {
+          stats.dom_stuck_detected = true;
+          console.warn(
+            `[atexo] DOM stuck detected on page ${targetPage} (mode=${stats.pagination_mode}) — same IDs as previous`,
+          );
+          if (!useClickFallback) {
+            // 1ère tentative input-driven a échoué → bascule click et REFAIT cette page
+            console.log(`[atexo] switching to click_fallback mode`);
+            useClickFallback = true;
+            pageOffset--; // on retentera cette page
+            continue;
+          } else {
+            // Déjà en fallback et toujours stuck → on arrête
+            stoppedBy = "no_new_items";
+            break;
+          }
+        }
+
+        // Merge IDs
         for (const id of pageIds) {
           if (!allIds.has(id)) {
             allIds.set(id, {
@@ -263,7 +297,7 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
           }
         }
 
-        // 2b. Enrichir avec données structurées
+        // Enrichir avec données structurées
         for (const t of actionRes.tenders) {
           const id = extractConsultationId(t.dce_url as string | undefined);
           if (id) {
@@ -285,8 +319,10 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
         stats.items_per_page_actual.push(pageIds.length);
         stats.ids_from_actions += newOnThisPage;
         console.log(
-          `[atexo] ACTIONS page ${pageOffset + 2}: ${pageIds.length} IDs visible, +${newOnThisPage} new`,
+          `[atexo] ACTIONS page ${targetPage} (${stats.pagination_mode}): ${pageIds.length} IDs visible, +${newOnThisPage} new`,
         );
+
+        prevPageIds = pageIdSet;
 
         if (newOnThisPage === 0) {
           consecutiveNoNew++;
@@ -298,11 +334,16 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
           consecutiveNoNew = 0;
         }
       } catch (e) {
-        console.warn(
-          `[atexo] ACTIONS page ${pageOffset + 2} failed:`,
-          e instanceof Error ? e.message : e,
-        );
-        // On continue avec ce qu'on a — ne pas faire échouer le run global
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`[atexo] ACTIONS page ${targetPage} failed:`, msg);
+        // Si l'action input-driven plante (ex: input introuvable) → bascule click
+        if (!useClickFallback && /element not found|selector/i.test(msg)) {
+          console.log(`[atexo] input-driven failed → switching to click_fallback`);
+          useClickFallback = true;
+          pageOffset--; // retente
+          continue;
+        }
+        // Sinon on arrête mais on garde ce qu'on a
         break;
       }
     }
