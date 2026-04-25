@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil } from "lucide-react";
+import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil, Search, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { detectPlatform, PLATFORMS } from "@/lib/detectPlatform";
 
@@ -71,6 +71,46 @@ const Sourcing = () => {
   const [saving, setSaving] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [aiProvider, setAiProvider] = useState<"anthropic" | "openrouter">("anthropic");
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [activeFilter, setActiveFilter] = useState<string>("all");
+
+  const platformCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const u of urls) counts[u.platform] = (counts[u.platform] ?? 0) + 1;
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [urls]);
+
+  const filteredUrls = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return urls.filter((u) => {
+      if (q) {
+        const hay = `${u.url} ${u.display_name ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (platformFilter !== "all" && u.platform !== platformFilter) return false;
+      if (statusFilter !== "all") {
+        if (statusFilter === "never" && u.last_status) return false;
+        if (statusFilter === "success" && u.last_status !== "success") return false;
+        if (statusFilter === "error" && (u.last_status === "success" || !u.last_status)) return false;
+      }
+      if (activeFilter === "active" && !u.is_active) return false;
+      if (activeFilter === "inactive" && u.is_active) return false;
+      return true;
+    });
+  }, [urls, searchQuery, platformFilter, statusFilter, activeFilter]);
+
+  const filtersActive = searchQuery !== "" || platformFilter !== "all" || statusFilter !== "all" || activeFilter !== "all";
+
+  const resetFilters = () => {
+    setSearchQuery("");
+    setPlatformFilter("all");
+    setStatusFilter("all");
+    setActiveFilter("all");
+  };
 
   useEffect(() => {
     if (!highlightedId) return;
@@ -617,10 +657,54 @@ const Sourcing = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>URLs configurées ({urls.length})</CardTitle>
+          <CardTitle>
+            URLs configurées ({filtersActive ? `${filteredUrls.length} / ${urls.length}` : urls.length})
+          </CardTitle>
           <CardDescription>Le scheduler tourne automatiquement, ou utilisez les boutons pour tester / forcer.</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex flex-wrap gap-2 mb-4">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher par URL ou nom…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+            <Select value={platformFilter} onValueChange={setPlatformFilter}>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Plateforme" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes plateformes</SelectItem>
+                {platformCounts.map(([p, n]) => (
+                  <SelectItem key={p} value={p}>{p} ({n})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Statut" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous statuts</SelectItem>
+                <SelectItem value="success">Succès</SelectItem>
+                <SelectItem value="error">Erreur</SelectItem>
+                <SelectItem value="never">Jamais lancé</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={activeFilter} onValueChange={setActiveFilter}>
+              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Actif" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous</SelectItem>
+                <SelectItem value="active">Actifs</SelectItem>
+                <SelectItem value="inactive">Inactifs</SelectItem>
+              </SelectContent>
+            </Select>
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
+                <X className="mr-1 h-4 w-4" /> Réinitialiser
+              </Button>
+            )}
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -634,7 +718,7 @@ const Sourcing = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {urls.map((u) => (
+              {filteredUrls.map((u) => (
                 <TableRow
                   key={u.id}
                   id={`row-${u.id}`}
@@ -699,8 +783,10 @@ const Sourcing = () => {
                   </TableCell>
                 </TableRow>
               ))}
-              {urls.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Aucune URL configurée. Ajoutez-en une pour commencer.</TableCell></TableRow>
+              {filteredUrls.length === 0 && (
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  {urls.length === 0 ? "Aucune URL configurée. Ajoutez-en une pour commencer." : "Aucune URL ne correspond aux filtres."}
+                </TableCell></TableRow>
               )}
             </TableBody>
           </Table>
