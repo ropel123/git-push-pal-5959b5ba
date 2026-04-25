@@ -42,10 +42,12 @@ import {
 } from "./pradoClient.ts";
 import type { ExecutorContext, ExecutorResult } from "./playbookExecutor.ts";
 
-// PRADO mode — HTTP only, very cheap, can afford more pages
-const MAX_PAGES_PER_RUN = 8;
+// PRADO mode — HTTP only, very cheap, can afford many pages
+// Cap raised from 8 → 25: covers 99% of Atexo platforms (most have 5-20 pages).
+// At ~1s per POST, full sweep stays well under MAX_TOTAL_TIME_MS.
+const MAX_PAGES_PER_RUN = 25;
 const TIMEOUT_PER_POST_MS = 15_000;
-const MAX_TOTAL_TIME_MS = 90_000;
+const MAX_TOTAL_TIME_MS = 120_000;
 
 // Firecrawl fallback — kept for non-PRADO Atexo-like portals
 const MAX_CALLS_PER_URL_FC = 5;
