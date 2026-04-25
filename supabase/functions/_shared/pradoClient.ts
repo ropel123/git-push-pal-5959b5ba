@@ -107,22 +107,61 @@ function resolveActionUrl(action: string, baseUrl: string): string {
 
 // ---------------------------------------------------------- HTML extraction
 
-const FORM_RE = /<form\b[^>]*\bmethod=["']post["'][^>]*>([\s\S]*?)<\/form>/i;
+const FORM_OPEN_RE = /<form\b[^>]*>/gi;
 const FORM_ACTION_RE = /\baction=["']([^"']+)["']/i;
+const FORM_METHOD_RE = /\bmethod=["']post["']/i;
+const FORM_NAME_RE = /\bname=["']([^"']+)["']/i;
+const FORM_ID_RE = /\bid=["']([^"']+)["']/i;
 const HIDDEN_INPUT_RE =
   /<input\b[^>]*\btype=["']hidden["'][^>]*>/gi;
 const INPUT_NAME_RE = /\bname=["']([^"']+)["']/i;
 const INPUT_VALUE_RE = /\bvalue=["']([^"']*)["']/i;
 
-/** Extract every `<input type="hidden">` inside the first POST form. */
+/**
+ * Find the main PRADO form. Multiple forms can coexist (login form, search box, etc.).
+ * Selection priority:
+ *   1. POST form whose name == "main_form" (PRADO convention)
+ *   2. POST form whose action contains "?page=" (PRADO routing)
+ *   3. Largest POST form by inner-HTML length
+ */
+function findMainPostForm(html: string): { tag: string; inner: string } | null {
+  const candidates: Array<{ tag: string; inner: string; start: number; end: number; score: number }> = [];
+  let m: RegExpExecArray | null;
+  FORM_OPEN_RE.lastIndex = 0;
+  while ((m = FORM_OPEN_RE.exec(html)) !== null) {
+    const tag = m[0];
+    if (!FORM_METHOD_RE.test(tag)) continue;
+    const start = m.index;
+    const innerStart = m.index + tag.length;
+    const closeIdx = html.indexOf("</form>", innerStart);
+    if (closeIdx === -1) continue;
+    const inner = html.slice(innerStart, closeIdx);
+    const nameMatch = tag.match(FORM_NAME_RE);
+    const idMatch = tag.match(FORM_ID_RE);
+    const actionMatch = tag.match(FORM_ACTION_RE);
+    let score = 0;
+    if (nameMatch?.[1] === "main_form") score += 1000;
+    if (idMatch?.[1]?.startsWith("ctl")) score += 500;
+    if (actionMatch?.[1]?.includes("?page=")) score += 200;
+    if (actionMatch?.[1]?.includes("/login")) score -= 1000;
+    score += Math.min(inner.length / 100, 100);
+    candidates.push({ tag, inner, start, end: closeIdx, score });
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return { tag: candidates[0].tag, inner: candidates[0].inner };
+}
+
+/** Extract every `<input type="hidden">` inside the main PRADO form. */
 export function extractFormState(html: string, baseUrl: string): FormState {
-  const formMatch = html.match(FORM_RE);
-  const formInner = formMatch ? formMatch[1] : html;
-  const formTag = formMatch ? html.slice(formMatch.index!, formMatch.index! + formMatch[0].indexOf(">") + 1) : "";
+  const form = findMainPostForm(html);
+  const formInner = form?.inner ?? html;
+  const formTag = form?.tag ?? "";
   const actionMatch = formTag.match(FORM_ACTION_RE);
   const actionUrl = actionMatch ? resolveActionUrl(actionMatch[1], baseUrl) : baseUrl;
 
   const hiddenInputs = new Map<string, string>();
+  HIDDEN_INPUT_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = HIDDEN_INPUT_RE.exec(formInner)) !== null) {
     const tag = m[0];
