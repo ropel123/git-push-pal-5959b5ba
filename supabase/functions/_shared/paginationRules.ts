@@ -116,6 +116,25 @@ export function fingerprint(item: {
   return `tit:${fallback}`;
 }
 
+/** Extrait l'ID consultation Atexo depuis une URL : /consultation/3014?... → "3014". */
+export function extractConsultationId(url: string | undefined | null): string | null {
+  if (!url) return null;
+  const m = String(url).match(/\/consultation\/(\d+)/i);
+  return m ? m[1] : null;
+}
+
+/** Parse le total de pages depuis le HTML Atexo (span#...nombrePageBottom = N). */
+export function parseTotalPages(html: string | null | undefined): number {
+  if (!html) return 1;
+  // Variantes : <span ... id="...nombrePageBottom">4</span>
+  // Ou <span id="ctl00_..._nombrePageBottom" ...>4</span>
+  const m = html.match(/nombrePage(?:Bottom|Top)["'][^>]*>\s*(\d+)\s*</i);
+  if (m) return Math.max(1, parseInt(m[1], 10));
+  // Fallback : "Page 1 / 4"
+  const alt = html.match(/page\s+\d+\s*\/\s*(\d+)/i);
+  return alt ? Math.max(1, parseInt(alt[1], 10)) : 1;
+}
+
 export async function sha1(str: string): Promise<string> {
   const buf = new TextEncoder().encode(str);
   const hash = await crypto.subtle.digest("SHA-1", buf);
