@@ -452,6 +452,12 @@ async function runPradoEventChain(
     }
   }
 
+  // Finished the planned loop without early-exit
+  if (fullSweep) {
+    stats.stop_reason_detail = `full sweep completed: ${pagesToFetch + 1} pages drained (totalPages=${totalPages})`;
+  } else {
+    stats.stop_reason_detail = `cap reached: scraped ${pagesToFetch + 1}/${totalPages} pages (cap=${MAX_PAGES_PER_RUN})`;
+  }
   return "max_pages";
 }
 
