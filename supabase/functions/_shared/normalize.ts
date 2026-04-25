@@ -165,14 +165,17 @@ function detectPlatformFromUrlInternal(url: string): string {
 }
 
 // ============================================================
-// Pipeline AI-first : cache → IA (Claude via OpenRouter)
-// Le hostname est utilisé en fallback rapide ET en validation post-IA.
+// Pipeline déterministe en cascade :
+// 1. Cache platform_fingerprints (24h)
+// 2. Hostname étendu (gratuit, 0ms)
+// 3. Signatures DOM via fetch HTML local (déterministe, gratuit)
+// 4. IA en dernier recours (Claude Haiku via Anthropic web_fetch)
 // ============================================================
 import { fetchHtmlForClassification } from "./fingerprint.ts";
+import { detectPlatformFromHtml } from "./detectPlatformFromHtml.ts";
 import { classifyWithProvider, modelLabel, type AIProvider, DEFAULT_PROVIDER } from "./classifyDispatcher.ts";
 
 const FINGERPRINT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const AI_CONFIDENCE_THRESHOLD = 0.6;
 
 type SupabaseLike = {
   from: (table: string) => any;
