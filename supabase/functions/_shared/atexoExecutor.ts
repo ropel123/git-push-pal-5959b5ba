@@ -295,6 +295,11 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
     calls = stats.actions_pages_scraped + 1; // approximation; calls counter already incremented
   }
 
+  stats.time_elapsed_ms = Date.now() - runStartTime;
+  if (!stats.stop_reason_detail) {
+    stats.stop_reason_detail = `${stoppedBy} (totalPages=${stats.total_pages_detected}, scraped=${1 + stats.actions_pages_scraped}, cap=${MAX_PAGES_PER_RUN})`;
+  }
+
   return finalize(ctx, allIds, stats, calls + stats.actions_pages_scraped /* prado pages = HTTP, ~free */, stoppedBy);
 }
 
