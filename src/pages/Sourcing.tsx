@@ -345,24 +345,29 @@ const Sourcing = () => {
 
   const [reclassifyProgress, setReclassifyProgress] = useState<{ done: number; total: number; bySource: Record<string, number>; byPlatform: Record<string, number> } | null>(null);
 
-  const reclassifyAll = async () => {
-    const { data: rows, error: fetchErr } = await supabase
+  const reclassifyAll = async (scope: "all" | "custom" = "all") => {
+    let query = supabase
       .from("sourcing_urls")
-      .select("id")
+      .select("id, platform")
       .order("created_at", { ascending: false });
+    if (scope === "custom") {
+      query = query.in("platform", ["custom", "safetender"]);
+    }
+    const { data: rows, error: fetchErr } = await query;
     if (fetchErr || !rows) {
       toast({ title: "Erreur", description: fetchErr?.message ?? "Impossible de charger les URLs", variant: "destructive" });
       return;
     }
     const ids = rows.map((r: any) => r.id as string);
     if (ids.length === 0) {
-      toast({ title: "Aucune URL à traiter" });
+      toast({ title: scope === "custom" ? "Aucune URL en custom" : "Aucune URL à traiter" });
       return;
     }
     const providerLabel = aiProvider === "anthropic" ? "Anthropic Haiku 4.5 + web_fetch" : "OpenRouter Opus 4.7";
     const costPerUrl = aiProvider === "anthropic" ? 0.003 : 0.024;
     const secPerUrl = aiProvider === "anthropic" ? 3 : 6;
-    if (!confirm(`Re-classifier les ${ids.length} URLs via ${providerLabel} ? Durée estimée : ~${Math.ceil(ids.length * secPerUrl / 60)} min, coût ~$${(ids.length * costPerUrl).toFixed(2)}.`)) return;
+    const scopeLabel = scope === "custom" ? `${ids.length} URLs en custom/safetender` : `les ${ids.length} URLs`;
+    if (!confirm(`Re-classifier ${scopeLabel} via ${providerLabel} ? Durée estimée : ~${Math.ceil(ids.length * secPerUrl / 60)} min, coût ~$${(ids.length * costPerUrl).toFixed(2)}.`)) return;
 
     setRunning("__all__");
     setReclassifyProgress({ done: 0, total: ids.length, bySource: {}, byPlatform: {} });
@@ -401,9 +406,12 @@ const Sourcing = () => {
     setRunning(null);
     const sourceSummary = Object.entries(bySource).map(([k, v]) => `${k}:${v}`).join(" · ");
     const customLeft = byPlatform.custom ?? 0;
+    const recovered = scope === "custom" ? ids.length - customLeft : null;
     toast({
       title: "Reclassement IA terminé",
-      description: `${done}/${ids.length} traitées${sourceSummary ? ` (${sourceSummary})` : ""} — ${customLeft} restent custom`,
+      description: `${done}/${ids.length} traitées${sourceSummary ? ` (${sourceSummary})` : ""}${
+        recovered !== null ? ` — ${recovered} récupérées, ${customLeft} restent custom` : ` — ${customLeft} restent custom`
+      }`,
     });
     setTimeout(() => setReclassifyProgress(null), 5000);
     load();
