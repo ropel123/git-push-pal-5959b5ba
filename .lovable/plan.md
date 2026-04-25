@@ -1,62 +1,34 @@
+# Filtres sur la table "URLs configurées"
 
+Ajouter une barre de filtres juste au-dessus du tableau (carte "URLs configurées (120)") pour permettre de chercher / trier les 120 lignes facilement.
 
-# Fix dropdown invisible + procédure de vérification
+## Filtres proposés
 
-## Pourquoi tu ne vois pas le dropdown
+1. **Recherche texte** (input) — filtre instantané sur `url` + `display_name` (insensible à la casse)
+2. **Plateforme** (Select) — `Toutes` + une option par plateforme effectivement présente dans la liste, triées par fréquence (ex : `atexo (42)`, `xmarches (18)`, `custom (15)`…)
+3. **Statut du dernier run** (Select) — `Tous` / `success` / `error` / `jamais lancé`
+4. **Actif** (Select) — `Tous` / `Actifs` / `Inactifs`
 
-Sur ton viewport de 1106px, la barre du haut de `/sourcing` contient déjà 3 éléments larges (Re-classifier, Import en masse, Ajouter une URL) côte-à-côte dans un `flex gap-2` sans `flex-wrap`. En ajoutant le Select 280px, l'ensemble dépasse la largeur dispo et le navigateur **rogne ou pousse hors écran** le premier élément (le Select). Il est dans le DOM mais visuellement invisible derrière les autres ou sous le titre.
+Bouton **Réinitialiser** pour vider tous les filtres en un clic.
 
-## Fix UI
+## Comportement
 
-Regrouper le Select + le bouton Re-classifier dans un **petit "control panel"** encadré, plus compact, et autoriser le wrap de la barre :
+- Filtrage 100 % côté client (les 120 URLs sont déjà chargées en mémoire), pas de requête supplémentaire.
+- Le compteur du titre passe de `URLs configurées (120)` à `URLs configurées (37 / 120)` quand un filtre est actif, pour que tu voies tout de suite combien de lignes sont masquées.
+- Si aucun résultat → message "Aucune URL ne correspond aux filtres" dans le tbody.
+- Les filtres restent actifs après un `reclassifyOne` / `runNow` / reload (state local React, pas écrasé par `load()`).
 
-- `flex flex-wrap gap-2 items-center justify-end` sur le conteneur des actions → si pas la place, le bloc IA passe sur une 2ᵉ ligne au lieu d'être tronqué.
-- Bloc IA avec bordure + icône baguette + label "Provider IA :" + Select compact (h-8, w-230px) + bouton "Re-classifier" → visuellement clair que les deux vont ensemble.
-- Le label est masqué en < md pour gagner de la place.
+## Détails techniques
 
-```text
-[Provider IA: ▼ Haiku 4.5 + web_fetch (~$0.40)] [Re-classifier]
-                                                ^^^ encadré, groupé
-[Import en masse] [+ Ajouter une URL]
-```
+- Tout se passe dans `src/pages/Sourcing.tsx`, aucun changement DB, aucune edge function touchée.
+- 4 nouveaux `useState` : `searchQuery`, `platformFilter`, `statusFilter`, `activeFilter`.
+- `useMemo` qui dérive `filteredUrls` depuis `urls` + les 4 filtres.
+- `useMemo` qui dérive la liste des plateformes disponibles avec leur compte, à partir de `urls`.
+- La barre de filtres est insérée juste au-dessus de `<Table>` dans le `<CardContent>` du Card "URLs configurées" (ligne ~623), en utilisant les composants existants `Input` et `Select` (shadcn) pour rester cohérent visuellement.
+- Layout : `flex flex-wrap gap-2 mb-4`, avec `Input` qui prend `flex-1 min-w-[240px]` et les 3 selects en largeur fixe (~`w-[180px]`).
 
-## Comment vérifier que c'est opérationnel
+## Ce qui ne change pas
 
-Une fois le fix UI poussé, je te donne une **séquence de vérification en 3 étapes** :
-
-### 1. Vérifier que le secret Anthropic est bien actif
-Je ping l'edge function `reclassify-sourcing-urls` avec une URL de test et `provider: "anthropic"`. Si `ANTHROPIC_API_KEY` était manquante, on verrait `evidence: ["ai:claude-haiku-4-5+web-fetch", ..., "reasoning:no-api-key"]` dans la réponse. Sinon on a un vrai verdict.
-
-### 2. Test A/B sur 1 URL difficile (toi, manuellement dans l'UI)
-- Sélectionne **"Haiku 4.5 + web_fetch"** dans le dropdown.
-- Clique l'icône baguette (Wand2) sur **une seule ligne** de la table (action `reclassifyOne`, pas le bouton "Re-classifier" global qui touche les 130).
-- Le toast affiche `before → after (source · anthropic)`.
-- Recommence avec **"Opus 4.7 deep"** sur la même ligne pour comparer.
-
-### 3. Lecture des logs côté serveur (je le fais pour toi)
-Après ton clic, je lis `supabase--edge_function_logs reclassify-sourcing-urls` et je te confirme :
-- Le provider effectivement utilisé (`provider: "anthropic"` ou `"openrouter"` dans le body reçu).
-- Pour Anthropic : présence du log `[aiClassifierAnthropic]` (warnings éventuels sur 429, low-confidence, etc.).
-- La latence end-to-end (Haiku doit être ~2-4s, Opus ~5-8s).
-- Le contenu de `evidence` stocké dans `metadata.platform_evidence` (lecture SQL sur `sourcing_urls`).
-
-### 4. Vérif SQL finale (je le fais pour toi)
-```sql
-SELECT url, platform,
-       metadata->>'classification_provider' AS provider,
-       metadata->>'platform_confidence' AS conf,
-       metadata->'platform_evidence' AS evidence,
-       metadata->>'platform_detected_at' AS at
-FROM sourcing_urls
-ORDER BY (metadata->>'platform_detected_at') DESC NULLS LAST
-LIMIT 5;
-```
-Si les 5 dernières lignes ont bien `classification_provider = "anthropic"` et un `evidence[0]` qui commence par `ai:claude-haiku-4-5+web-fetch` → c'est opérationnel.
-
-## Plan d'exécution
-
-1. Patcher `src/pages/Sourcing.tsx` lignes 383-396 → bloc IA encadré + flex-wrap.
-2. Tu me dis quand tu vois le dropdown.
-3. Tu cliques la baguette sur 1 URL avec chaque provider.
-4. Je lis les logs + la table → je te confirme par écrit que les 2 providers sont opérationnels avec les vraies latences et le vrai provider tracé en base.
-
+- Le panneau "Re-classifier / Provider IA" en haut reste tel quel.
+- La table `Logs récents` en bas n'est pas filtrée (hors scope, dis-moi si tu veux la même chose dessus).
+- Aucune persistance des filtres (pas d'URL params, pas de localStorage) — on peut l'ajouter plus tard si besoin.
