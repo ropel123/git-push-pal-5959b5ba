@@ -13,8 +13,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil, Search, X } from "lucide-react";
+import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil, Search, X, ChevronDown } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { detectPlatform, PLATFORMS } from "@/lib/detectPlatform";
 
 type SourcingUrl = {
@@ -443,10 +444,34 @@ const Sourcing = () => {
                 <SelectItem value="openrouter">Opus 4.7 deep (~$3.10)</SelectItem>
               </SelectContent>
             </Select>
-            <Button size="sm" onClick={reclassifyAll} disabled={running === "__all__"}>
-              {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-              Re-classifier
-            </Button>
+            <div className="flex">
+              <Button
+                size="sm"
+                onClick={() => reclassifyAll("custom")}
+                disabled={running === "__all__"}
+                className="rounded-r-none"
+              >
+                {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+                Re-classifier custom ({urls.filter((u) => u.platform === "custom" || u.platform === "safetender").length})
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" disabled={running === "__all__"} className="rounded-l-none border-l border-primary-foreground/20 px-2">
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => reclassifyAll("custom")}>
+                    <Wand2 className="mr-2 h-4 w-4" />
+                    Relancer uniquement les custom ({urls.filter((u) => u.platform === "custom" || u.platform === "safetender").length})
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => reclassifyAll("all")}>
+                    <RefreshCcw className="mr-2 h-4 w-4" />
+                    Relancer toutes les URLs ({urls.length})
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           <Button variant="outline" onClick={() => setBulkOpen(true)}><Plus className="mr-2 h-4 w-4" />Import en masse</Button>
           <Dialog open={open} onOpenChange={setOpen}>
