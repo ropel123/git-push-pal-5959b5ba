@@ -1,73 +1,17 @@
-// scrape-list : scrape une URL de plateforme et renvoie les consultations extraites.
-// Utilise Firecrawl en mode JSON structuré (LLM-powered extraction).
+// scrape-list v3 — orchestre playbook → executor → fallback v2 → log enrichi.
+// Le code applique TOUTES les stop rules. L'IA n'intervient pas ici.
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { detectPlatformFromUrl } from "../_shared/normalize.ts";
+import { execute, type ScrapeMode, type Playbook } from "../_shared/playbookExecutor.ts";
 
-const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
-
-const TENDER_SCHEMA = {
-  type: "object",
-  properties: {
-    tenders: {
-      type: "array",
-      description: "Liste des consultations / appels d'offres trouvés sur la page.",
-      items: {
-        type: "object",
-        properties: {
-          title: { type: "string", description: "Titre / objet de la consultation" },
-          reference: { type: "string", description: "Numéro de référence ou identifiant unique" },
-          buyer_name: { type: "string", description: "Nom de l'acheteur public" },
-          deadline: { type: "string", description: "Date limite (format texte tel qu'affiché)" },
-          publication_date: { type: "string", description: "Date de publication (format texte tel qu'affiché)" },
-          contract_type: { type: "string", description: "Type : travaux, services, fournitures" },
-          procedure_type: { type: "string", description: "Type de procédure (MAPA, AOO, etc.)" },
-          estimated_amount: { type: "string", description: "Montant estimé si affiché" },
-          description: { type: "string", description: "Description courte" },
-          location: { type: "string", description: "Lieu d'exécution / département" },
-          dce_url: { type: "string", description: "URL absolue vers la page de la consultation ou son DCE" },
-        },
-        required: ["title"],
-      },
-    },
-  },
-  required: ["tenders"],
-};
-
-async function firecrawlScrape(url: string, apiKey: string): Promise<any[]> {
-  const resp = await fetch(FIRECRAWL_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url,
-      formats: [
-        {
-          type: "json",
-          schema: TENDER_SCHEMA,
-          prompt:
-            `Cette page est un portail de marchés publics français (Atexo, marches-publics.info ColdFusion, ou SDM/Local-trust). L'URL de base de la page est : ${url}.\n\nExtrais TOUTES les consultations / appels d'offres affichés dans le tableau ou la liste principale. Pour chaque ligne, capture : titre/intitulé/objet, référence (numéro de consultation), nom de l'acheteur, date limite de remise des offres (format texte tel qu'affiché, ex: '15/05/2026 12:00'), date de publication, type de procédure (MAPA, AOO, AOR, etc.), type de contrat (travaux/services/fournitures), lieu/département, et l'URL ABSOLUE vers la page détail de la consultation.\n\nRÈGLES STRICTES POUR reference :\n- La référence est un identifiant brut (ex: '2026A0210', '26CD310048', 'MPI-pub-20260801257').\n- N'INCLUS JAMAIS les préfixes 'réf.', 'ref.', 'n°', 'numéro', 'référence' — renvoie uniquement la valeur brute.\n\nRÈGLES STRICTES POUR dce_url :\n- L'URL DOIT avoir EXACTEMENT le même hostname que l'URL de base ci-dessus (ou un sous-domaine direct).\n- Le lien DOIT contenir un identifiant unique de consultation : 'refPub=…', 'refConsult=…', 'id=…', 'IDS=…', '/consultation/…'.\n- Les liens relatifs ('?page=...&id=...', '/consultation/123', './detail?id=...') doivent être résolus contre l'URL de base.\n- N'INVENTE JAMAIS un lien vers un autre portail (boamp.fr, marches-publics.gouv.fr, ted.europa.eu) qui n'apparaît PAS littéralement dans le HTML de la ligne.\n- Si le seul lien disponible est une page de résultats générique ('fuseaction=pub.affResultats' sans refPub, 'AllCons', 'EntrepriseAdvancedSearch', 'page=recherche'), LAISSE dce_url VIDE.\n- En cas de doute, laisse dce_url vide plutôt que d'inventer ou de renvoyer un lien générique.\n\nIgnore les filtres de recherche, la pagination, les en-têtes de colonnes et les bandeaux. Si aucune consultation n'est visible, renvoie un tableau vide.`,
-        },
-      ],
-      onlyMainContent: true,
-      waitFor: 1500,
-    }),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`Firecrawl ${resp.status}: ${text.slice(0, 500)}`);
-  }
-  const payload = await resp.json();
-  const data = payload.data ?? payload;
-  const items =
-    data?.json?.tenders ??
-    data?.extract?.tenders ??
-    data?.llm_extraction?.tenders ??
-    [];
-  return Array.isArray(items) ? items : [];
-}
+const HEALABLE_ERRORS = new Set([
+  "selector_not_found",
+  "pagination_broken",
+  "list_empty_with_data_in_dom",
+]);
+const FAIL_THRESHOLD = 2;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -81,7 +25,7 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const body = await req.json().catch(() => ({}));
-    const { sourcing_url_id, dry_run = false } = body;
+    const { sourcing_url_id, dry_run = false, mode: modeOverride } = body;
     if (!sourcing_url_id) return json({ error: "sourcing_url_id required" }, 400);
 
     const { data: src, error: srcErr } = await supabase
@@ -92,23 +36,57 @@ Deno.serve(async (req) => {
     if (srcErr || !src) return json({ error: "sourcing_url not found" }, 404);
 
     const startedAt = new Date().toISOString();
-    // Toujours recalculer via le classifier centralisé : on ne fait pas confiance
-    // à la valeur héritée en BDD (peut être incorrecte sur des lignes anciennes).
     const platform = detectPlatformFromUrl(src.url);
     if (platform !== src.platform) {
       console.log(`[scrape-list] platform corrigé pour ${src.url}: ${src.platform} → ${platform}`);
     }
 
-    let items: any[] = [];
-    let errorMsg: string | null = null;
-    try {
-      items = await firecrawlScrape(src.url, FIRECRAWL_API_KEY);
-    } catch (e) {
-      errorMsg = e instanceof Error ? e.message : String(e);
+    // Charge le playbook actif (s'il existe)
+    const { data: pbRow } = await supabase
+      .from("agent_playbooks")
+      .select("*")
+      .eq("sourcing_url_id", sourcing_url_id)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    const playbook: Playbook | null = pbRow
+      ? {
+          id: pbRow.id,
+          sourcing_url_id: pbRow.sourcing_url_id,
+          list_strategy: pbRow.list_strategy,
+          pagination_hint: pbRow.pagination_hint,
+          confidence: Number(pbRow.confidence ?? 0),
+          pagination: pbRow.config?.pagination,
+          selectors: pbRow.config?.selectors,
+        }
+      : null;
+
+    // Détermine le mode (override du body > metadata > SMART par défaut)
+    const mode: ScrapeMode = (modeOverride ?? src.metadata?.scrape_mode ?? "SMART") as ScrapeMode;
+
+    // Skip si confidence trop basse et pas de fallback codé
+    if (playbook && playbook.confidence < 0.5 && playbook.list_strategy === "manual") {
+      return json({
+        ok: false,
+        skipped: true,
+        reason: "playbook_requires_manual_review",
+        confidence: playbook.confidence,
+      });
     }
 
-    // Annotate with platform + source url
-    const enriched = items.map((it) => ({
+    // Exécute
+    const result = await execute({
+      url: src.url,
+      platform,
+      mode,
+      playbook,
+      apiKey: FIRECRAWL_API_KEY,
+      supabase,
+      sourcing_url_id,
+    });
+
+    // Annote items avec metadata
+    const enriched = result.items.map((it) => ({
       ...it,
       _platform: platform,
       _source_url: src.url,
@@ -117,11 +95,11 @@ Deno.serve(async (req) => {
 
     if (dry_run) {
       return json({
-        ok: !errorMsg,
+        ok: !result.error_type,
         platform,
         items_found: enriched.length,
-        items: enriched,
-        error: errorMsg,
+        items: enriched.slice(0, 50),
+        metrics: result,
       });
     }
 
@@ -145,7 +123,7 @@ Deno.serve(async (req) => {
     }
 
     const finishedAt = new Date().toISOString();
-    const status = errorMsg ? "failed" : "success";
+    const status = result.error_type ? "failed" : "success";
 
     await supabase.from("scrape_logs").insert({
       source: `scrape:${platform}`,
@@ -156,9 +134,23 @@ Deno.serve(async (req) => {
       items_inserted: inserted,
       items_updated: updated,
       items_skipped: skipped,
-      errors: errorMsg,
+      errors: result.error_message ?? null,
       sourcing_url_id: src.id,
-      metadata: { url: src.url, platform },
+      metadata: {
+        url: src.url,
+        platform,
+        mode,
+        strategy: result.strategy_used,
+        pages_scraped: result.pages_scraped,
+        calls_firecrawl: result.calls_firecrawl,
+        items_raw: result.items_raw,
+        items_after_dedup: result.items_after_dedup,
+        items_new_vs_seen_cache: result.items_new_vs_seen_cache,
+        stopped_by: result.stopped_by,
+        error_type: result.error_type,
+        playbook_version: pbRow?.version,
+        playbook_confidence: pbRow?.confidence,
+      },
     });
 
     await supabase
@@ -168,18 +160,51 @@ Deno.serve(async (req) => {
         last_status: status,
         last_items_found: enriched.length,
         last_items_inserted: inserted,
-        last_error: errorMsg,
+        last_error: result.error_message ?? null,
       })
       .eq("id", src.id);
 
+    // Met à jour fail_count + last_error_type sur le playbook
+    if (pbRow) {
+      const updates: Record<string, unknown> = result.error_type
+        ? { fail_count: (pbRow.fail_count ?? 0) + 1, last_error_type: result.error_type }
+        : { fail_count: 0, last_error_type: null, last_validated_at: finishedAt };
+      await supabase.from("agent_playbooks").update(updates).eq("id", pbRow.id);
+
+      // Auto-trigger Healer si seuil atteint sur erreur structurelle
+      const newFailCount = result.error_type ? (pbRow.fail_count ?? 0) + 1 : 0;
+      if (
+        newFailCount >= FAIL_THRESHOLD &&
+        result.error_type &&
+        HEALABLE_ERRORS.has(result.error_type)
+      ) {
+        console.log(`[scrape-list] triggering Healer for ${src.id} (${result.error_type})`);
+        // Fire-and-forget : on n'attend pas
+        fetch(`${SUPABASE_URL}/functions/v1/heal-playbook`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sourcing_url_id: src.id }),
+        }).catch((e) => console.error("[scrape-list] heal trigger failed:", e));
+      }
+    }
+
     return json({
-      ok: !errorMsg,
+      ok: !result.error_type,
       platform,
+      mode,
       items_found: enriched.length,
       inserted,
       updated,
       skipped,
-      error: errorMsg,
+      strategy: result.strategy_used,
+      pages_scraped: result.pages_scraped,
+      calls_firecrawl: result.calls_firecrawl,
+      stopped_by: result.stopped_by,
+      error_type: result.error_type,
+      error: result.error_message,
     });
   } catch (e) {
     console.error("scrape-list error:", e);

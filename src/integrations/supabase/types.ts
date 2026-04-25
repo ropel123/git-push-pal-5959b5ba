@@ -55,48 +55,89 @@ export type Database = {
       }
       agent_playbooks: {
         Row: {
+          confidence: number
           config: Json
           created_at: string | null
           display_name: string
+          evidence: string | null
+          fail_count: number
           id: string
           is_active: boolean | null
+          last_error_type: string | null
+          last_validated_at: string | null
+          list_strategy: string | null
+          pagination_hint: string | null
           platform: string
           requires_auth: boolean | null
           requires_captcha: boolean | null
+          scout_model: string | null
+          scout_tokens_used: number | null
+          sourcing_url_id: string | null
           steps: Json
           success_rate: number | null
           updated_at: string | null
           url_pattern: string
+          version: number
         }
         Insert: {
+          confidence?: number
           config?: Json
           created_at?: string | null
           display_name: string
+          evidence?: string | null
+          fail_count?: number
           id?: string
           is_active?: boolean | null
+          last_error_type?: string | null
+          last_validated_at?: string | null
+          list_strategy?: string | null
+          pagination_hint?: string | null
           platform: string
           requires_auth?: boolean | null
           requires_captcha?: boolean | null
+          scout_model?: string | null
+          scout_tokens_used?: number | null
+          sourcing_url_id?: string | null
           steps?: Json
           success_rate?: number | null
           updated_at?: string | null
           url_pattern: string
+          version?: number
         }
         Update: {
+          confidence?: number
           config?: Json
           created_at?: string | null
           display_name?: string
+          evidence?: string | null
+          fail_count?: number
           id?: string
           is_active?: boolean | null
+          last_error_type?: string | null
+          last_validated_at?: string | null
+          list_strategy?: string | null
+          pagination_hint?: string | null
           platform?: string
           requires_auth?: boolean | null
           requires_captcha?: boolean | null
+          scout_model?: string | null
+          scout_tokens_used?: number | null
+          sourcing_url_id?: string | null
           steps?: Json
           success_rate?: number | null
           updated_at?: string | null
           url_pattern?: string
+          version?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "agent_playbooks_sourcing_url_id_fkey"
+            columns: ["sourcing_url_id"]
+            isOneToOne: false
+            referencedRelation: "sourcing_urls"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       agent_runs: {
         Row: {
@@ -662,6 +703,35 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "scrape_logs_sourcing_url_id_fkey"
+            columns: ["sourcing_url_id"]
+            isOneToOne: false
+            referencedRelation: "sourcing_urls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sourcing_seen_urls: {
+        Row: {
+          first_seen_at: string
+          last_seen_at: string
+          sourcing_url_id: string
+          url_hash: string
+        }
+        Insert: {
+          first_seen_at?: string
+          last_seen_at?: string
+          sourcing_url_id: string
+          url_hash: string
+        }
+        Update: {
+          first_seen_at?: string
+          last_seen_at?: string
+          sourcing_url_id?: string
+          url_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sourcing_seen_urls_sourcing_url_id_fkey"
             columns: ["sourcing_url_id"]
             isOneToOne: false
             referencedRelation: "sourcing_urls"
