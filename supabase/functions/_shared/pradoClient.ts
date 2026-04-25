@@ -112,10 +112,18 @@ const FORM_ACTION_RE = /\baction=["']([^"']+)["']/i;
 const FORM_METHOD_RE = /\bmethod=["']post["']/i;
 const FORM_NAME_RE = /\bname=["']([^"']+)["']/i;
 const FORM_ID_RE = /\bid=["']([^"']+)["']/i;
-const HIDDEN_INPUT_RE =
-  /<input\b[^>]*\btype=["']hidden["'][^>]*>/gi;
+// Match ANY <input ...> tag (hidden, text, etc.) — PRADO's PRADO_PAGESTATE
+// uses type="text" with style="display:none", so we can't filter on type.
+// We rely on the form scope + a name attribute to decide what to replay.
+const ANY_INPUT_RE = /<input\b[^>]*>/gi;
+const SELECT_RE = /<select\b([^>]*)>([\s\S]*?)<\/select>/gi;
+const TEXTAREA_RE = /<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/gi;
+const SELECTED_OPTION_RE = /<option\b[^>]*\bselected\b[^>]*\bvalue=["']([^"']*)["']/i;
+const FIRST_OPTION_RE = /<option\b[^>]*\bvalue=["']([^"']*)["']/i;
 const INPUT_NAME_RE = /\bname=["']([^"']+)["']/i;
 const INPUT_VALUE_RE = /\bvalue=["']([^"']*)["']/i;
+const INPUT_TYPE_RE = /\btype=["']([^"']+)["']/i;
+const INPUT_CHECKED_RE = /\bchecked\b/i;
 
 /**
  * Find the main PRADO form. Multiple forms can coexist (login form, search box, etc.).
@@ -125,13 +133,12 @@ const INPUT_VALUE_RE = /\bvalue=["']([^"']*)["']/i;
  *   3. Largest POST form by inner-HTML length
  */
 function findMainPostForm(html: string): { tag: string; inner: string } | null {
-  const candidates: Array<{ tag: string; inner: string; start: number; end: number; score: number }> = [];
+  const candidates: Array<{ tag: string; inner: string; score: number }> = [];
   let m: RegExpExecArray | null;
   FORM_OPEN_RE.lastIndex = 0;
   while ((m = FORM_OPEN_RE.exec(html)) !== null) {
     const tag = m[0];
     if (!FORM_METHOD_RE.test(tag)) continue;
-    const start = m.index;
     const innerStart = m.index + tag.length;
     const closeIdx = html.indexOf("</form>", innerStart);
     if (closeIdx === -1) continue;
@@ -145,14 +152,22 @@ function findMainPostForm(html: string): { tag: string; inner: string } | null {
     if (actionMatch?.[1]?.includes("?page=")) score += 200;
     if (actionMatch?.[1]?.includes("/login")) score -= 1000;
     score += Math.min(inner.length / 100, 100);
-    candidates.push({ tag, inner, start, end: closeIdx, score });
+    candidates.push({ tag, inner, score });
   }
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => b.score - a.score);
   return { tag: candidates[0].tag, inner: candidates[0].inner };
 }
 
-/** Extract every `<input type="hidden">` inside the main PRADO form. */
+/**
+ * Extract every named input/select/textarea inside the main PRADO form.
+ * Browsers serialize ALL named form fields on submit — we must do the same.
+ *
+ * Skipped:
+ *  - inputs without a name (decorative)
+ *  - submit/button/image/reset/file inputs (postbacks via PRADO_POSTBACK_TARGET)
+ *  - unchecked checkboxes/radios (browsers omit them)
+ */
 export function extractFormState(html: string, baseUrl: string): FormState {
   const form = findMainPostForm(html);
   const formInner = form?.inner ?? html;
@@ -161,16 +176,48 @@ export function extractFormState(html: string, baseUrl: string): FormState {
   const actionUrl = actionMatch ? resolveActionUrl(actionMatch[1], baseUrl) : baseUrl;
 
   const hiddenInputs = new Map<string, string>();
-  HIDDEN_INPUT_RE.lastIndex = 0;
+
+  // 1. <input> — all types except submit/button/image
+  ANY_INPUT_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = HIDDEN_INPUT_RE.exec(formInner)) !== null) {
+  while ((m = ANY_INPUT_RE.exec(formInner)) !== null) {
     const tag = m[0];
     const nameMatch = tag.match(INPUT_NAME_RE);
     if (!nameMatch) continue;
     const name = decodeEntities(nameMatch[1]);
+    const typeMatch = tag.match(INPUT_TYPE_RE);
+    const type = (typeMatch?.[1] ?? "text").toLowerCase();
+    if (type === "submit" || type === "button" || type === "image" || type === "reset" || type === "file") continue;
+    if ((type === "checkbox" || type === "radio") && !INPUT_CHECKED_RE.test(tag)) continue;
     const valueMatch = tag.match(INPUT_VALUE_RE);
-    const value = valueMatch ? decodeEntities(valueMatch[1]) : "";
+    const value = valueMatch
+      ? decodeEntities(valueMatch[1])
+      : (type === "checkbox" || type === "radio" ? "on" : "");
     hiddenInputs.set(name, value);
+  }
+
+  // 2. <select> — take the selected option (or first if none selected)
+  SELECT_RE.lastIndex = 0;
+  while ((m = SELECT_RE.exec(formInner)) !== null) {
+    const attrs = m[1];
+    const inner = m[2];
+    const nameMatch = attrs.match(INPUT_NAME_RE);
+    if (!nameMatch) continue;
+    const name = decodeEntities(nameMatch[1]);
+    const sel = inner.match(SELECTED_OPTION_RE) ?? inner.match(FIRST_OPTION_RE);
+    const value = sel ? decodeEntities(sel[1]) : "";
+    if (!hiddenInputs.has(name)) hiddenInputs.set(name, value);
+  }
+
+  // 3. <textarea>
+  TEXTAREA_RE.lastIndex = 0;
+  while ((m = TEXTAREA_RE.exec(formInner)) !== null) {
+    const attrs = m[1];
+    const inner = m[2];
+    const nameMatch = attrs.match(INPUT_NAME_RE);
+    if (!nameMatch) continue;
+    const name = decodeEntities(nameMatch[1]);
+    if (!hiddenInputs.has(name)) hiddenInputs.set(name, decodeEntities(inner));
   }
 
   return {
