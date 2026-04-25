@@ -1,34 +1,64 @@
-# Filtres sur la table "URLs configurées"
+# Récupérer les bonnes réponses Anthropic rejetées par seuil trop strict
 
-Ajouter une barre de filtres juste au-dessus du tableau (carte "URLs configurées (120)") pour permettre de chercher / trier les 120 lignes facilement.
+## Diagnostic
 
-## Filtres proposés
+Les crédits Anthropic fonctionnent maintenant (plus aucune erreur HTTP 400/402 dans les logs). Le vrai problème est **dans notre code**, pas chez Anthropic.
 
-1. **Recherche texte** (input) — filtre instantané sur `url` + `display_name` (insensible à la casse)
-2. **Plateforme** (Select) — `Toutes` + une option par plateforme effectivement présente dans la liste, triées par fréquence (ex : `atexo (42)`, `xmarches (18)`, `custom (15)`…)
-3. **Statut du dernier run** (Select) — `Tous` / `success` / `error` / `jamais lancé`
-4. **Actif** (Select) — `Tous` / `Actifs` / `Inactifs`
+Log clé extrait du run :
+```
+[aiClassifierAnthropic] low confidence 0.72 for atexo → custom
+```
 
-Bouton **Réinitialiser** pour vider tous les filtres en un clic.
+Ce qui se passe pour chaque URL :
+1. Haiku 4.5 fetche bien la page via `web_fetch`
+2. Il identifie correctement la plateforme (ex : `atexo` à 0.72)
+3. **Notre code (`aiClassifierAnthropic.ts` ligne 26 + 189) exige ≥ 0.80** → il jette le verdict et le remplace par `custom`
+4. Le toast affiche `custom → custom (fallback · anthropic)`
 
-## Comportement
+Haiku est calibré plus prudent que Opus (qui sortait souvent 0.85-0.95). Avec un seuil hérité de l'ancien modèle, on jette ~tout ce qui sort.
 
-- Filtrage 100 % côté client (les 120 URLs sont déjà chargées en mémoire), pas de requête supplémentaire.
-- Le compteur du titre passe de `URLs configurées (120)` à `URLs configurées (37 / 120)` quand un filtre est actif, pour que tu voies tout de suite combien de lignes sont masquées.
-- Si aucun résultat → message "Aucune URL ne correspond aux filtres" dans le tbody.
-- Les filtres restent actifs après un `reclassifyOne` / `runNow` / reload (state local React, pas écrasé par `load()`).
+## Correctif
 
-## Détails techniques
+### 1. Abaisser le seuil de confiance à 0.65 (ligne 26 de `aiClassifierAnthropic.ts`)
 
-- Tout se passe dans `src/pages/Sourcing.tsx`, aucun changement DB, aucune edge function touchée.
-- 4 nouveaux `useState` : `searchQuery`, `platformFilter`, `statusFilter`, `activeFilter`.
-- `useMemo` qui dérive `filteredUrls` depuis `urls` + les 4 filtres.
-- `useMemo` qui dérive la liste des plateformes disponibles avec leur compte, à partir de `urls`.
-- La barre de filtres est insérée juste au-dessus de `<Table>` dans le `<CardContent>` du Card "URLs configurées" (ligne ~623), en utilisant les composants existants `Input` et `Select` (shadcn) pour rester cohérent visuellement.
-- Layout : `flex flex-wrap gap-2 mb-4`, avec `Input` qui prend `flex-1 min-w-[240px]` et les 3 selects en largeur fixe (~`w-[180px]`).
+`0.65` est le palier standard Anthropic recommandé pour Haiku quand on a un enum fermé de 22 valeurs. Au-dessus de 0.65 le modèle a éliminé l'ambiguïté ; en dessous il hésite vraiment entre 2 plateformes.
 
-## Ce qui ne change pas
+### 2. Renforcer le prompt pour calibrer la confiance
 
-- Le panneau "Re-classifier / Provider IA" en haut reste tel quel.
-- La table `Logs récents` en bas n'est pas filtrée (hors scope, dis-moi si tu veux la même chose dessus).
-- Aucune persistance des filtres (pas d'URL params, pas de localStorage) — on peut l'ajouter plus tard si besoin.
+Ajouter une section "Calibration de la confidence" dans le `SYSTEM_PROMPT` :
+- **0.95-1.0** : signature explicite (hostname, classes CSS, scripts)
+- **0.80-0.94** : 2+ indices convergents (path + footer + meta)
+- **0.65-0.79** : 1 indice fort OU plusieurs indices faibles convergents → **réponse acceptable**
+- **< 0.65** : vraiment du doute → renvoyer `platform: "custom"` directement
+
+Cela empêche Haiku de se sous-évaluer systématiquement.
+
+### 3. Améliorer le toast pour distinguer les vrais fallbacks
+
+Aujourd'hui `(fallback · anthropic)` peut signifier 3 choses très différentes :
+- IA a répondu mais confiance trop basse (cas actuel)
+- IA a renvoyé `custom` en toute connaissance
+- erreur réseau / API
+
+Dans `reclassify-sourcing-urls/index.ts`, exposer `confidence` dans la réponse, et dans `Sourcing.tsx` afficher dans le toast quelque chose comme :
+- `custom → atexo (ai · anthropic, 0.72)` ✅
+- `custom → custom (low-conf 0.55 · anthropic)` ⚠️
+- `custom → custom (http-500 · anthropic)` ❌
+
+Tu sauras tout de suite si c'est un vrai custom ou une réponse jetée par seuil.
+
+### 4. Re-tester sur 1 URL avant de relancer le batch complet
+
+Après déploiement, tu cliques la baguette sur une URL Atexo connue (ex : ta ligne `xmarches.fr` ou un Atexo classique) → tu dois voir un verdict autre que `custom`.
+
+## Fichiers touchés
+
+- `supabase/functions/_shared/aiClassifierAnthropic.ts` : seuil + prompt
+- `supabase/functions/reclassify-sourcing-urls/index.ts` : exposer `confidence` dans la réponse JSON
+- `src/pages/Sourcing.tsx` : enrichir le toast
+
+## Hors scope
+
+- Aucun changement de DB
+- Aucun changement sur OpenRouter/Opus (continue de marcher tel quel)
+- Pas de re-classification automatique de masse — tu décideras quand relancer le bouton "Re-classifier" sur les 120 URLs après avoir validé qu'1 URL test marche
