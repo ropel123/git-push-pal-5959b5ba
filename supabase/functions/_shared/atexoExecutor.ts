@@ -160,7 +160,13 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
     event_targets_used: [],
     hidden_inputs_count: 0,
     pagestate_lost: false,
+    max_pages_cap: MAX_PAGES_PER_RUN,
+    pages_planned: 0,
+    time_elapsed_ms: 0,
+    stop_reason_detail: "",
+    consecutive_http_errors: 0,
   };
+  const runStartTime = Date.now();
   let calls = 0;
   let stoppedBy: ExecutorResult["stopped_by"] = "single_page";
 
