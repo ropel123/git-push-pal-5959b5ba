@@ -190,10 +190,10 @@ export async function classifyPlatformWithAnthropic(
       const reasoning = typeof parsed.reasoning === "string" ? truncate(parsed.reasoning, 240) : "";
       const pagination_hint = PAGINATION_ENUM.includes(parsed.pagination_hint) ? parsed.pagination_hint : "unknown";
 
-      // Seuil de confiance : sous CONFIDENCE_THRESHOLD → on rétrograde sur custom
-      if (confidence < CONFIDENCE_THRESHOLD && platform !== "custom") {
-        console.warn(`[aiClassifierAnthropic] low confidence ${confidence} for ${platform} → custom (threshold=${CONFIDENCE_THRESHOLD})`);
-        return { platform: "custom", confidence, reasoning: `low-confidence:${platform}:${reasoning}`, pagination_hint };
+      // Pas de filtre : on fait confiance au verdict de l'agent (web_fetch + inspection DOM).
+      // Si l'agent renvoie "custom" c'est qu'il a inspecté et n'a rien trouvé.
+      if (confidence < CONFIDENCE_THRESHOLD) {
+        console.warn(`[aiClassifierAnthropic] low confidence ${confidence} for ${platform} (kept anyway)`);
       }
 
       return { platform, confidence, reasoning, pagination_hint };

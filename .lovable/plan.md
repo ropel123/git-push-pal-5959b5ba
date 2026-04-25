@@ -1,64 +1,33 @@
-# Récupérer les bonnes réponses Anthropic rejetées par seuil trop strict
+# Supprimer le seuil de confiance Anthropic
 
-## Diagnostic
+## Constat
 
-Les crédits Anthropic fonctionnent maintenant (plus aucune erreur HTTP 400/402 dans les logs). Le vrai problème est **dans notre code**, pas chez Anthropic.
+Tu as raison : si Haiku 4.5 fait correctement son boulot (`web_fetch` + inspection du DOM), pour la quasi-totalité des plateformes la signature est explicite (`class="atexo-*"`, footer, hostname, scripts). Si l'agent renvoie `atexo` même à 0.72, il a très probablement raison — le filtrage par seuil nous fait juste perdre des bonnes réponses.
 
-Log clé extrait du run :
+## Modification
+
+**Un seul changement** dans `supabase/functions/_shared/aiClassifierAnthropic.ts` :
+
+Supprimer le filtre qui rétrograde le verdict en `custom` quand `confidence < 0.65`. On garde **toujours** ce que l'agent renvoie. Seul cas où on tombe sur `custom` :
+- L'agent renvoie explicitement `platform: "custom"` (il a inspecté et n'a rien trouvé d'identifiable)
+- L'API Anthropic échoue (réseau, 5xx, key manquante) → fallback `custom` comme aujourd'hui
+
+On log toujours la confidence basse (`console.warn`) pour pouvoir analyser plus tard, mais on ne jette plus le verdict.
+
+## Toast simplifié dans `Sourcing.tsx`
+
+Comme il n'y a plus de "low-conf rétrogradé", le toast revient à un format simple :
 ```
-[aiClassifierAnthropic] low confidence 0.72 for atexo → custom
+custom → atexo (ai 0.72 · anthropic)
 ```
 
-Ce qui se passe pour chaque URL :
-1. Haiku 4.5 fetche bien la page via `web_fetch`
-2. Il identifie correctement la plateforme (ex : `atexo` à 0.72)
-3. **Notre code (`aiClassifierAnthropic.ts` ligne 26 + 189) exige ≥ 0.80** → il jette le verdict et le remplace par `custom`
-4. Le toast affiche `custom → custom (fallback · anthropic)`
-
-Haiku est calibré plus prudent que Opus (qui sortait souvent 0.85-0.95). Avec un seuil hérité de l'ancien modèle, on jette ~tout ce qui sort.
-
-## Correctif
-
-### 1. Abaisser le seuil de confiance à 0.65 (ligne 26 de `aiClassifierAnthropic.ts`)
-
-`0.65` est le palier standard Anthropic recommandé pour Haiku quand on a un enum fermé de 22 valeurs. Au-dessus de 0.65 le modèle a éliminé l'ambiguïté ; en dessous il hésite vraiment entre 2 plateformes.
-
-### 2. Renforcer le prompt pour calibrer la confiance
-
-Ajouter une section "Calibration de la confidence" dans le `SYSTEM_PROMPT` :
-- **0.95-1.0** : signature explicite (hostname, classes CSS, scripts)
-- **0.80-0.94** : 2+ indices convergents (path + footer + meta)
-- **0.65-0.79** : 1 indice fort OU plusieurs indices faibles convergents → **réponse acceptable**
-- **< 0.65** : vraiment du doute → renvoyer `platform: "custom"` directement
-
-Cela empêche Haiku de se sous-évaluer systématiquement.
-
-### 3. Améliorer le toast pour distinguer les vrais fallbacks
-
-Aujourd'hui `(fallback · anthropic)` peut signifier 3 choses très différentes :
-- IA a répondu mais confiance trop basse (cas actuel)
-- IA a renvoyé `custom` en toute connaissance
-- erreur réseau / API
-
-Dans `reclassify-sourcing-urls/index.ts`, exposer `confidence` dans la réponse, et dans `Sourcing.tsx` afficher dans le toast quelque chose comme :
-- `custom → atexo (ai · anthropic, 0.72)` ✅
-- `custom → custom (low-conf 0.55 · anthropic)` ⚠️
-- `custom → custom (http-500 · anthropic)` ❌
-
-Tu sauras tout de suite si c'est un vrai custom ou une réponse jetée par seuil.
-
-### 4. Re-tester sur 1 URL avant de relancer le batch complet
-
-Après déploiement, tu cliques la baguette sur une URL Atexo connue (ex : ta ligne `xmarches.fr` ou un Atexo classique) → tu dois voir un verdict autre que `custom`.
-
-## Fichiers touchés
-
-- `supabase/functions/_shared/aiClassifierAnthropic.ts` : seuil + prompt
-- `supabase/functions/reclassify-sourcing-urls/index.ts` : exposer `confidence` dans la réponse JSON
-- `src/pages/Sourcing.tsx` : enrichir le toast
+Trois sources possibles seulement :
+- `ai` : verdict de l'agent (que la confidence soit 0.6 ou 0.95)
+- `regex` : détection par hostname/path avant même d'appeler l'IA
+- `fallback` : erreur API → custom forcé
 
 ## Hors scope
 
-- Aucun changement de DB
-- Aucun changement sur OpenRouter/Opus (continue de marcher tel quel)
-- Pas de re-classification automatique de masse — tu décideras quand relancer le bouton "Re-classifier" sur les 120 URLs après avoir validé qu'1 URL test marche
+- Aucun changement de prompt (l'agent a déjà toutes les instructions nécessaires)
+- Aucun changement de modèle (on reste sur Haiku 4.5)
+- OpenRouter / Opus inchangé
