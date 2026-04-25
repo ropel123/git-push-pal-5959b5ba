@@ -1,17 +1,22 @@
-// atexoExecutor.ts v2 — stratégie révisée après inspection HTML réel.
+// atexoExecutor.ts v3 — PRADO event-chain (Plan v3.4.1)
 //
-// Constatations Atexo NC :
-// - Firecrawl Map NE voit PAS les URLs /entreprise/consultation/{id} (générées dynamiquement)
-// - Les IDs sont visibles DIRECTEMENT dans le HTML de la page liste (régex)
-// - Lien "page suivante" : <a id="...PagerBottom_ctl2"> avec span.btn[title='Aller à la page suivante'] dedans
-// - listePageSizeBottom est un <select> POST → param GET ignoré
-// - nombrePageBottom dans <span id="...nombrePageBottom">N</span>
+// Diagnostic : Atexo tourne sur PRADO (PHP, équivalent ASP.NET WebForms).
+// Pagination = postback stateful : PRADO_PAGESTATE + _csrf_token + cookies.
+// Firecrawl ouvre un navigateur neuf à chaque call → état perdu → page 1 toujours.
 //
-// Stratégie 2 couches :
-// 1. SCRAPE LIST page 1 → extrait IDs du HTML + totalPages (1 call)
-// 2. ACTIONS pagination → 1 call par page suivante (max 4)
+// Stratégie v3.4.1 :
+//   1. fetchInitialPage(url) en HTTP brut → state₀, cookies₀, IDs page 1
+//   2. Détecte engine "prado_event_chain" via marqueurs HTML
+//   3. Boucle event-chain SÉQUENTIELLE :
+//        state = state₀
+//        for i in 1..N:
+//          target = extractNextPagerEventTarget(lastHtml)
+//          { html, state } = await postEvent(state, target)   // chaining strict
+//          merge IDs
+//   4. Fallback v3.3 (Firecrawl actions) si engine non détecté
 //
-// Dédup : par ID consultation. Budget : max 5 calls.
+// Garde-fous : MAX_PAGES_PER_RUN=8, séquentiel (pas de Promise.all),
+// pagestate doit être présent dans chaque réponse (sinon stop).
 
 import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
@@ -24,19 +29,39 @@ import {
   firecrawlScrapeWithActions,
   type FirecrawlAction,
 } from "./firecrawlScrape.ts";
+import {
+  extractCurrentPage,
+  extractFormState,
+  extractIdsFromHtml as extractIdsFromHtmlPrado,
+  extractNextPagerEventTarget,
+  extractTotalPages as extractTotalPagesPrado,
+  fetchInitialPage,
+  isPradoHtml,
+  postEvent,
+  type FormState,
+} from "./pradoClient.ts";
 import type { ExecutorContext, ExecutorResult } from "./playbookExecutor.ts";
 
-const MAX_CALLS_PER_URL = 5;
-const MAX_ACTION_PAGES = 4;
+// PRADO mode — HTTP only, very cheap, can afford more pages
+const MAX_PAGES_PER_RUN = 8;
+const TIMEOUT_PER_POST_MS = 15_000;
+const MAX_TOTAL_TIME_MS = 90_000;
+
+// Firecrawl fallback — kept for non-PRADO Atexo-like portals
+const MAX_CALLS_PER_URL_FC = 5;
+const MAX_ACTION_PAGES_FC = 4;
+
+type Engine = "prado_event_chain" | "firecrawl_fallback";
 
 type ConsultationItem = {
   id: string;
   url?: string;
-  source: "list_html" | "list_extract" | "actions";
+  source: "list_html" | "list_extract" | "actions" | "prado_chain";
   data?: Record<string, unknown>;
 };
 
 type AtexoStats = {
+  engine: Engine;
   ids_from_list_html: number;
   ids_from_list_extract: number;
   ids_from_actions: number;
@@ -45,26 +70,30 @@ type AtexoStats = {
   unique_consultations: number;
   items_per_page_actual: number[];
   coverage_ratio: number;
-  pagination_mode: "input" | "click_fallback" | "none";
+  pagination_mode: "prado_event_chain" | "input" | "click_fallback" | "none";
   dom_stuck_detected: boolean;
+  // PRADO-specific
+  pagestate_rotations: number;
+  csrf_rotations: number;
+  cookies_rotations: number;
+  http_status_per_page: number[];
+  event_targets_used: string[];
+  hidden_inputs_count: number;
+  pagestate_lost: boolean;
 };
-
 
 function baseHostUrl(fullUrl: string): string {
   const u = new URL(fullUrl);
   return `${u.protocol}//${u.host}`;
 }
 
-/** Extrait tous les IDs consultation visibles dans le HTML brut. */
+/** Legacy regex-based ID extraction (used as fallback for Firecrawl mode). */
 function extractIdsFromHtml(html: string | null | undefined): string[] {
   if (!html) return [];
   const ids = new Set<string>();
-  // Match: /entreprise/consultation/3018 ou /entreprise/consultation/3018?...
   const re = /\/entreprise\/consultation\/(\d+)/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    ids.add(m[1]);
-  }
+  while ((m = re.exec(html)) !== null) ids.add(m[1]);
   return Array.from(ids);
 }
 
@@ -98,12 +127,303 @@ async function loadSeenIdHashes(
   return new Set((data ?? []).map((r: { url_hash: string }) => r.url_hash));
 }
 
-/** Sélecteurs Atexo pour la pagination input-driven (vrai backend ASP.NET). */
-const PAGE_INPUT_SELECTOR = "input[name*='numPageBottom'], input[id*='numPageBottom']";
-const SUBMIT_BUTTON_SELECTOR =
-  "input[name*='DefaultButtonBottom'], input[id*='DefaultButtonBottom']";
+// ============================================================================
+//                          MAIN ENTRY POINT
+// ============================================================================
 
-/** Sélecteurs fallback pour click "page suivante" (si input absent). */
+export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult> {
+  const allIds = new Map<string, ConsultationItem>();
+  const stats: AtexoStats = {
+    engine: "firecrawl_fallback",
+    ids_from_list_html: 0,
+    ids_from_list_extract: 0,
+    ids_from_actions: 0,
+    actions_pages_scraped: 0,
+    total_pages_detected: 1,
+    unique_consultations: 0,
+    items_per_page_actual: [],
+    coverage_ratio: 0,
+    pagination_mode: "none",
+    dom_stuck_detected: false,
+    pagestate_rotations: 0,
+    csrf_rotations: 0,
+    cookies_rotations: 0,
+    http_status_per_page: [],
+    event_targets_used: [],
+    hidden_inputs_count: 0,
+    pagestate_lost: false,
+  };
+  let calls = 0;
+  let stoppedBy: ExecutorResult["stopped_by"] = "single_page";
+
+  // ============== STEP 1 : initial fetch (HTTP brut, gratuit) ==============
+  let initialHtml: string;
+  let pradoState: FormState | null = null;
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20_000);
+    const initial = await fetchInitialPage(ctx.url, ctrl.signal);
+    clearTimeout(timer);
+    initialHtml = initial.html;
+    stats.http_status_per_page.push(initial.status);
+
+    if (isPradoHtml(initialHtml)) {
+      stats.engine = "prado_event_chain";
+      stats.pagination_mode = "prado_event_chain";
+      pradoState = initial.state;
+      stats.hidden_inputs_count = pradoState.hiddenInputs.size;
+      console.log(
+        `[atexo] engine=prado_event_chain, hidden_inputs=${stats.hidden_inputs_count}, ` +
+          `pagestate=${pradoState.pageState ? pradoState.pageState.length + " bytes" : "MISSING"}, ` +
+          `csrf=${pradoState.csrfToken ? "yes" : "no"}`,
+      );
+    } else {
+      console.log(`[atexo] engine=firecrawl_fallback (no PRADO markers)`);
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[atexo] initial HTTP fetch failed: ${msg} — falling back to Firecrawl`);
+    initialHtml = "";
+  }
+
+  // Page 1 IDs (from the HTTP fetch if we have it; otherwise from Firecrawl below)
+  if (initialHtml) {
+    const ids = extractIdsFromHtmlPrado(initialHtml);
+    for (const id of ids) {
+      if (!allIds.has(id)) {
+        allIds.set(id, {
+          id,
+          url: `${baseHostUrl(ctx.url)}/entreprise/consultation/${id}`,
+          source: "list_html",
+        });
+      }
+    }
+    stats.ids_from_list_html = ids.length;
+    stats.total_pages_detected = extractTotalPagesPrado(initialHtml);
+    stats.items_per_page_actual.push(ids.length);
+    console.log(
+      `[atexo] page 1 (HTTP): ${ids.length} IDs, totalPages=${stats.total_pages_detected}`,
+    );
+  }
+
+  // ============== STEP 2a : enrichissement IA page 1 (Firecrawl, optionnel) ==============
+  // Une seule call Firecrawl pour récupérer titre/buyer/deadline structurés.
+  // C'est tout ce qu'on demande à Firecrawl en mode PRADO.
+  try {
+    const listRes = await firecrawlScrapeStructured(ctx.url, ctx.apiKey, {
+      wantHtml: !initialHtml, // si HTTP a échoué on a besoin du HTML aussi
+      timeoutMs: 30_000,
+    });
+    calls++;
+
+    // Si HTTP brut a échoué, récupère IDs depuis le HTML Firecrawl
+    if (!initialHtml && listRes.raw_html) {
+      const ids = extractIdsFromHtml(listRes.raw_html);
+      for (const id of ids) {
+        if (!allIds.has(id)) {
+          allIds.set(id, {
+            id,
+            url: `${baseHostUrl(ctx.url)}/entreprise/consultation/${id}`,
+            source: "list_html",
+          });
+        }
+      }
+      stats.ids_from_list_html = ids.length;
+      stats.total_pages_detected = parseTotalPages(listRes.raw_html);
+      stats.items_per_page_actual.push(ids.length);
+    }
+
+    // Enrichit avec données structurées
+    for (const t of listRes.tenders) {
+      const id = extractConsultationId(t.dce_url as string | undefined);
+      if (id) {
+        const existing = allIds.get(id);
+        if (existing) {
+          existing.data = t;
+          existing.source = existing.source === "list_html" ? "list_extract" : existing.source;
+        } else {
+          allIds.set(id, {
+            id,
+            url: t.dce_url as string | undefined,
+            source: "list_extract",
+            data: t,
+          });
+        }
+      }
+    }
+    stats.ids_from_list_extract = listRes.tenders.length;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[atexo] Firecrawl enrichment failed: ${msg}`);
+    if (allIds.size === 0) {
+      // Ni HTTP ni Firecrawl n'ont marché → erreur dure
+      return finalize(ctx, allIds, stats, calls, "error", "network_timeout", msg);
+    }
+  }
+
+  // ============== STEP 3 : pagination ==============
+  if (stats.total_pages_detected <= 1) {
+    stoppedBy = "single_page";
+  } else if (ctx.mode === "FAST") {
+    stoppedBy = "fast_mode";
+  } else if (stats.engine === "prado_event_chain" && pradoState) {
+    stoppedBy = await runPradoEventChain(
+      ctx,
+      pradoState,
+      initialHtml,
+      allIds,
+      stats,
+    );
+  } else {
+    // Fallback Firecrawl (legacy v3.3 click/input)
+    stoppedBy = await runFirecrawlFallback(ctx, initialHtml, allIds, stats, () => calls++);
+    calls = stats.actions_pages_scraped + 1; // approximation; calls counter already incremented
+  }
+
+  return finalize(ctx, allIds, stats, calls + stats.actions_pages_scraped /* prado pages = HTTP, ~free */, stoppedBy);
+}
+
+// ============================================================================
+//                       PRADO EVENT-CHAIN PAGINATION
+// ============================================================================
+
+async function runPradoEventChain(
+  ctx: ExecutorContext,
+  initialState: FormState,
+  initialHtml: string,
+  allIds: Map<string, ConsultationItem>,
+  stats: AtexoStats,
+): Promise<ExecutorResult["stopped_by"]> {
+  let state = initialState;
+  let lastHtml = initialHtml;
+  let prevPageIds = new Set(extractIdsFromHtmlPrado(initialHtml));
+  let prevFirstRow = firstRowFingerprint(initialHtml);
+  const startTime = Date.now();
+
+  const totalPages = stats.total_pages_detected;
+  const pagesToFetch = Math.min(totalPages - 1, MAX_PAGES_PER_RUN);
+
+  for (let i = 0; i < pagesToFetch; i++) {
+    if (Date.now() - startTime > MAX_TOTAL_TIME_MS) {
+      console.warn(`[atexo:prado] global timeout after ${i} pages`);
+      return "budget";
+    }
+
+    const targetPageNumber = i + 2; // we already have page 1
+    const eventTarget = extractNextPagerEventTarget(lastHtml);
+    if (!eventTarget) {
+      console.log(`[atexo:prado] no next-pager event target found on page ${i + 1} — end of pagination`);
+      return "max_pages";
+    }
+    stats.event_targets_used.push(eventTarget);
+
+    // Sanity check: pagestate must be present
+    if (!state.pageState) {
+      console.warn(`[atexo:prado] PRADO_PAGESTATE missing before page ${targetPageNumber} — abort`);
+      stats.pagestate_lost = true;
+      return "error";
+    }
+
+    const prevPageState = state.pageState;
+    const prevCsrf = state.csrfToken;
+    const prevCookies = state.cookies;
+
+    let result;
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), TIMEOUT_PER_POST_MS);
+      result = await postEvent(state, eventTarget, "", ctrl.signal);
+      clearTimeout(timer);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[atexo:prado] POST page ${targetPageNumber} failed: ${msg}`);
+      return "error";
+    }
+
+    stats.http_status_per_page.push(result.status);
+    if (result.status >= 400) {
+      console.warn(`[atexo:prado] HTTP ${result.status} on page ${targetPageNumber} — abort`);
+      return "error";
+    }
+
+    // STATE CHAINING — adopt the new state for the next iteration
+    state = result.state;
+    lastHtml = result.html;
+    stats.actions_pages_scraped++;
+
+    if (state.pageState && state.pageState !== prevPageState) stats.pagestate_rotations++;
+    else if (!state.pageState) {
+      stats.pagestate_lost = true;
+      console.warn(`[atexo:prado] pagestate lost in response of page ${targetPageNumber} — abort`);
+      return "error";
+    }
+    if (state.csrfToken && state.csrfToken !== prevCsrf) stats.csrf_rotations++;
+    if (state.cookies && state.cookies !== prevCookies) stats.cookies_rotations++;
+
+    // Extract IDs + fingerprint
+    const pageIds = extractIdsFromHtmlPrado(lastHtml);
+    const pageIdSet = new Set(pageIds);
+    const pageFirstRow = firstRowFingerprint(lastHtml);
+    const reportedCurrent = extractCurrentPage(lastHtml);
+
+    // DOM stuck detection: same IDs AND same first row as previous
+    const sameIds =
+      pageIds.length > 0 &&
+      pageIds.length === prevPageIds.size &&
+      pageIds.every((id) => prevPageIds.has(id));
+    const sameFirstRow = pageFirstRow !== "" && pageFirstRow === prevFirstRow;
+
+    if (sameIds && sameFirstRow) {
+      stats.dom_stuck_detected = true;
+      console.warn(
+        `[atexo:prado] page ${targetPageNumber} fingerprint identical to previous (reportedCurrent=${reportedCurrent}) — stop`,
+      );
+      return "no_new_items";
+    }
+
+    const beforeCount = allIds.size;
+    for (const id of pageIds) {
+      if (!allIds.has(id)) {
+        allIds.set(id, {
+          id,
+          url: `${baseHostUrl(ctx.url)}/entreprise/consultation/${id}`,
+          source: "prado_chain",
+        });
+      }
+    }
+    const newOnThisPage = allIds.size - beforeCount;
+    stats.items_per_page_actual.push(pageIds.length);
+    stats.ids_from_actions += newOnThisPage;
+
+    console.log(
+      `[atexo:prado] page ${targetPageNumber} (reported=${reportedCurrent}): ${pageIds.length} IDs, +${newOnThisPage} new, status=${result.status}`,
+    );
+
+    prevPageIds = pageIdSet;
+    prevFirstRow = pageFirstRow;
+
+    if (newOnThisPage === 0) {
+      console.log(`[atexo:prado] no new IDs on page ${targetPageNumber} — stop`);
+      return "no_new_items";
+    }
+  }
+
+  return "max_pages";
+}
+
+/** Build a fingerprint of the first row of the result table (for stuck detection). */
+function firstRowFingerprint(html: string): string {
+  const m = html.match(/\/entreprise\/consultation\/(\d+)[\s\S]{0,400}/);
+  if (!m) return "";
+  return m[0].replace(/\s+/g, " ").slice(0, 200);
+}
+
+// ============================================================================
+//                       FIRECRAWL FALLBACK (legacy v3.3)
+// ============================================================================
+
+const PAGE_INPUT_SELECTOR = "input[name*='numPageBottom'], input[id*='numPageBottom']";
 const NEXT_PAGE_SELECTORS = [
   "a[id*='PagerBottom_ctl2']",
   "a[id*='PagerBottom_ctl3']",
@@ -111,32 +431,21 @@ const NEXT_PAGE_SELECTORS = [
   "a:has(span[title*='page suivante' i])",
 ].join(", ");
 
-/**
- * Pagination input-driven : remplir numPageBottom + Enter.
- * ASP.NET WebForms a un "default submit button" automatique sur les inputs texte
- * → press Enter déclenche le postback (DefaultButtonBottom est display:none donc
- * non cliquable directement par Playwright).
- */
 function buildInputDrivenActions(targetPage: number): FirecrawlAction[] {
   return [
     { type: "wait", milliseconds: 1200 },
-    // Focus le champ numPageBottom
     { type: "click", selector: PAGE_INPUT_SELECTOR },
-    // Efface la valeur courante (3x backspace pour gérer "1", "10", "100")
     { type: "press", key: "Backspace" },
     { type: "press", key: "Backspace" },
     { type: "press", key: "Backspace" },
     { type: "write", text: String(targetPage) },
     { type: "wait", milliseconds: 300 },
-    // ASP.NET WebForms : Enter sur un input texte déclenche le default submit button
     { type: "press", key: "Enter" },
-    // Attend le postback AJAX
     { type: "wait", milliseconds: 3000 },
     { type: "scrape" },
   ];
 }
 
-/** Fallback si input-driven échoue : N clicks séquentiels "page suivante". */
 function buildClickNextActions(stepCount: number): FirecrawlAction[] {
   const actions: FirecrawlAction[] = [];
   for (let i = 0; i < stepCount; i++) {
@@ -148,213 +457,102 @@ function buildClickNextActions(stepCount: number): FirecrawlAction[] {
   return actions;
 }
 
+async function runFirecrawlFallback(
+  ctx: ExecutorContext,
+  _initialHtml: string,
+  allIds: Map<string, ConsultationItem>,
+  stats: AtexoStats,
+  bumpCalls: () => void,
+): Promise<ExecutorResult["stopped_by"]> {
+  let calls = 1; // page 1 already counted by caller
+  let stoppedBy: ExecutorResult["stopped_by"] = "max_pages";
+  const pagesToFetch = Math.min(stats.total_pages_detected - 1, MAX_ACTION_PAGES_FC);
+  let consecutiveNoNew = 0;
+  let useClickFallback = false;
+  let prevPageIds = new Set(Array.from(allIds.keys()));
 
-export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult> {
-  const allIds = new Map<string, ConsultationItem>();
-  const stats: AtexoStats = {
-    ids_from_list_html: 0,
-    ids_from_list_extract: 0,
-    ids_from_actions: 0,
-    actions_pages_scraped: 0,
-    total_pages_detected: 1,
-    unique_consultations: 0,
-    items_per_page_actual: [],
-    coverage_ratio: 0,
-    pagination_mode: "none",
-    dom_stuck_detected: false,
-  };
-  let calls = 0;
-  let stoppedBy: ExecutorResult["stopped_by"] = "single_page";
-
-  // ============== COUCHE 1 : LIST page 1 ==============
-  let listRes;
-  try {
-    listRes = await firecrawlScrapeStructured(ctx.url, ctx.apiKey, {
-      wantHtml: true,
-      timeoutMs: 30_000,
-    });
-    calls++;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return finalize(ctx, allIds, stats, calls, "error", "network_timeout", msg);
-  }
-
-  // 1a. IDs depuis le HTML brut (gratuit, exhaustif sur la page)
-  const htmlIds = extractIdsFromHtml(listRes.raw_html);
-  for (const id of htmlIds) {
-    if (!allIds.has(id)) {
-      allIds.set(id, {
-        id,
-        url: `${baseHostUrl(ctx.url)}/entreprise/consultation/${id}`,
-        source: "list_html",
-      });
+  for (let pageOffset = 0; pageOffset < pagesToFetch; pageOffset++) {
+    if (calls >= MAX_CALLS_PER_URL_FC) {
+      stoppedBy = "budget";
+      break;
     }
-  }
-  stats.ids_from_list_html = htmlIds.length;
+    const targetPage = pageOffset + 2;
+    const actions = useClickFallback
+      ? buildClickNextActions(pageOffset + 1)
+      : buildInputDrivenActions(targetPage);
+    try {
+      const actionRes = await firecrawlScrapeWithActions(
+        ctx.url,
+        ctx.apiKey,
+        actions,
+        { wantHtml: true, timeoutMs: 50_000 },
+      );
+      calls++;
+      bumpCalls();
+      stats.actions_pages_scraped++;
+      stats.pagination_mode = useClickFallback ? "click_fallback" : "input";
 
-  // 1b. Items extraits par l'IA (avec data structurée) → enrichit
-  for (const t of listRes.tenders) {
-    const id = extractConsultationId(t.dce_url as string | undefined);
-    if (id) {
-      const existing = allIds.get(id);
-      if (existing) {
-        existing.data = t;
-        existing.source = "list_extract";
-      } else {
-        allIds.set(id, {
-          id,
-          url: t.dce_url as string | undefined,
-          source: "list_extract",
-          data: t,
-        });
-      }
-    }
-  }
-  stats.ids_from_list_extract = listRes.tenders.length;
-  stats.items_per_page_actual.push(allIds.size);
-  stats.total_pages_detected = parseTotalPages(listRes.raw_html);
-
-  console.log(
-    `[atexo] LIST: ${htmlIds.length} IDs from HTML, ${listRes.tenders.length} structured, totalPages=${stats.total_pages_detected}`,
-  );
-
-  // Stop conditions
-  if (stats.total_pages_detected <= 1) {
-    stoppedBy = "single_page";
-  } else if (ctx.mode === "FAST") {
-    stoppedBy = "fast_mode";
-  } else {
-    // ============== COUCHE 2 : ACTIONS pagination input-driven ==============
-    const pagesToFetch = Math.min(stats.total_pages_detected - 1, MAX_ACTION_PAGES);
-    let consecutiveNoNew = 0;
-    let useClickFallback = false;
-
-    // IDs de la page précédente, pour détecter "DOM stuck" (= AJAX qui ne refresh pas)
-    let prevPageIds = new Set(htmlIds);
-
-    for (let pageOffset = 0; pageOffset < pagesToFetch; pageOffset++) {
-      if (calls >= MAX_CALLS_PER_URL) {
-        stoppedBy = "budget";
-        break;
-      }
-
-      const targetPage = pageOffset + 2; // page 1 déjà faite, on attaque page 2
-
-      // Choix de la stratégie d'actions
-      const actions = useClickFallback
-        ? buildClickNextActions(pageOffset + 1)
-        : buildInputDrivenActions(targetPage);
-
-      try {
-        const actionRes = await firecrawlScrapeWithActions(
-          ctx.url,
-          ctx.apiKey,
-          actions,
-          { wantHtml: true, timeoutMs: 50_000 },
-        );
-        calls++;
-        stats.actions_pages_scraped++;
-        if (stats.pagination_mode === "none") {
-          stats.pagination_mode = useClickFallback ? "click_fallback" : "input";
-        }
-
-        const beforeCount = allIds.size;
-
-        // IDs depuis le HTML brut de cette page
-        const pageIds = extractIdsFromHtml(actionRes.raw_html);
-        const pageIdSet = new Set(pageIds);
-
-        // === Détection DOM stuck : exactement les mêmes IDs que la page précédente ===
-        const sameAsPrev =
-          pageIds.length > 0 &&
-          pageIds.length === prevPageIds.size &&
-          pageIds.every((id) => prevPageIds.has(id));
-
-        if (sameAsPrev) {
-          stats.dom_stuck_detected = true;
-          console.warn(
-            `[atexo] DOM stuck detected on page ${targetPage} (mode=${stats.pagination_mode}) — same IDs as previous`,
-          );
-          if (!useClickFallback) {
-            // 1ère tentative input-driven a échoué → bascule click et REFAIT cette page
-            console.log(`[atexo] switching to click_fallback mode`);
-            useClickFallback = true;
-            pageOffset--; // on retentera cette page
-            continue;
-          } else {
-            // Déjà en fallback et toujours stuck → on arrête
-            stoppedBy = "no_new_items";
-            break;
-          }
-        }
-
-        // Merge IDs
-        for (const id of pageIds) {
-          if (!allIds.has(id)) {
-            allIds.set(id, {
-              id,
-              url: `${baseHostUrl(ctx.url)}/entreprise/consultation/${id}`,
-              source: "actions",
-            });
-          }
-        }
-
-        // Enrichir avec données structurées
-        for (const t of actionRes.tenders) {
-          const id = extractConsultationId(t.dce_url as string | undefined);
-          if (id) {
-            const existing = allIds.get(id);
-            if (existing && !existing.data) {
-              existing.data = t;
-            } else if (!existing) {
-              allIds.set(id, {
-                id,
-                url: t.dce_url as string | undefined,
-                source: "actions",
-                data: t,
-              });
-            }
-          }
-        }
-
-        const newOnThisPage = allIds.size - beforeCount;
-        stats.items_per_page_actual.push(pageIds.length);
-        stats.ids_from_actions += newOnThisPage;
-        console.log(
-          `[atexo] ACTIONS page ${targetPage} (${stats.pagination_mode}): ${pageIds.length} IDs visible, +${newOnThisPage} new`,
-        );
-
-        prevPageIds = pageIdSet;
-
-        if (newOnThisPage === 0) {
-          consecutiveNoNew++;
-          if (consecutiveNoNew >= 2) {
-            stoppedBy = "no_new_items";
-            break;
-          }
-        } else {
-          consecutiveNoNew = 0;
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.warn(`[atexo] ACTIONS page ${targetPage} failed:`, msg);
-        // Si l'action input-driven plante (ex: input introuvable) → bascule click
-        if (!useClickFallback && /element not found|selector/i.test(msg)) {
-          console.log(`[atexo] input-driven failed → switching to click_fallback`);
+      const pageIds = extractIdsFromHtml(actionRes.raw_html);
+      const pageIdSet = new Set(pageIds);
+      const sameAsPrev =
+        pageIds.length > 0 &&
+        pageIds.length === prevPageIds.size &&
+        pageIds.every((id) => prevPageIds.has(id));
+      if (sameAsPrev) {
+        stats.dom_stuck_detected = true;
+        if (!useClickFallback) {
           useClickFallback = true;
-          pageOffset--; // retente
+          pageOffset--;
           continue;
         }
-        // Sinon on arrête mais on garde ce qu'on a
+        stoppedBy = "no_new_items";
         break;
       }
+      const before = allIds.size;
+      for (const id of pageIds) {
+        if (!allIds.has(id)) {
+          allIds.set(id, {
+            id,
+            url: `${baseHostUrl(ctx.url)}/entreprise/consultation/${id}`,
+            source: "actions",
+          });
+        }
+      }
+      for (const t of actionRes.tenders) {
+        const id = extractConsultationId(t.dce_url as string | undefined);
+        if (id) {
+          const existing = allIds.get(id);
+          if (existing && !existing.data) existing.data = t;
+        }
+      }
+      const newOnThisPage = allIds.size - before;
+      stats.items_per_page_actual.push(pageIds.length);
+      stats.ids_from_actions += newOnThisPage;
+      prevPageIds = pageIdSet;
+      if (newOnThisPage === 0) {
+        consecutiveNoNew++;
+        if (consecutiveNoNew >= 2) {
+          stoppedBy = "no_new_items";
+          break;
+        }
+      } else consecutiveNoNew = 0;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[atexo:fc] page ${targetPage} failed: ${msg}`);
+      if (!useClickFallback && /element not found|selector/i.test(msg)) {
+        useClickFallback = true;
+        pageOffset--;
+        continue;
+      }
+      break;
     }
-
-    if (stoppedBy === "single_page") stoppedBy = "max_pages";
   }
-
-  return finalize(ctx, allIds, stats, calls, stoppedBy);
+  return stoppedBy;
 }
+
+// ============================================================================
+//                              FINALIZE
+// ============================================================================
 
 async function finalize(
   ctx: ExecutorContext,
@@ -370,11 +568,13 @@ async function finalize(
   stats.coverage_ratio =
     totalExpected > 0 ? Math.round((allIds.size / totalExpected) * 100) / 100 : 0;
 
-  // Build items pour upsert
   const baseHost = baseHostUrl(ctx.url);
   const items: Array<Record<string, unknown>> = [];
   for (const c of allIds.values()) {
-    const dceUrl = (c.data?.dce_url as string | undefined) || c.url || `${baseHost}/entreprise/consultation/${c.id}`;
+    const dceUrl =
+      (c.data?.dce_url as string | undefined) ||
+      c.url ||
+      `${baseHost}/entreprise/consultation/${c.id}`;
     if (c.data) {
       items.push({ ...c.data, dce_url: dceUrl, reference: c.data.reference || c.id });
     } else {
@@ -386,7 +586,6 @@ async function finalize(
     }
   }
 
-  // Dédup vs seen cache (par ID)
   const seenCache = await loadSeenIdHashes(ctx.supabase, ctx.sourcing_url_id);
   const newIds: string[] = [];
   let newCount = 0;
@@ -399,8 +598,30 @@ async function finalize(
   }
   await persistSeenIds(ctx.supabase, ctx.sourcing_url_id, newIds);
 
+  // Best-effort: persist the detected engine in the playbook config
+  if (stats.engine === "prado_event_chain") {
+    try {
+      const { data: pb } = await ctx.supabase
+        .from("agent_playbooks")
+        .select("id, config")
+        .eq("sourcing_url_id", ctx.sourcing_url_id)
+        .maybeSingle();
+      if (pb?.id) {
+        const newConfig = { ...(pb.config ?? {}), pagination_engine: "prado_event_chain" };
+        await ctx.supabase
+          .from("agent_playbooks")
+          .update({ config: newConfig })
+          .eq("id", pb.id);
+      }
+    } catch (e) {
+      console.warn(`[atexo] failed to persist pagination_engine: ${e}`);
+    }
+  }
+
   console.log(
-    `[atexo] DONE: ${allIds.size} unique, ${newCount} new vs cache, ${calls} calls, coverage=${stats.coverage_ratio}, stopped=${stoppedBy}`,
+    `[atexo] DONE engine=${stats.engine} unique=${allIds.size} new=${newCount} ` +
+      `pages=${1 + stats.actions_pages_scraped} pagestate_rot=${stats.pagestate_rotations} ` +
+      `coverage=${stats.coverage_ratio} stopped=${stoppedBy}`,
   );
 
   return {
