@@ -380,20 +380,24 @@ const Sourcing = () => {
           <h1 className="text-3xl font-bold">Sourcing</h1>
           <p className="text-muted-foreground">URLs scrapées toutes les {urls[0]?.frequency_hours ?? 6}h pour alimenter les appels d'offres</p>
         </div>
-        <div className="flex gap-2">
-          <Select value={aiProvider} onValueChange={(v) => setAiProvider(v as "anthropic" | "openrouter")}>
-            <SelectTrigger className="w-[280px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="anthropic">Anthropic Haiku 4.5 (rapide, ~$0.40/130)</SelectItem>
-              <SelectItem value="openrouter">OpenRouter Opus 4.7 (deep, ~$3.10/130)</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={reclassifyAll} disabled={running === "__all__"}>
-            {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-            Re-classifier (via IA)
-          </Button>
+        <div className="flex flex-wrap gap-2 items-center justify-end">
+          <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1">
+            <Wand2 className="h-4 w-4 text-primary" />
+            <span className="text-xs text-muted-foreground hidden md:inline">Provider IA :</span>
+            <Select value={aiProvider} onValueChange={(v) => setAiProvider(v as "anthropic" | "openrouter")}>
+              <SelectTrigger className="w-[230px] h-8 border-0 shadow-none focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="anthropic">Haiku 4.5 + web_fetch (~$0.40)</SelectItem>
+                <SelectItem value="openrouter">Opus 4.7 deep (~$3.10)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button size="sm" onClick={reclassifyAll} disabled={running === "__all__"}>
+              {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+              Re-classifier
+            </Button>
+          </div>
           <Button variant="outline" onClick={() => setBulkOpen(true)}><Plus className="mr-2 h-4 w-4" />Import en masse</Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
