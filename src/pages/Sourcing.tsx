@@ -70,6 +70,7 @@ const Sourcing = () => {
   const [editForm, setEditForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6, is_active: true });
   const [saving, setSaving] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [aiProvider, setAiProvider] = useState<"anthropic" | "openrouter">("anthropic");
 
   useEffect(() => {
     if (!highlightedId) return;
@@ -286,7 +287,7 @@ const Sourcing = () => {
   const reclassifyOne = async (id: string) => {
     setRunning(id);
     const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
-      body: { sourcing_url_id: id },
+      body: { sourcing_url_id: id, provider: aiProvider },
     });
     setRunning(null);
     if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
@@ -294,7 +295,7 @@ const Sourcing = () => {
       const r = data?.results?.[0];
       toast({
         title: "Plateforme re-détectée",
-        description: r ? `${r.before} → ${r.after} (${r.source})` : "ok",
+        description: r ? `${r.before} → ${r.after} (${r.source} · ${aiProvider})` : "ok",
       });
       load();
     }
@@ -316,7 +317,10 @@ const Sourcing = () => {
       toast({ title: "Aucune URL à traiter" });
       return;
     }
-    if (!confirm(`Re-classifier les ${ids.length} URLs via Claude (OpenRouter) ? Durée estimée : ~${Math.ceil(ids.length * 2.5 / 60)} min, coût ~$${(ids.length * 0.01).toFixed(2)}.`)) return;
+    const providerLabel = aiProvider === "anthropic" ? "Anthropic Haiku 4.5 + web_fetch" : "OpenRouter Opus 4.7";
+    const costPerUrl = aiProvider === "anthropic" ? 0.003 : 0.024;
+    const secPerUrl = aiProvider === "anthropic" ? 3 : 6;
+    if (!confirm(`Re-classifier les ${ids.length} URLs via ${providerLabel} ? Durée estimée : ~${Math.ceil(ids.length * secPerUrl / 60)} min, coût ~$${(ids.length * costPerUrl).toFixed(2)}.`)) return;
 
     setRunning("__all__");
     setReclassifyProgress({ done: 0, total: ids.length, bySource: {}, byPlatform: {} });
@@ -333,7 +337,7 @@ const Sourcing = () => {
         const id = ids[idx];
         try {
           const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
-            body: { sourcing_url_id: id },
+            body: { sourcing_url_id: id, provider: aiProvider },
           });
           if (!error) {
             const r = data?.results?.[0];
