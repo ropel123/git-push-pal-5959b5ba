@@ -82,6 +82,12 @@ type AtexoStats = {
   event_targets_used: string[];
   hidden_inputs_count: number;
   pagestate_lost: boolean;
+  // Sweep telemetry
+  max_pages_cap: number;
+  pages_planned: number;
+  time_elapsed_ms: number;
+  stop_reason_detail: string;
+  consecutive_http_errors: number;
 };
 
 function baseHostUrl(fullUrl: string): string {
