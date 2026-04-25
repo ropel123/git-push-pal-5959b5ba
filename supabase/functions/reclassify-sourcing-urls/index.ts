@@ -27,8 +27,10 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (!roleRow) return json({ error: "admin only" }, 403);
 
-    let body: { sourcing_url_id?: string; only_custom?: boolean } = {};
+    let body: { sourcing_url_id?: string; only_custom?: boolean; provider?: "anthropic" | "openrouter" } = {};
     try { body = await req.json(); } catch { /* allow empty */ }
+
+    const provider: "anthropic" | "openrouter" = body.provider === "openrouter" ? "openrouter" : "anthropic";
 
     let query = supabase.from("sourcing_urls").select("id, url, platform, metadata");
     if (body.sourcing_url_id) {
@@ -48,13 +50,14 @@ Deno.serve(async (req) => {
 
     for (const row of rows ?? []) {
       // force: true bypass le cache pour vraiment relancer l'IA
-      const resolved = await resolvePlatform(row.url, supabase, { force: true });
+      const resolved = await resolvePlatform(row.url, supabase, { force: true, provider });
       const newMetadata = {
         ...(typeof row.metadata === "object" && row.metadata !== null ? row.metadata : {}),
         platform_evidence: resolved.evidence,
         platform_source: resolved.source,
         platform_confidence: resolved.confidence,
         platform_detected_at: new Date().toISOString(),
+        classification_provider: provider,
         ...(resolved.pagination_hint ? { pagination_hint: resolved.pagination_hint } : {}),
       };
       await supabase
