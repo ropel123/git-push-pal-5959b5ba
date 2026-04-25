@@ -321,11 +321,22 @@ async function runPradoEventChain(
   const startTime = Date.now();
 
   const totalPages = stats.total_pages_detected;
-  const pagesToFetch = Math.min(totalPages - 1, MAX_PAGES_PER_RUN);
+  // Adaptive sweep: if totalPages fits in our cap, scrape everything.
+  // Otherwise plafonne à MAX_PAGES_PER_RUN.
+  const remainingPages = Math.max(0, totalPages - 1);
+  const pagesToFetch = Math.min(remainingPages, MAX_PAGES_PER_RUN);
+  stats.pages_planned = pagesToFetch;
+  const fullSweep = pagesToFetch === remainingPages;
+  console.log(
+    `[atexo:prado] sweep plan: totalPages=${totalPages}, pagesToFetch=${pagesToFetch}, fullSweep=${fullSweep}, cap=${MAX_PAGES_PER_RUN}`,
+  );
+
+  let consecutiveHttpErrors = 0;
 
   for (let i = 0; i < pagesToFetch; i++) {
     if (Date.now() - startTime > MAX_TOTAL_TIME_MS) {
       console.warn(`[atexo:prado] global timeout after ${i} pages`);
+      stats.stop_reason_detail = `time_budget exceeded after ${i} pages (${Date.now() - startTime}ms)`;
       return "budget";
     }
 
