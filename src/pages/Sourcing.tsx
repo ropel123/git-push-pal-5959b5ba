@@ -13,8 +13,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil, Search, X } from "lucide-react";
+import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil, Search, X, ChevronDown } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { detectPlatform, PLATFORMS } from "@/lib/detectPlatform";
 
 type SourcingUrl = {
@@ -345,24 +346,29 @@ const Sourcing = () => {
 
   const [reclassifyProgress, setReclassifyProgress] = useState<{ done: number; total: number; bySource: Record<string, number>; byPlatform: Record<string, number> } | null>(null);
 
-  const reclassifyAll = async () => {
-    const { data: rows, error: fetchErr } = await supabase
+  const reclassifyAll = async (scope: "all" | "custom" = "all") => {
+    let query = supabase
       .from("sourcing_urls")
-      .select("id")
+      .select("id, platform")
       .order("created_at", { ascending: false });
+    if (scope === "custom") {
+      query = query.in("platform", ["custom", "safetender"]);
+    }
+    const { data: rows, error: fetchErr } = await query;
     if (fetchErr || !rows) {
       toast({ title: "Erreur", description: fetchErr?.message ?? "Impossible de charger les URLs", variant: "destructive" });
       return;
     }
     const ids = rows.map((r: any) => r.id as string);
     if (ids.length === 0) {
-      toast({ title: "Aucune URL à traiter" });
+      toast({ title: scope === "custom" ? "Aucune URL en custom" : "Aucune URL à traiter" });
       return;
     }
     const providerLabel = aiProvider === "anthropic" ? "Anthropic Haiku 4.5 + web_fetch" : "OpenRouter Opus 4.7";
     const costPerUrl = aiProvider === "anthropic" ? 0.003 : 0.024;
     const secPerUrl = aiProvider === "anthropic" ? 3 : 6;
-    if (!confirm(`Re-classifier les ${ids.length} URLs via ${providerLabel} ? Durée estimée : ~${Math.ceil(ids.length * secPerUrl / 60)} min, coût ~$${(ids.length * costPerUrl).toFixed(2)}.`)) return;
+    const scopeLabel = scope === "custom" ? `${ids.length} URLs en custom/safetender` : `les ${ids.length} URLs`;
+    if (!confirm(`Re-classifier ${scopeLabel} via ${providerLabel} ? Durée estimée : ~${Math.ceil(ids.length * secPerUrl / 60)} min, coût ~$${(ids.length * costPerUrl).toFixed(2)}.`)) return;
 
     setRunning("__all__");
     setReclassifyProgress({ done: 0, total: ids.length, bySource: {}, byPlatform: {} });
@@ -401,9 +407,12 @@ const Sourcing = () => {
     setRunning(null);
     const sourceSummary = Object.entries(bySource).map(([k, v]) => `${k}:${v}`).join(" · ");
     const customLeft = byPlatform.custom ?? 0;
+    const recovered = scope === "custom" ? ids.length - customLeft : null;
     toast({
       title: "Reclassement IA terminé",
-      description: `${done}/${ids.length} traitées${sourceSummary ? ` (${sourceSummary})` : ""} — ${customLeft} restent custom`,
+      description: `${done}/${ids.length} traitées${sourceSummary ? ` (${sourceSummary})` : ""}${
+        recovered !== null ? ` — ${recovered} récupérées, ${customLeft} restent custom` : ` — ${customLeft} restent custom`
+      }`,
     });
     setTimeout(() => setReclassifyProgress(null), 5000);
     load();
@@ -435,10 +444,34 @@ const Sourcing = () => {
                 <SelectItem value="openrouter">Opus 4.7 deep (~$3.10)</SelectItem>
               </SelectContent>
             </Select>
-            <Button size="sm" onClick={reclassifyAll} disabled={running === "__all__"}>
-              {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-              Re-classifier
-            </Button>
+            <div className="flex">
+              <Button
+                size="sm"
+                onClick={() => reclassifyAll("custom")}
+                disabled={running === "__all__"}
+                className="rounded-r-none"
+              >
+                {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+                Re-classifier custom ({urls.filter((u) => u.platform === "custom" || u.platform === "safetender").length})
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" disabled={running === "__all__"} className="rounded-l-none border-l border-primary-foreground/20 px-2">
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => reclassifyAll("custom")}>
+                    <Wand2 className="mr-2 h-4 w-4" />
+                    Relancer uniquement les custom ({urls.filter((u) => u.platform === "custom" || u.platform === "safetender").length})
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => reclassifyAll("all")}>
+                    <RefreshCcw className="mr-2 h-4 w-4" />
+                    Relancer toutes les URLs ({urls.length})
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           <Button variant="outline" onClick={() => setBulkOpen(true)}><Plus className="mr-2 h-4 w-4" />Import en masse</Button>
           <Dialog open={open} onOpenChange={setOpen}>
