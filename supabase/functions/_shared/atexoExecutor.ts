@@ -367,15 +367,28 @@ async function runPradoEventChain(
       clearTimeout(timer);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn(`[atexo:prado] POST page ${targetPageNumber} failed: ${msg}`);
-      return "error";
+      consecutiveHttpErrors++;
+      stats.consecutive_http_errors = consecutiveHttpErrors;
+      console.warn(`[atexo:prado] POST page ${targetPageNumber} failed (${consecutiveHttpErrors}/2): ${msg}`);
+      if (consecutiveHttpErrors >= 2) {
+        stats.stop_reason_detail = `2 consecutive POST failures: ${msg}`;
+        return "error";
+      }
+      continue;
     }
 
     stats.http_status_per_page.push(result.status);
     if (result.status >= 400) {
-      console.warn(`[atexo:prado] HTTP ${result.status} on page ${targetPageNumber} — abort`);
-      return "error";
+      consecutiveHttpErrors++;
+      stats.consecutive_http_errors = consecutiveHttpErrors;
+      console.warn(`[atexo:prado] HTTP ${result.status} on page ${targetPageNumber} (${consecutiveHttpErrors}/2)`);
+      if (consecutiveHttpErrors >= 2) {
+        stats.stop_reason_detail = `2 consecutive HTTP errors (last=${result.status})`;
+        return "error";
+      }
+      continue;
     }
+    consecutiveHttpErrors = 0;
 
     // STATE CHAINING — adopt the new state for the next iteration
     state = result.state;
