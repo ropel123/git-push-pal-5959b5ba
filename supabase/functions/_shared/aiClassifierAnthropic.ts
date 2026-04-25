@@ -23,7 +23,7 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-haiku-4-5-20251001";
 const ANTHROPIC_VERSION = "2023-06-01";
 const ANTHROPIC_BETA = "web-fetch-2025-09-10";
-const CONFIDENCE_THRESHOLD = 0.8;
+const CONFIDENCE_THRESHOLD = 0.65;
 
 const SYSTEM_PROMPT = `Tu es un expert français des plateformes de marchés publics (DCE, profils acheteurs).
 On te donne UNE URL. Tu DOIS :
@@ -56,7 +56,12 @@ Liste exhaustive des plateformes possibles (enum fermé) :
 - custom : si vraiment rien d'identifiable
 
 RÈGLES :
-1. Confidence ∈ [0,1]. Si tu hésites entre deux plateformes ou qu'aucun signal n'est clair → confidence < 0.8 et platform = "custom".
+1. Confidence ∈ [0,1]. Calibration OBLIGATOIRE :
+   - 0.95–1.00 : signature explicite et incontestable (hostname connu, classe CSS spécifique, script JS de la plateforme, mention dans le footer/mentions légales).
+   - 0.80–0.94 : 2 indices convergents (ex : structure de path typique + meta generator + footer cohérent).
+   - 0.65–0.79 : 1 indice fort OU plusieurs indices faibles convergents — RÉPONSE ACCEPTABLE, ne te sous-évalue pas.
+   - < 0.65 : tu hésites vraiment entre 2+ plateformes ou aucun signal exploitable → renvoie alors platform: "custom" avec la confidence réelle.
+   N'utilise "custom" avec une confidence ≥ 0.65 QUE si tu es sûr qu'aucune plateforme connue ne correspond (portail métier maison, ASP.NET propriétaire, etc.).
 2. pagination_hint :
    - "url" si pagination par paramètre d'URL (?page=N, &offset=)
    - "actions" si formulaire POST / boutons JS (Atexo SDM, MPI ColdFusion, Domino)
@@ -185,9 +190,9 @@ export async function classifyPlatformWithAnthropic(
       const reasoning = typeof parsed.reasoning === "string" ? truncate(parsed.reasoning, 240) : "";
       const pagination_hint = PAGINATION_ENUM.includes(parsed.pagination_hint) ? parsed.pagination_hint : "unknown";
 
-      // Seuil de confiance : sous 0.8 → on rétrograde sur custom
+      // Seuil de confiance : sous CONFIDENCE_THRESHOLD → on rétrograde sur custom
       if (confidence < CONFIDENCE_THRESHOLD && platform !== "custom") {
-        console.warn(`[aiClassifierAnthropic] low confidence ${confidence} for ${platform} → custom`);
+        console.warn(`[aiClassifierAnthropic] low confidence ${confidence} for ${platform} → custom (threshold=${CONFIDENCE_THRESHOLD})`);
         return { platform: "custom", confidence, reasoning: `low-confidence:${platform}:${reasoning}`, pagination_hint };
       }
 
