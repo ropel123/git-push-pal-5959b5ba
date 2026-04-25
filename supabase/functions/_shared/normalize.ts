@@ -86,6 +86,22 @@ export function detectContractType(s?: string | null): string | null {
   return null;
 }
 
+// Famille "Atexo" : plateformes qui partagent le même moteur PRADO/SDM
+// même si le label régional (maximilien, aura, megalis, ternum) est conservé
+// pour le reporting. L'aiguillage côté scrape-list utilise isAtexoFamily()
+// pour router vers le moteur PRADO musclé (executeAtexo).
+export const ATEXO_FAMILY = new Set<string>([
+  "atexo",
+  "maximilien",
+  "aura",
+  "megalis",
+  "ternum",
+]);
+
+export function isAtexoFamily(platform: string): boolean {
+  return ATEXO_FAMILY.has(platform);
+}
+
 // Hostnames qui tournent sur Atexo (LocalTrust / SDM) sans avoir
 // "atexo" littéralement dans le hostname.
 const ATEXO_HOST_SUFFIXES = [

@@ -3,7 +3,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { detectPlatformFromUrl } from "../_shared/normalize.ts";
+import { detectPlatformFromUrl, isAtexoFamily } from "../_shared/normalize.ts";
 import { execute, type ScrapeMode, type Playbook } from "../_shared/playbookExecutor.ts";
 import { executeAtexo } from "../_shared/atexoExecutor.ts";
 
@@ -75,9 +75,11 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Exécute — Atexo a son executor dédié (3 couches), reste passe par playbookExecutor générique
+    // Exécute — La famille Atexo (atexo, maximilien, aura, megalis, ternum) partage
+    // le même moteur PRADO/SDM. Le label régional est conservé pour le reporting,
+    // mais l'engine utilisé est le même (executeAtexo).
     const result =
-      platform === "atexo"
+      isAtexoFamily(platform)
         ? await executeAtexo({
             url: src.url,
             platform,
