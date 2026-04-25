@@ -12,7 +12,7 @@ import {
 import { firecrawlScrapeStructured } from "./firecrawlScrape.ts";
 import { firecrawlMap } from "./firecrawlMap.ts";
 
-export type ListStrategy = "template" | "hybrid" | "map";
+export type ListStrategy = "template" | "hybrid" | "map" | "manual";
 export type ScrapeMode = "FAST" | "DEEP" | "SMART";
 
 export type Playbook = {
