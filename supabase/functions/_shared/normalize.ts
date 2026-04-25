@@ -169,7 +169,7 @@ function detectPlatformFromUrlInternal(url: string): string {
 // Le hostname est utilisé en fallback rapide ET en validation post-IA.
 // ============================================================
 import { fetchHtmlForClassification } from "./fingerprint.ts";
-import { classifyPlatformWithAI } from "./aiClassifier.ts";
+import { classifyWithProvider, modelLabel, type AIProvider, DEFAULT_PROVIDER } from "./classifyDispatcher.ts";
 
 const FINGERPRINT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const AI_CONFIDENCE_THRESHOLD = 0.6;
@@ -196,8 +196,9 @@ export type ResolvedPlatform = {
 export async function resolvePlatform(
   url: string,
   supabase: SupabaseLike,
-  opts: { force?: boolean } = {}
+  opts: { force?: boolean; provider?: AIProvider } = {}
 ): Promise<ResolvedPlatform> {
+  const provider: AIProvider = opts.provider ?? DEFAULT_PROVIDER;
   let host = "";
   try {
     host = new URL(url).hostname.toLowerCase();
@@ -241,24 +242,31 @@ export async function resolvePlatform(
     };
   }
 
-  // 3. Téléchargement HTML + appel Claude
-  const fetched = await fetchHtmlForClassification(url);
-  if (!fetched.ok && !fetched.html) {
-    console.warn(`[resolvePlatform] HTML fetch failed for ${host}: ${fetched.error ?? fetched.status}`);
-    // Si fetch échoue mais hostname avait identifié quelque chose (cas force=true), on garde le hostname
-    if (fromHost !== "custom") {
-      return { platform: fromHost, source: "hostname", confidence: 0.85, evidence: [`hostname:${host}`, `fetch-failed:${fetched.error ?? fetched.status}`] };
+  // 3. Classification IA
+  // - provider "anthropic" : web_fetch côté Anthropic, on n'a PAS besoin de fetch local
+  // - provider "openrouter" : on doit fetch le HTML nous-même
+  let html = "";
+  let headers = new Headers();
+  if (provider === "openrouter") {
+    const fetched = await fetchHtmlForClassification(url);
+    if (!fetched.ok && !fetched.html) {
+      console.warn(`[resolvePlatform] HTML fetch failed for ${host}: ${fetched.error ?? fetched.status}`);
+      if (fromHost !== "custom") {
+        return { platform: fromHost, source: "hostname", confidence: 0.85, evidence: [`hostname:${host}`, `fetch-failed:${fetched.error ?? fetched.status}`] };
+      }
+      return { platform: "custom", source: "fallback", confidence: 0, evidence: [`fetch-failed:${fetched.error ?? fetched.status}`] };
     }
-    return { platform: "custom", source: "fallback", confidence: 0, evidence: [`fetch-failed:${fetched.error ?? fetched.status}`] };
+    html = fetched.html;
+    headers = fetched.headers;
   }
 
-  const ai = await classifyPlatformWithAI(url, fetched.html, fetched.headers);
+  const ai = await classifyWithProvider({ url, htmlSnippet: html, responseHeaders: headers, provider });
 
   let finalPlatform = ai.platform;
   let finalConfidence = ai.confidence;
   let source: ResolvedPlatform["source"] = "ai";
   const evidence: string[] = [
-    `ai:claude-opus-4.7`,
+    `ai:${modelLabel(provider)}`,
     `confidence:${ai.confidence.toFixed(2)}`,
     `pagination:${ai.pagination_hint}`,
   ];
