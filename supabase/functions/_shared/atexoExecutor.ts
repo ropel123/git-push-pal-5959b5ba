@@ -95,14 +95,54 @@ async function loadSeenIdHashes(
   return new Set((data ?? []).map((r: { url_hash: string }) => r.url_hash));
 }
 
-/** Sélecteurs robustes pour le bouton "page suivante" Atexo (testés sur NC). */
+/** Sélecteurs Atexo pour la pagination input-driven (vrai backend ASP.NET). */
+const PAGE_INPUT_SELECTOR = "input[name*='numPageBottom'], input[id*='numPageBottom']";
+const SUBMIT_BUTTON_SELECTOR =
+  "input[name*='DefaultButtonBottom'], input[id*='DefaultButtonBottom']";
+
+/** Sélecteurs fallback pour click "page suivante" (si input absent). */
 const NEXT_PAGE_SELECTORS = [
-  "a[id*='PagerBottom_ctl2']", // observé sur portail.marchespublics.nc
-  "a[id*='PagerBottom_ctl3']", // fallback (parfois ctl3 = next)
+  "a[id*='PagerBottom_ctl2']",
+  "a[id*='PagerBottom_ctl3']",
   "a[title*='page suivante' i]",
   "a:has(span[title*='page suivante' i])",
-  "a:has(i.fa-angle-right):not(:has(.fa-angle-double-right))",
 ].join(", ");
+
+/**
+ * Pagination input-driven : remplir numPageBottom + click submit caché.
+ * Plus fiable qu'un click "page suivante" sur les sites stateful (postback ASP.NET).
+ * On évite press Enter à cause d'un bug Firecrawl connu (#705).
+ */
+function buildInputDrivenActions(targetPage: number): FirecrawlAction[] {
+  return [
+    { type: "wait", milliseconds: 1200 },
+    // Focus le champ numPageBottom
+    { type: "click", selector: PAGE_INPUT_SELECTOR },
+    // Efface la valeur courante (3x backspace pour gérer "1", "10", "100")
+    { type: "press", key: "Backspace" },
+    { type: "press", key: "Backspace" },
+    { type: "press", key: "Backspace" },
+    { type: "write", text: String(targetPage) },
+    { type: "wait", milliseconds: 300 },
+    // Soumet via le bouton hidden d'Atexo (plus fiable que press Enter)
+    { type: "click", selector: SUBMIT_BUTTON_SELECTOR },
+    { type: "wait", milliseconds: 2500 },
+    { type: "scrape" },
+  ];
+}
+
+/** Fallback si input-driven échoue : N clicks séquentiels "page suivante". */
+function buildClickNextActions(stepCount: number): FirecrawlAction[] {
+  const actions: FirecrawlAction[] = [];
+  for (let i = 0; i < stepCount; i++) {
+    actions.push({ type: "wait", milliseconds: 1200 });
+    actions.push({ type: "click", selector: NEXT_PAGE_SELECTORS });
+  }
+  actions.push({ type: "wait", milliseconds: 2500 });
+  actions.push({ type: "scrape" });
+  return actions;
+}
+
 
 export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult> {
   const allIds = new Map<string, ConsultationItem>();
