@@ -45,7 +45,10 @@ type AtexoStats = {
   unique_consultations: number;
   items_per_page_actual: number[];
   coverage_ratio: number;
+  pagination_mode: "input" | "click_fallback" | "none";
+  dom_stuck_detected: boolean;
 };
+
 
 function baseHostUrl(fullUrl: string): string {
   const u = new URL(fullUrl);
