@@ -333,10 +333,15 @@ const Sourcing = () => {
     if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
     else {
       const r = data?.results?.[0];
-      toast({
-        title: "Plateforme re-détectée",
-        description: r ? `${r.before} → ${r.after} (${r.source} · ${aiProvider})` : "ok",
-      });
+      let description = "ok";
+      if (r) {
+        const conf = typeof r.confidence === "number" ? ` ${r.confidence.toFixed(2)}` : "";
+        const reason = typeof r.reasoning === "string" && r.reasoning.startsWith("low-confidence:")
+          ? ` low-conf${conf}`
+          : conf;
+        description = `${r.before} → ${r.after} (${r.source}${reason} · ${aiProvider})`;
+      }
+      toast({ title: "Plateforme re-détectée", description });
       load();
     }
   };
