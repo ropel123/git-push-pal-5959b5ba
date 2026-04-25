@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { detectPlatformFromUrl } from "../_shared/normalize.ts";
 import { execute, type ScrapeMode, type Playbook } from "../_shared/playbookExecutor.ts";
+import { executeAtexo } from "../_shared/atexoExecutor.ts";
 
 const HEALABLE_ERRORS = new Set([
   "selector_not_found",
@@ -74,16 +75,27 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Exécute
-    const result = await execute({
-      url: src.url,
-      platform,
-      mode,
-      playbook,
-      apiKey: FIRECRAWL_API_KEY,
-      supabase,
-      sourcing_url_id,
-    });
+    // Exécute — Atexo a son executor dédié (3 couches), reste passe par playbookExecutor générique
+    const result =
+      platform === "atexo"
+        ? await executeAtexo({
+            url: src.url,
+            platform,
+            mode,
+            playbook,
+            apiKey: FIRECRAWL_API_KEY,
+            supabase,
+            sourcing_url_id,
+          })
+        : await execute({
+            url: src.url,
+            platform,
+            mode,
+            playbook,
+            apiKey: FIRECRAWL_API_KEY,
+            supabase,
+            sourcing_url_id,
+          });
 
     // Annote items avec metadata
     const enriched = result.items.map((it) => ({
@@ -150,6 +162,8 @@ Deno.serve(async (req) => {
         error_type: result.error_type,
         playbook_version: pbRow?.version,
         playbook_confidence: pbRow?.confidence,
+        // Stats spécifiques Atexo (si présentes)
+        ...(("_atexo_stats" in result) && { atexo_stats: (result as Record<string, unknown>)._atexo_stats }),
       },
     });
 

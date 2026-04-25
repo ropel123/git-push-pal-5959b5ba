@@ -140,3 +140,68 @@ export async function firecrawlScrapeStructured(
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
+
+export type FirecrawlAction =
+  | { type: "wait"; milliseconds?: number; selector?: string }
+  | { type: "click"; selector: string; all?: boolean }
+  | { type: "write"; text: string }
+  | { type: "press"; key: string }
+  | { type: "scroll"; direction?: "up" | "down"; selector?: string }
+  | { type: "scrape" };
+
+/**
+ * Scrape Firecrawl avec actions (click, wait, scroll) — utile pour pagination
+ * stateful (ASP.NET POST + VIEWSTATE comme Atexo).
+ * Limite Firecrawl : max 50 actions, total wait ≤ 60s.
+ */
+export async function firecrawlScrapeWithActions(
+  url: string,
+  apiKey: string,
+  actions: FirecrawlAction[],
+  opts: { wantHtml?: boolean; timeoutMs?: number } = {},
+): Promise<ScrapeResult> {
+  const timeoutMs = opts.timeoutMs ?? 45_000; // actions = plus long que scrape simple
+  const formats: Array<string | Record<string, unknown>> = [
+    { type: "json", schema: TENDER_SCHEMA, prompt: TENDER_PROMPT(url) },
+    "links",
+  ];
+  if (opts.wantHtml) formats.push("rawHtml");
+
+  const resp = await withTimeout(
+    fetch(FIRECRAWL_SCRAPE_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats,
+        onlyMainContent: true,
+        waitFor: 1500,
+        actions,
+      }),
+    }),
+    timeoutMs,
+  );
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`Firecrawl actions ${resp.status}: ${text.slice(0, 300)}`);
+  }
+
+  const payload = await resp.json();
+  const data = payload.data ?? payload;
+  const tenders =
+    data?.json?.tenders ??
+    data?.extract?.tenders ??
+    data?.llm_extraction?.tenders ??
+    [];
+
+  return {
+    tenders: Array.isArray(tenders) ? tenders : [],
+    links: data?.links ?? [],
+    raw_html: data?.rawHtml ?? data?.html ?? null,
+    markdown: data?.markdown ?? null,
+  };
+}
