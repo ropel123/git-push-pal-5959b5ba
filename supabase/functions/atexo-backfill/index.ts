@@ -152,13 +152,26 @@ Deno.serve(async (req) => {
   const POOL = 6;
   const PER_FETCH_TIMEOUT_MS = 8_000;
 
+  const isPlaceholderTitle = (t: string | null | undefined): boolean => {
+    if (!t) return true;
+    if (t.startsWith("Consultation Atexo")) return true;
+    if (/^Acc[eé]der\s/i.test(t)) return true;
+    if (/^Consultation\s+\d+\s*$/i.test(t)) return true;
+    return false;
+  };
+  const isPoorBuyer = (b: string | null | undefined): boolean => {
+    if (!b) return true;
+    const t = b.trim();
+    return t === "" || t === "Organisme Public" || t === "Non spécifié";
+  };
+
   const updateOne = async (tender: TenderRow, detail: AtexoDetail) => {
     const patch: Record<string, unknown> = {};
-    if (detail.title && (!tender.title || tender.title.startsWith("Consultation Atexo"))) {
+    if (detail.title && isPlaceholderTitle(tender.title)) {
       patch.title = detail.title;
     }
     if (detail.object) patch.object = detail.object;
-    if (detail.buyer_name && !tender.buyer_name) patch.buyer_name = detail.buyer_name;
+    if (detail.buyer_name && isPoorBuyer(tender.buyer_name)) patch.buyer_name = detail.buyer_name;
     if (detail.reference) patch.reference = detail.reference;
     if (detail.deadline && !tender.deadline && detail.deadline.includes("T")) {
       patch.deadline = detail.deadline;
