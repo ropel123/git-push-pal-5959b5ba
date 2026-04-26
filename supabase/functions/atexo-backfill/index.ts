@@ -224,6 +224,8 @@ Deno.serve(async (req) => {
         if (!item) return;
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), PER_FETCH_TIMEOUT_MS);
+        let didFail = false;
+        let failReason = "";
         try {
           const detail = await fetchAtexoDetail(item.id, host, cookies, ctrl.signal);
           clearTimeout(timer);
@@ -231,15 +233,36 @@ Deno.serve(async (req) => {
           if (detail._matched_fields >= 2) {
             const ok = await updateOne(item.tender, detail);
             if (ok) updated++;
-            else failed++;
+            else { failed++; didFail = true; failReason = "update_noop"; }
           } else {
             failed++;
+            didFail = true;
+            failReason = `low_match:${detail._matched_fields}:${detail._detail_status}`;
           }
         } catch (e) {
           clearTimeout(timer);
           processed++;
           failed++;
-          console.warn(`[atexo:backfill] fetch fail ${item.id}: ${(e as Error).message}`);
+          didFail = true;
+          failReason = (e as Error).message;
+          console.warn(`[atexo:backfill] fetch fail ${item.id}: ${failReason}`);
+        }
+
+        // Anti-loop: increment attempts; mark as skip after MAX_ATTEMPTS
+        if (didFail && !dryRun) {
+          const prev = (item.tender.enriched_data ?? {}) as Record<string, unknown>;
+          const attempts = ((prev.backfill_attempts as number | undefined) ?? 0) + 1;
+          const patch: Record<string, unknown> = {
+            ...prev,
+            backfill_attempts: attempts,
+            backfill_last_error: failReason.slice(0, 200),
+            backfill_last_attempt_at: new Date().toISOString(),
+          };
+          if (attempts >= MAX_ATTEMPTS) patch.backfill_skip = true;
+          await supabase
+            .from("tenders")
+            .update({ enriched_data: patch })
+            .eq("id", item.tender.id);
         }
       }
     };
@@ -255,7 +278,9 @@ Deno.serve(async (req) => {
     .from("tenders")
     .select("id", { count: "exact", head: true })
     .like("source_url", "%/entreprise/consultation/%")
+    .not("enriched_data->>backfill_skip", "eq", "true")
     .or(orFilter);
+
 
   // Log to scrape_logs for traceability
   if (!dryRun) {
