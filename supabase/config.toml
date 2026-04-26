@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.reclassify-sourcing-urls]
 verify_jwt = false
+
+[functions.atexo-backfill]
+verify_jwt = false
