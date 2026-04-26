@@ -114,6 +114,7 @@ Deno.serve(async (req) => {
     .from("tenders")
     .select("id,title,buyer_name,deadline,source_url,enriched_data")
     .like("source_url", "%/entreprise/consultation/%")
+    .not("enriched_data->>backfill_skip", "eq", "true")
     .or(orFilter)
     .order("created_at", { ascending: false })
     .limit(batchSize);
