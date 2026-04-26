@@ -250,6 +250,9 @@ export async function fetchAtexoDetail(
     extractByLabel(html, "Date et heure limite de remise des plis", 200) ||
     extractByLabel(html, "Date limite de remise des plis", 200) ||
     extractByLabel(html, "Date limite de réception des offres", 200) ||
+    extractByLabel(html, "Date limite de remise des offres", 200) ||
+    extractByLabel(html, "Date limite de remise des candidatures", 200) ||
+    extractByLabel(html, "Fin de la consultation", 200) ||
     extractByLabel(html, "Date limite", 200);
   const deadline = parseFrenchDateTime(deadlineRaw);
   if (deadline) {
