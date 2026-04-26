@@ -78,22 +78,37 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
   const BUDGET_MS = 50_000;
 
-  // 1. Count remaining (for progress) and pull a batch
-  const filterCondition =
-    "source_url.like.%/entreprise/consultation/%";
+  // Items to enrich = any Atexo consultation with placeholder/poor metadata.
+  // We cover 5 placeholder families:
+  //   - "Consultation Atexo {id}"   (v3.5+ uniform placeholder)
+  //   - "Consultation {n}"          (legacy: "Consultation 4", "Consultation 506296")
+  //   - "Accéder à la consultation" / "Acceder..." (list-page action label)
+  //   - empty/null title
+  //   - poor buyer_name ("Organisme Public", "Non spécifié", null) or null deadline
+  // Note: title.ilike.Consultation% would catch real titles ("Consultation pour..."),
+  // so we use a regex (imatch) anchored on the placeholder shape.
+  const orFilter = [
+    "title.ilike.Consultation Atexo%",
+    "title.ilike.Accéder à la consultation%",
+    "title.ilike.Acceder à la consultation%",
+    "title.imatch.^Consultation [0-9]+$",
+    "title.is.null",
+    "buyer_name.is.null",
+    "buyer_name.in.(\"Organisme Public\",\"Non spécifié\",\"\")",
+    "deadline.is.null",
+  ].join(",");
 
-  // Items to enrich = placeholder title OR missing buyer OR missing deadline
   const { count: remainingBefore } = await supabase
     .from("tenders")
     .select("id", { count: "exact", head: true })
     .like("source_url", "%/entreprise/consultation/%")
-    .or("title.like.Consultation Atexo%,buyer_name.is.null,deadline.is.null");
+    .or(orFilter);
 
   const { data: rows, error } = await supabase
     .from("tenders")
     .select("id,title,buyer_name,deadline,source_url,enriched_data")
     .like("source_url", "%/entreprise/consultation/%")
-    .or("title.like.Consultation Atexo%,buyer_name.is.null,deadline.is.null")
+    .or(orFilter)
     .order("created_at", { ascending: false })
     .limit(batchSize);
 
