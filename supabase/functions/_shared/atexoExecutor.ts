@@ -238,58 +238,50 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
     );
   }
 
-  // ============== STEP 2a : enrichissement IA page 1 (Firecrawl, optionnel) ==============
-  // Une seule call Firecrawl pour récupérer titre/buyer/deadline structurés.
-  // C'est tout ce qu'on demande à Firecrawl en mode PRADO.
-  try {
-    const listRes = await firecrawlScrapeStructured(ctx.url, ctx.apiKey, {
-      wantHtml: !initialHtml, // si HTTP a échoué on a besoin du HTML aussi
-      timeoutMs: 30_000,
-    });
-    calls++;
-
-    // Si HTTP brut a échoué, récupère IDs depuis le HTML Firecrawl
-    if (!initialHtml && listRes.raw_html) {
-      const ids = extractIdsFromHtml(listRes.raw_html);
-      for (const id of ids) {
-        if (!allIds.has(id)) {
-          allIds.set(id, {
-            id,
-            url: `${baseHostUrl(ctx.url)}/entreprise/consultation/${id}`,
-            source: "list_html",
-          });
+  // ============== STEP 2a : Firecrawl FALLBACK only if HTTP brut a échoué ==============
+  // En mode PRADO normal, la page liste ne contient PAS les titres/buyers/dates
+  // (elles sont injectées en AJAX au runtime). On enrichit donc plus tard via
+  // les pages détail. Firecrawl n'est utile que si le HTTP brut a totalement
+  // échoué (captcha/403) — auquel cas on tente de récupérer au moins les IDs.
+  if (!initialHtml) {
+    try {
+      const listRes = await firecrawlScrapeStructured(ctx.url, ctx.apiKey, {
+        wantHtml: true,
+        timeoutMs: 30_000,
+      });
+      calls++;
+      if (listRes.raw_html) {
+        const ids = extractIdsFromHtml(listRes.raw_html);
+        for (const id of ids) {
+          if (!allIds.has(id)) {
+            allIds.set(id, {
+              id,
+              url: `${baseHostUrl(ctx.url)}/entreprise/consultation/${id}`,
+              source: "list_html",
+            });
+          }
+        }
+        stats.ids_from_list_html = ids.length;
+        stats.total_pages_detected = parseTotalPages(listRes.raw_html);
+        stats.items_per_page_actual.push(ids.length);
+      }
+      // Bonus : Firecrawl LLM-extract peut quand même catcher quelques tenders
+      // sur les skins Atexo qui rendent partiellement côté serveur.
+      for (const t of listRes.tenders) {
+        const id = extractConsultationId(t.dce_url as string | undefined);
+        if (id) {
+          const existing = allIds.get(id);
+          if (existing) existing.data = t;
+          else allIds.set(id, { id, url: t.dce_url as string | undefined, source: "list_extract", data: t });
         }
       }
-      stats.ids_from_list_html = ids.length;
-      stats.total_pages_detected = parseTotalPages(listRes.raw_html);
-      stats.items_per_page_actual.push(ids.length);
-    }
-
-    // Enrichit avec données structurées
-    for (const t of listRes.tenders) {
-      const id = extractConsultationId(t.dce_url as string | undefined);
-      if (id) {
-        const existing = allIds.get(id);
-        if (existing) {
-          existing.data = t;
-          existing.source = existing.source === "list_html" ? "list_extract" : existing.source;
-        } else {
-          allIds.set(id, {
-            id,
-            url: t.dce_url as string | undefined,
-            source: "list_extract",
-            data: t,
-          });
-        }
+      stats.ids_from_list_extract = listRes.tenders.length;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[atexo] Firecrawl fallback failed: ${msg}`);
+      if (allIds.size === 0) {
+        return finalize(ctx, allIds, stats, calls, "error", "network_timeout", msg);
       }
-    }
-    stats.ids_from_list_extract = listRes.tenders.length;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[atexo] Firecrawl enrichment failed: ${msg}`);
-    if (allIds.size === 0) {
-      // Ni HTTP ni Firecrawl n'ont marché → erreur dure
-      return finalize(ctx, allIds, stats, calls, "error", "network_timeout", msg);
     }
   }
 
@@ -310,6 +302,60 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
     // Fallback Firecrawl (legacy v3.3 click/input)
     stoppedBy = await runFirecrawlFallback(ctx, initialHtml, allIds, stats, () => calls++);
     calls = stats.actions_pages_scraped + 1; // approximation; calls counter already incremented
+  }
+
+  // ============== STEP 4 : enrichissement page DÉTAIL (HTTP brut, gratuit) ==============
+  // C'est ici qu'on récupère titre / objet / buyer / deadline / référence publique.
+  // La page liste Atexo ne les contient pas — il faut interroger /entreprise/consultation/{id}.
+  if (stats.engine === "prado_event_chain" && pradoState && allIds.size > 0) {
+    const idsToEnrich: string[] = [];
+    for (const [id, c] of allIds) {
+      // Pas de data, ou data sans titre utilisable → on enrichit
+      if (!c.data || !c.data.title || /^Consultation Atexo \d+$/i.test(String(c.data.title))) {
+        idsToEnrich.push(id);
+      }
+    }
+    if (idsToEnrich.length > 0) {
+      stats.details_attempted = idsToEnrich.length;
+      const baseHost = baseHostUrl(ctx.url);
+      console.log(`[atexo:detail] enriching ${idsToEnrich.length} consultation pages (pool=${DETAIL_POOL_SIZE})`);
+      const remainingTime = Math.max(10_000, MAX_TOTAL_TIME_MS - (Date.now() - runStartTime) - 5_000);
+      const budget = Math.min(DETAIL_BUDGET_MS, remainingTime);
+      const enrichRes = await enrichDetailsBatch(idsToEnrich, baseHost, pradoState.cookies, {
+        poolSize: DETAIL_POOL_SIZE,
+        perFetchTimeoutMs: DETAIL_TIMEOUT_MS,
+        globalBudgetMs: budget,
+      });
+      stats.details_fetched = enrichRes.fetched;
+      stats.details_failed = enrichRes.failed;
+      stats.details_time_ms = enrichRes.elapsedMs;
+      stats.parser_match_rate = Math.round(enrichRes.matchRate * 100) / 100;
+      // Merge enriched data back into allIds
+      for (const [id, detail] of enrichRes.results) {
+        const c = allIds.get(id);
+        if (!c) continue;
+        if (detail._matched_fields > 0) {
+          c.data = {
+            ...(c.data ?? {}),
+            title: detail.title ?? c.data?.title,
+            description: detail.object ?? c.data?.description,
+            buyer_name: detail.buyer_name ?? c.data?.buyer_name,
+            deadline: detail.deadline ?? c.data?.deadline,
+            publication_date: detail.publication_date ?? c.data?.publication_date,
+            reference: detail.reference ?? c.data?.reference,
+            procedure_type: detail.procedure_type ?? c.data?.procedure_type,
+            contract_type: detail.contract_type ?? c.data?.contract_type,
+            cpv_codes: detail.cpv_codes ?? c.data?.cpv_codes,
+            dce_url: detail.dce_url,
+          };
+          c.source = "prado_chain"; // semantic: came via PRADO + detail enrichment
+        }
+      }
+      console.log(
+        `[atexo:detail] done: fetched=${enrichRes.fetched} failed=${enrichRes.failed} ` +
+          `match_rate=${stats.parser_match_rate} elapsed=${enrichRes.elapsedMs}ms`,
+      );
+    }
   }
 
   stats.time_elapsed_ms = Date.now() - runStartTime;
