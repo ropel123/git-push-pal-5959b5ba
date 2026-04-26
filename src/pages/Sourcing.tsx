@@ -79,6 +79,63 @@ const Sourcing = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [activeFilter, setActiveFilter] = useState<string>("all");
 
+  // Atexo backfill
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillProgress, setBackfillProgress] = useState<{
+    remaining: number;
+    updated: number;
+    failed: number;
+    iterations: number;
+  } | null>(null);
+
+  const runAtexoBackfill = async () => {
+    if (backfillRunning) return;
+    setBackfillRunning(true);
+    setBackfillProgress({ remaining: 0, updated: 0, failed: 0, iterations: 0 });
+    let totalUpdated = 0;
+    let totalFailed = 0;
+    let iterations = 0;
+    let remaining = Infinity;
+    try {
+      while (remaining > 0 && iterations < 30) {
+        iterations++;
+        const { data, error } = await supabase.functions.invoke("atexo-backfill", {
+          body: { batchSize: 100 },
+        });
+        if (error) throw error;
+        const r = data as {
+          remaining: number;
+          updated: number;
+          failed: number;
+          processed: number;
+        };
+        remaining = r.remaining ?? 0;
+        totalUpdated += r.updated ?? 0;
+        totalFailed += r.failed ?? 0;
+        setBackfillProgress({
+          remaining,
+          updated: totalUpdated,
+          failed: totalFailed,
+          iterations,
+        });
+        if ((r.processed ?? 0) === 0) break; // safety: nothing moved
+      }
+      toast({
+        title: "Rétro-enrichissement terminé",
+        description: `${totalUpdated} consultations mises à jour, ${totalFailed} échecs, ${remaining} restantes`,
+      });
+    } catch (e) {
+      const err = e as Error;
+      toast({
+        title: "Erreur backfill Atexo",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setBackfillRunning(false);
+    }
+  };
+
   const platformCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const u of urls) counts[u.platform] = (counts[u.platform] ?? 0) + 1;
