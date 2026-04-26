@@ -1,75 +1,29 @@
-## Constat
+# Atexo detail-page enrichment (v3.5)
 
-`marches.maximilien.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons` est bien une instance Atexo SDM (même moteur PRADO, même `PRADO_PAGESTATE`, même structure de pagination event-driven). Pareil pour :
-- **maximilien** (Île-de-France)
-- **aura** (Auvergne-Rhône-Alpes — `marchespublics.auvergnerhonealpes.eu`)
-- **megalis** (Bretagne)
-- **ternum** (Bourgogne-Franche-Comté)
+## Status: shipped
 
-Aujourd'hui ces 4 plateformes sont détectées avec leur **label régional** (par souci de reporting), mais dans `scrape-list/index.ts` l'aiguillage est strict :
+## Problem
 
-```ts
-platform === "atexo" ? executeAtexo(...) : execute(...)
-```
+Atexo list page (`?page=Entreprise.EntrepriseAdvancedSearch&AllCons`) does not contain title / buyer / deadline / reference in raw HTML — these columns are injected by JS at runtime. So the previous PRADO event-chain only got IDs, leaving every tender as `"Consultation Atexo {id}"` with NULL buyer/deadline.
 
-→ Donc maximilien & co passent par le `playbookExecutor` générique (Firecrawl + sélecteurs CSS) au lieu du moteur PRADO musclé. C'est pour ça qu'on rate la pagination stateful sur ces sites.
+## Solution
 
-## Solution : famille `atexo`
+After the PRADO sweep collects all IDs, fetch each `/entreprise/consultation/{id}` page in HTTP brut (reusing PRADO session cookies), parse the labelled fields with regex, merge into the item data, then upsert.
 
-Plutôt que renommer `maximilien → atexo` (on perd le label régional utile en UI/reporting), on introduit une notion de **"famille d'engine"** :
+Files added:
+- `supabase/functions/_shared/atexoDetailParser.ts` — `fetchAtexoDetail()` + `enrichDetailsBatch()` (concurrent pool + budget)
 
-### 1. Nouvelle constante `ATEXO_FAMILY`
-Dans `supabase/functions/_shared/normalize.ts` :
-```ts
-export const ATEXO_FAMILY = new Set([
-  "atexo",
-  "maximilien",
-  "aura",
-  "megalis",
-  "ternum",
-]);
-export function isAtexoFamily(platform: string): boolean {
-  return ATEXO_FAMILY.has(platform);
-}
-```
+Files modified:
+- `supabase/functions/_shared/atexoExecutor.ts` — Firecrawl liste devient fallback (uniquement si HTTP brut échoue), nouveau STEP 4 d'enrichissement détail avant `finalize`
 
-### 2. Aiguillage dans `scrape-list/index.ts`
-Remplacer :
-```ts
-platform === "atexo" ? executeAtexo(...) : execute(...)
-```
-par :
-```ts
-isAtexoFamily(platform) ? executeAtexo({...args, platform}) : execute(...)
-```
+## Telemetry added to `_atexo_stats`
 
-→ Le label `maximilien` (etc.) reste en DB (`scrape_logs.metadata.platform`, `tenders.platform`), mais l'**engine** utilisé est PRADO. Best of both worlds.
+- `details_attempted` / `details_fetched` / `details_failed`
+- `details_time_ms`
+- `parser_match_rate` (0-1, 5 main fields)
 
-### 3. Garde-fou dans `atexoExecutor.ts`
-Ajouter en tête de `executeAtexo` un check léger : si l'URL ne contient pas `page=Entreprise.EntrepriseAdvancedSearch` ET pas de `/sdm/`, on log un warning et on tombe direct en Firecrawl fallback (au lieu de tenter PRADO sur une page non-SDM).
+## Settings
 
-### 4. Pas touche au front
-`src/lib/detectPlatform.ts` reste tel quel — il continue de renvoyer `"maximilien"` pour l'affichage UI. La famille n'est utilisée que côté edge function pour choisir le moteur.
-
-## Fichiers modifiés
-
-- `supabase/functions/_shared/normalize.ts` — ajout `ATEXO_FAMILY` + `isAtexoFamily()`
-- `supabase/functions/scrape-list/index.ts` — aiguillage via `isAtexoFamily(platform)`
-- `supabase/functions/_shared/atexoExecutor.ts` — garde-fou URL non-SDM (mineur)
-
-## Résultat attendu
-
-Pour `marches.maximilien.fr/?page=Entreprise.EntrepriseAdvancedSearch&AllCons` :
-```
-[atexo] engine=prado_event_chain, hidden_inputs=28, pagestate=XXk bytes
-[atexo] page 1 (HTTP): 10 IDs, totalPages=N
-[atexo:prado] sweep plan: totalPages=N, fullSweep=true, cap=25
-... (rotation PRADO_PAGESTATE sur toutes les pages)
-[atexo] DONE engine=prado_event_chain unique=~10*N coverage=1.0
-```
-
-Avec le label `platform: "maximilien"` conservé en DB.
-
-## Bonus
-
-Cette refacto rend trivial l'ajout de futures instances Atexo (ex: `marches-publics.bretagne-paysdelaloire.fr` ou autres skins régionaux) : il suffira d'ajouter une ligne dans `ATEXO_FAMILY`.
+- Pool: 6 parallèles
+- Per-fetch timeout: 8s
+- Global budget: min(60s, remaining of 120s total)
