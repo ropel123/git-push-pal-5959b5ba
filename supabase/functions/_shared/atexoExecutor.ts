@@ -177,6 +177,11 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
     time_elapsed_ms: 0,
     stop_reason_detail: "",
     consecutive_http_errors: 0,
+    details_attempted: 0,
+    details_fetched: 0,
+    details_failed: 0,
+    details_time_ms: 0,
+    parser_match_rate: 0,
   };
   const runStartTime = Date.now();
   let calls = 0;
