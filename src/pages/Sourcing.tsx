@@ -530,6 +530,25 @@ const Sourcing = () => {
               </DropdownMenu>
             </div>
           </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                onClick={runAtexoBackfill}
+                disabled={backfillRunning}
+              >
+                {backfillRunning
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <RefreshCcw className="mr-2 h-4 w-4" />}
+                {backfillRunning && backfillProgress
+                  ? `Atexo : ${backfillProgress.updated} maj • ${backfillProgress.remaining} restantes`
+                  : "Rétro-enrichir Atexo"}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Re-télécharge les fiches de chaque consultation Atexo placeholder en base et remplit titre/acheteur/deadline.
+            </TooltipContent>
+          </Tooltip>
           <Button variant="outline" onClick={() => setBulkOpen(true)}><Plus className="mr-2 h-4 w-4" />Import en masse</Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
