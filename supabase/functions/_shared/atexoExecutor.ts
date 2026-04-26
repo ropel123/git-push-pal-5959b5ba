@@ -309,9 +309,18 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
   // La page liste Atexo ne les contient pas — il faut interroger /entreprise/consultation/{id}.
   if (stats.engine === "prado_event_chain" && pradoState && allIds.size > 0) {
     const idsToEnrich: string[] = [];
+    const isPlaceholderListTitle = (t: unknown): boolean => {
+      if (!t) return true;
+      const s = String(t).trim();
+      if (!s) return true;
+      if (/^Consultation Atexo \d+$/i.test(s)) return true;
+      if (/^Acc[eé]der\s/i.test(s)) return true;          // "Accéder à la consultation"
+      if (/^Consultation\s+\d+\s*$/i.test(s)) return true; // "Consultation 4", "Consultation 506296"
+      if (s.length < 8) return true;                        // too short to be a real title
+      return false;
+    };
     for (const [id, c] of allIds) {
-      // Pas de data, ou data sans titre utilisable → on enrichit
-      if (!c.data || !c.data.title || /^Consultation Atexo \d+$/i.test(String(c.data.title))) {
+      if (!c.data || isPlaceholderListTitle(c.data.title)) {
         idsToEnrich.push(id);
       }
     }
@@ -335,9 +344,13 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
         const c = allIds.get(id);
         if (!c) continue;
         if (detail._matched_fields > 0) {
+          // Discard the placeholder title from the list if the detail page didn't give us one.
+          const safeTitle =
+            detail.title ??
+            (isPlaceholderListTitle(c.data?.title) ? `Consultation Atexo ${id}` : c.data?.title);
           c.data = {
             ...(c.data ?? {}),
-            title: detail.title ?? c.data?.title,
+            title: safeTitle,
             description: detail.object ?? c.data?.description,
             buyer_name: detail.buyer_name ?? c.data?.buyer_name,
             deadline: detail.deadline ?? c.data?.deadline,
@@ -348,7 +361,12 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
             cpv_codes: detail.cpv_codes ?? c.data?.cpv_codes,
             dce_url: detail.dce_url,
           };
-          c.source = "prado_chain"; // semantic: came via PRADO + detail enrichment
+          c.source = "prado_chain";
+        } else {
+          // Detail returned nothing useful — at least sanitize a bad placeholder title.
+          if (c.data && isPlaceholderListTitle(c.data.title)) {
+            c.data.title = `Consultation Atexo ${id}`;
+          }
         }
       }
       console.log(

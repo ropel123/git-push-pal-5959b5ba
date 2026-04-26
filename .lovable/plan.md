@@ -1,62 +1,62 @@
-# Plan v3.6 — Rétro-enrichissement des consultations Atexo existantes
+## Pourquoi il reste des mauvais titres
 
-## Constat
+Diagnostic en base sur ~1051 fiches Atexo :
+- **855** ont un titre correct ✅
+- **154** ont le titre **"Accéder à la consultation"** (le scraper a pris le texte du lien d'action de la liste comme titre)
+- **42** ont le titre **"Consultation {id}"** (placeholder différent de "Consultation Atexo {id}", donc ignoré par le backfill v3.6)
 
-Diagnostic en base (table `tenders`) :
-- **1 051** consultations Atexo au total
-- **815** ont un titre placeholder type `Consultation Atexo {id}`
-- **841** sans `buyer_name`, **979** sans `deadline`
-- Réparties sur ~20 hôtes (top : demat-ampa.fr, maximilien.fr, alsacemarchespublics, marchespublics596280…)
+Exemples concrets :
+- `marches.local-trust.com/.../534253` → titre = "Accéder à la consultation", buyer = "Neotoa"
+- `mpe.mairie-marseille.fr/.../524468` → titre = "Consultation 4", buyer = "Mairie de Marseille"
+- `marches-publics.regionreunion.com/.../506296` → titre = "Consultation 506296", buyer = "Organisme Public"
 
-Le nouveau `atexoDetailParser.ts` (Plan v3.5) extrait titre/objet/acheteur/deadline depuis `/entreprise/consultation/{id}`. Il faut maintenant l'appliquer **une fois** sur l'historique.
+**Cause racine** : le filtre du `atexo-backfill` ne cible QUE les titres `Consultation Atexo%`. Les deux autres familles de placeholders passent à travers.
 
-## Approche
+## Plan v3.7 — Élargir la rétro-enrichissement
 
-Nouvelle edge function **`atexo-backfill`** dédiée, appelable manuellement depuis l'admin (bouton) ou via curl. Elle traite les consultations placeholder par lots, en parallèle, avec budget temps.
+### 1. Élargir le filtre de `atexo-backfill`
+Dans `supabase/functions/atexo-backfill/index.ts`, remplacer le filtre actuel par une condition couvrant **toutes** les fiches Atexo dont les métadonnées sont incomplètes :
 
-### Fonctionnement
+```sql
+source LIKE 'scrape:atexo%' AND (
+  title ILIKE 'Consultation Atexo%'
+  OR title ILIKE 'Accéder%' OR title ILIKE 'Acceder%'
+  OR title ~* '^Consultation [0-9]+$'
+  OR title IS NULL OR title = ''
+  OR buyer_name IN ('Organisme Public', 'Non spécifié', '')
+  OR buyer_name IS NULL
+  OR deadline IS NULL
+)
+```
 
-1. **Sélection** : query les `tenders` où `source_url LIKE '%/entreprise/consultation/%'` ET (`title LIKE 'Consultation Atexo%'` OR `buyer_name IS NULL` OR `deadline IS NULL`).
-2. **Groupement par host** pour réutiliser une session PRADO (PHPSESSID) par domaine → moins de cold-starts.
-3. **Pool concurrent** (6 fetches parallèles, identique à v3.5) avec budget 50s par invocation.
-4. **Parsing** via `atexoDetailParser.fetchAtexoDetail()` (déjà existant).
-5. **UPDATE** des champs `title`, `object`, `buyer_name`, `reference`, `deadline`, `publication_date`, `cpv_codes`, `enriched_data.backfilled_at`.
-6. **Reprise** : pas de cursor en base, le filtre WHERE suffit (un item enrichi sort naturellement du set).
+### 2. Corriger la source du bug côté scrape-list
+Dans le pipeline de scraping Atexo (probablement `atexoExecutor.ts` ou `normalize.ts`), quand le détail page **ne renvoie aucun champ** (`_matched_fields === 0`), il faut **rejeter** le titre fallback "Accéder à la consultation" / "Consultation {n}" et utiliser à la place :
+- titre temporaire : `Consultation Atexo {id}` (uniforme, attrapé par le backfill)
+- buyer_name : laisser `null` si non extrait (au lieu d'écrire l'acronyme `cg-55`, `cma`, `a2z`)
 
-### Volume & exécutions
+### 3. Améliorer la robustesse du détail parser
+Pour les hosts qui ont échoué (`marches.local-trust.com`, `mpe.mairie-marseille.fr`, `regionreunion.com`), ajouter :
+- Un retry avec une seconde tentative de seeding cookie (GET du host root + GET de la page recherche avant le détail)
+- Des variantes supplémentaires de labels (certaines skins Atexo utilisent "Intitulé du marché", "Nom du pouvoir adjudicateur", "Fin de la consultation")
+- Un fallback sur le `<title>` HTML de la page si aucun label ne matche (souvent contient l'intitulé)
 
-~815 items à traiter. Avec ~150 items/run (60s, pool 6, latence ~2s/page) → **~6 invocations** pour finir. La fonction renvoie `{ processed, updated, failed, remaining }` pour pouvoir relancer en boucle depuis l'UI.
+### 4. Bouton UI : pas de changement
+Le bouton "Rétro-enrichir Atexo" existant dans `src/pages/Sourcing.tsx` continuera à fonctionner — il itèrera désormais sur **les 3 familles** de placeholders (~196 fiches restantes après la 1ʳᵉ vague + tout ce que le backfill v3.6 n'avait pas pu enrichir).
 
-### UI Admin
+## Détails techniques
 
-Petit bouton "Rétro-enrichir Atexo" sur la page Sourcing (admin) qui :
-- affiche le `remaining` actuel
-- relance la fonction tant que `remaining > 0`
-- montre une barre de progression simple
+**Fichiers modifiés** :
+- `supabase/functions/atexo-backfill/index.ts` → élargir le filtre `.or(...)` Supabase
+- `supabase/functions/_shared/atexoDetailParser.ts` → ajouter variantes de labels + fallback `<title>`
+- `supabase/functions/_shared/atexoExecutor.ts` → uniformiser le titre placeholder quand le détail échoue, ne pas écrire l'acronyme comme buyer
+- (optionnel) script SQL one-shot pour normaliser tous les titres "Accéder à la consultation" et "Consultation {n}" en "Consultation Atexo {id}" avant que le backfill tourne, afin d'avoir des logs propres
 
-## Changements
+**Telemetry** : le log `atexo_backfill` continuera à reporter `items_updated` / `remaining_after`, mais avec le nouveau filtre la queue initiale sera ~196 + reste du précédent batch.
 
-### Edge function (nouveau)
-- **`supabase/functions/atexo-backfill/index.ts`** : 
-  - Sélectionne le batch via service role
-  - Réutilise `fetchAtexoDetail` + `fetchWithCookies` du shared
-  - UPDATE direct sur `tenders` (admin/service role)
-  - Logs `[atexo:backfill] host=X processed=N updated=N failed=N elapsed=Xms`
+## Ce que tu auras à faire après le déploiement
 
-### Migration
-- Aucune (UPDATE de données existantes, schéma inchangé)
+1. Aller sur `/sourcing`
+2. Cliquer sur **"Rétro-enrichir Atexo"** → la boucle traitera automatiquement les 196 fiches mal nommées en 5–7 minutes
+3. Recharger `/tenders` : plus aucun titre "Accéder à la consultation" ou "Consultation {n}"
 
-### Frontend
-- **`src/pages/Sourcing.tsx`** (ou page admin équivalente) : bouton + état de progression appelant la fonction via `supabase.functions.invoke('atexo-backfill')` en boucle jusqu'à `remaining=0`.
-
-### Telemetry
-- Insertion dans `scrape_logs` avec `source='atexo_backfill'` pour traçabilité.
-
-## Ce que ça donne après
-
-Les 815 consultations placeholder auront leurs vrais titres, acheteurs, dates → scoring/filtres/recherche fonctionneront enfin sur l'historique Atexo. Opération one-shot, ~5 min de clics.
-
-## Hors scope
-
-- Ré-enrichissement des autres plateformes (Place, MPE custom…) : à voir séparément si besoin.
-- Suppression des placeholder qui resteraient en échec après N tentatives : à décider après le run.
+Les **futurs** scrapings n'auront plus ce problème grâce au correctif #2 (placeholder uniforme).
