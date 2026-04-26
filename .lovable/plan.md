@@ -1,29 +1,62 @@
-# Atexo detail-page enrichment (v3.5)
+# Plan v3.6 — Rétro-enrichissement des consultations Atexo existantes
 
-## Status: shipped
+## Constat
 
-## Problem
+Diagnostic en base (table `tenders`) :
+- **1 051** consultations Atexo au total
+- **815** ont un titre placeholder type `Consultation Atexo {id}`
+- **841** sans `buyer_name`, **979** sans `deadline`
+- Réparties sur ~20 hôtes (top : demat-ampa.fr, maximilien.fr, alsacemarchespublics, marchespublics596280…)
 
-Atexo list page (`?page=Entreprise.EntrepriseAdvancedSearch&AllCons`) does not contain title / buyer / deadline / reference in raw HTML — these columns are injected by JS at runtime. So the previous PRADO event-chain only got IDs, leaving every tender as `"Consultation Atexo {id}"` with NULL buyer/deadline.
+Le nouveau `atexoDetailParser.ts` (Plan v3.5) extrait titre/objet/acheteur/deadline depuis `/entreprise/consultation/{id}`. Il faut maintenant l'appliquer **une fois** sur l'historique.
 
-## Solution
+## Approche
 
-After the PRADO sweep collects all IDs, fetch each `/entreprise/consultation/{id}` page in HTTP brut (reusing PRADO session cookies), parse the labelled fields with regex, merge into the item data, then upsert.
+Nouvelle edge function **`atexo-backfill`** dédiée, appelable manuellement depuis l'admin (bouton) ou via curl. Elle traite les consultations placeholder par lots, en parallèle, avec budget temps.
 
-Files added:
-- `supabase/functions/_shared/atexoDetailParser.ts` — `fetchAtexoDetail()` + `enrichDetailsBatch()` (concurrent pool + budget)
+### Fonctionnement
 
-Files modified:
-- `supabase/functions/_shared/atexoExecutor.ts` — Firecrawl liste devient fallback (uniquement si HTTP brut échoue), nouveau STEP 4 d'enrichissement détail avant `finalize`
+1. **Sélection** : query les `tenders` où `source_url LIKE '%/entreprise/consultation/%'` ET (`title LIKE 'Consultation Atexo%'` OR `buyer_name IS NULL` OR `deadline IS NULL`).
+2. **Groupement par host** pour réutiliser une session PRADO (PHPSESSID) par domaine → moins de cold-starts.
+3. **Pool concurrent** (6 fetches parallèles, identique à v3.5) avec budget 50s par invocation.
+4. **Parsing** via `atexoDetailParser.fetchAtexoDetail()` (déjà existant).
+5. **UPDATE** des champs `title`, `object`, `buyer_name`, `reference`, `deadline`, `publication_date`, `cpv_codes`, `enriched_data.backfilled_at`.
+6. **Reprise** : pas de cursor en base, le filtre WHERE suffit (un item enrichi sort naturellement du set).
 
-## Telemetry added to `_atexo_stats`
+### Volume & exécutions
 
-- `details_attempted` / `details_fetched` / `details_failed`
-- `details_time_ms`
-- `parser_match_rate` (0-1, 5 main fields)
+~815 items à traiter. Avec ~150 items/run (60s, pool 6, latence ~2s/page) → **~6 invocations** pour finir. La fonction renvoie `{ processed, updated, failed, remaining }` pour pouvoir relancer en boucle depuis l'UI.
 
-## Settings
+### UI Admin
 
-- Pool: 6 parallèles
-- Per-fetch timeout: 8s
-- Global budget: min(60s, remaining of 120s total)
+Petit bouton "Rétro-enrichir Atexo" sur la page Sourcing (admin) qui :
+- affiche le `remaining` actuel
+- relance la fonction tant que `remaining > 0`
+- montre une barre de progression simple
+
+## Changements
+
+### Edge function (nouveau)
+- **`supabase/functions/atexo-backfill/index.ts`** : 
+  - Sélectionne le batch via service role
+  - Réutilise `fetchAtexoDetail` + `fetchWithCookies` du shared
+  - UPDATE direct sur `tenders` (admin/service role)
+  - Logs `[atexo:backfill] host=X processed=N updated=N failed=N elapsed=Xms`
+
+### Migration
+- Aucune (UPDATE de données existantes, schéma inchangé)
+
+### Frontend
+- **`src/pages/Sourcing.tsx`** (ou page admin équivalente) : bouton + état de progression appelant la fonction via `supabase.functions.invoke('atexo-backfill')` en boucle jusqu'à `remaining=0`.
+
+### Telemetry
+- Insertion dans `scrape_logs` avec `source='atexo_backfill'` pour traçabilité.
+
+## Ce que ça donne après
+
+Les 815 consultations placeholder auront leurs vrais titres, acheteurs, dates → scoring/filtres/recherche fonctionneront enfin sur l'historique Atexo. Opération one-shot, ~5 min de clics.
+
+## Hors scope
+
+- Ré-enrichissement des autres plateformes (Place, MPE custom…) : à voir séparément si besoin.
+- Suppression des placeholder qui resteraient en échec après N tentatives : à décider après le run.
