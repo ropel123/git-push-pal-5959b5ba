@@ -87,6 +87,9 @@ Deno.serve(async (req) => {
   //   - poor buyer_name ("Organisme Public", "Non spécifié", null) or null deadline
   // Note: title.ilike.Consultation% would catch real titles ("Consultation pour..."),
   // so we use a regex (imatch) anchored on the placeholder shape.
+  // We also exclude items already marked as permanently unrecoverable
+  // (enriched_data.backfill_skip = true) to avoid infinite retry loops
+  // on detail pages that always 4xx (deleted/archived consultations).
   const orFilter = [
     "title.ilike.Consultation Atexo%",
     "title.ilike.Accéder à la consultation%",
@@ -97,12 +100,15 @@ Deno.serve(async (req) => {
     "buyer_name.in.(\"Organisme Public\",\"Non spécifié\",\"\")",
     "deadline.is.null",
   ].join(",");
+  const MAX_ATTEMPTS = 3;
 
   const { count: remainingBefore } = await supabase
     .from("tenders")
     .select("id", { count: "exact", head: true })
     .like("source_url", "%/entreprise/consultation/%")
+    .not("enriched_data->>backfill_skip", "eq", "true")
     .or(orFilter);
+
 
   const { data: rows, error } = await supabase
     .from("tenders")
