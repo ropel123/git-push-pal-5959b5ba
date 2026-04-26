@@ -187,15 +187,38 @@ export async function fetchAtexoDetail(
   const title =
     extractByLabel(html, "Intitulé", 1000) ||
     extractByLabel(html, "Intitulé de la consultation", 1000) ||
+    extractByLabel(html, "Intitulé du marché", 1000) ||
+    extractByLabel(html, "Intitulé de la procédure", 1000) ||
+    extractByLabel(html, "Nom de la consultation", 1000) ||
     extractByLabel(html, "Intitule", 1000);
   if (title) {
     out.title = title;
     out._matched_fields++;
+  } else {
+    // Fallback: use the HTML <title> tag (often "Consultation N° XXX - Intitulé...")
+    const titleTag = html.match(/<title[^>]*>([^<]{1,300})<\/title>/i);
+    if (titleTag) {
+      const raw = clean(titleTag[1]);
+      if (raw && raw.length > 5) {
+        // Strip the leading "Consultation N° XXX - " or "Détail de la consultation - " prefix
+        const stripped = raw
+          .replace(/^.*?(?:[-–—:]\s*)/, "")
+          .replace(/\s*[-–—|]\s*[A-Z][^-|]+$/, "") // strip trailing site name
+          .trim();
+        const candidate = stripped.length > 10 && !/^accéder/i.test(stripped) ? stripped : raw;
+        if (!/^accéder/i.test(candidate) && !/^consultation\s*$/i.test(candidate)) {
+          out.title = candidate;
+          out._matched_fields++;
+        }
+      }
+    }
   }
 
   const object =
     extractByLabel(html, "Objet de la consultation", 5000) ||
+    extractByLabel(html, "Objet du marché", 5000) ||
     extractByLabel(html, "Objet", 5000) ||
+    extractByLabel(html, "Description de la consultation", 5000) ||
     extractByLabel(html, "Description", 5000);
   if (object) {
     out.object = object;
@@ -206,7 +229,10 @@ export async function fetchAtexoDetail(
     extractByLabel(html, "Organisme", 500) ||
     extractByLabel(html, "Entité publique", 500) ||
     extractByLabel(html, "Acheteur", 500) ||
-    extractByLabel(html, "Entité d'achat", 500);
+    extractByLabel(html, "Pouvoir adjudicateur", 500) ||
+    extractByLabel(html, "Nom du pouvoir adjudicateur", 500) ||
+    extractByLabel(html, "Entité d'achat", 500) ||
+    extractByLabel(html, "Entité acheteuse", 500);
   if (buyer) {
     out.buyer_name = buyer;
     out._matched_fields++;
