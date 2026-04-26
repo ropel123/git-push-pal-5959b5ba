@@ -344,9 +344,13 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
         const c = allIds.get(id);
         if (!c) continue;
         if (detail._matched_fields > 0) {
+          // Discard the placeholder title from the list if the detail page didn't give us one.
+          const safeTitle =
+            detail.title ??
+            (isPlaceholderListTitle(c.data?.title) ? `Consultation Atexo ${id}` : c.data?.title);
           c.data = {
             ...(c.data ?? {}),
-            title: detail.title ?? c.data?.title,
+            title: safeTitle,
             description: detail.object ?? c.data?.description,
             buyer_name: detail.buyer_name ?? c.data?.buyer_name,
             deadline: detail.deadline ?? c.data?.deadline,
@@ -357,7 +361,12 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
             cpv_codes: detail.cpv_codes ?? c.data?.cpv_codes,
             dce_url: detail.dce_url,
           };
-          c.source = "prado_chain"; // semantic: came via PRADO + detail enrichment
+          c.source = "prado_chain";
+        } else {
+          // Detail returned nothing useful — at least sanitize a bad placeholder title.
+          if (c.data && isPlaceholderListTitle(c.data.title)) {
+            c.data.title = `Consultation Atexo ${id}`;
+          }
         }
       }
       console.log(
