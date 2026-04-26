@@ -94,6 +94,12 @@ type AtexoStats = {
   time_elapsed_ms: number;
   stop_reason_detail: string;
   consecutive_http_errors: number;
+  // Detail enrichment telemetry
+  details_attempted: number;
+  details_fetched: number;
+  details_failed: number;
+  details_time_ms: number;
+  parser_match_rate: number;
 };
 
 function baseHostUrl(fullUrl: string): string {
