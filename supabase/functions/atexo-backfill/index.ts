@@ -243,12 +243,12 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Recompute remaining
+  // Recompute remaining (same filter as initial query)
   const { count: remainingAfter } = await supabase
     .from("tenders")
     .select("id", { count: "exact", head: true })
     .like("source_url", "%/entreprise/consultation/%")
-    .or("title.like.Consultation Atexo%,buyer_name.is.null,deadline.is.null");
+    .or(orFilter);
 
   // Log to scrape_logs for traceability
   if (!dryRun) {
