@@ -309,9 +309,18 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
   // La page liste Atexo ne les contient pas — il faut interroger /entreprise/consultation/{id}.
   if (stats.engine === "prado_event_chain" && pradoState && allIds.size > 0) {
     const idsToEnrich: string[] = [];
+    const isPlaceholderListTitle = (t: unknown): boolean => {
+      if (!t) return true;
+      const s = String(t).trim();
+      if (!s) return true;
+      if (/^Consultation Atexo \d+$/i.test(s)) return true;
+      if (/^Acc[eé]der\s/i.test(s)) return true;          // "Accéder à la consultation"
+      if (/^Consultation\s+\d+\s*$/i.test(s)) return true; // "Consultation 4", "Consultation 506296"
+      if (s.length < 8) return true;                        // too short to be a real title
+      return false;
+    };
     for (const [id, c] of allIds) {
-      // Pas de data, ou data sans titre utilisable → on enrichit
-      if (!c.data || !c.data.title || /^Consultation Atexo \d+$/i.test(String(c.data.title))) {
+      if (!c.data || isPlaceholderListTitle(c.data.title)) {
         idsToEnrich.push(id);
       }
     }
