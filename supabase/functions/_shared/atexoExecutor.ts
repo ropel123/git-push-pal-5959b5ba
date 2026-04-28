@@ -307,7 +307,11 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
   // ============== STEP 4 : enrichissement page DÉTAIL (HTTP brut, gratuit) ==============
   // C'est ici qu'on récupère titre / objet / buyer / deadline / référence publique.
   // La page liste Atexo ne les contient pas — il faut interroger /entreprise/consultation/{id}.
-  if (stats.engine === "prado_event_chain" && pradoState && allIds.size > 0) {
+  // v3.9 — enrich detail pages for ALL Atexo engines (single_page, firecrawl
+  // fallback, prado_event_chain). Previously gated on prado_event_chain only,
+  // which left new hosts (e.g. marches.maximilien.fr) stuck on the placeholder
+  // "Consultation Atexo {id}" until the manual backfill was clicked.
+  if (allIds.size > 0) {
     const idsToEnrich: string[] = [];
     const isPlaceholderListTitle = (t: unknown): boolean => {
       if (!t) return true;
