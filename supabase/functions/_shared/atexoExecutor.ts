@@ -334,7 +334,8 @@ export async function executeAtexo(ctx: ExecutorContext): Promise<ExecutorResult
       console.log(`[atexo:detail] enriching ${idsToEnrich.length} consultation pages (pool=${DETAIL_POOL_SIZE})`);
       const remainingTime = Math.max(10_000, MAX_TOTAL_TIME_MS - (Date.now() - runStartTime) - 5_000);
       const budget = Math.min(DETAIL_BUDGET_MS, remainingTime);
-      const enrichRes = await enrichDetailsBatch(idsToEnrich, baseHost, pradoState.cookies, {
+      const cookies = pradoState?.cookies ?? "";
+      const enrichRes = await enrichDetailsBatch(idsToEnrich, baseHost, cookies, {
         poolSize: DETAIL_POOL_SIZE,
         perFetchTimeoutMs: DETAIL_TIMEOUT_MS,
         globalBudgetMs: budget,
