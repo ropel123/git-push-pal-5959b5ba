@@ -1,60 +1,40 @@
-## Audit complet du backfill Atexo
+## Pourquoi tu vois encore ces titres
 
-### ✅ Résultat global excellent
-**1049/1051 fiches Atexo (99.8%)** ont maintenant titre + buyer + deadline corrects.
+Diagnostic sur les 3 AO de la capture (`937132`, `931590`, `935923`) :
 
-### ❌ 9 fiches résiduelles non-enrichissables
+- Tous viennent de `https://marches.maximilien.fr/entreprise/consultation/{id}` — un host qui **n'avait jamais été enrichi** auparavant (les runs précédents ne touchaient que `departement86` et `regionreunion`).
+- Leur `enriched_data` est `NULL` → 0 tentative de backfill, pas de flag `skip`.
+- Ils sont bien dans la queue, mais le backfill ne tourne **pas tout seul** : pas de cron, déclenché uniquement par le bouton "Rétro-enrichir Atexo" sur `/sourcing`.
+- Dernier run : 26/04 10:14. Depuis, **223 nouveaux placeholders** ont été insérés (dont 171 sur `maximilien.fr`), créés par le scraper de listing entre le 26/04 et le 28/04 12:08.
 
-**Catégorie A — 7 fiches sans `source_url`** (résidus très anciens, executor v3.3 qui ne stockait pas l'URL) :
-- buyers : `t5y`, `b6b` ×2, `c3s`, `b5k`, `c4a`, `a3n` (acronymes PRADO bruts)
-- ❗ Déjà exclues du backfill grâce au filtre `.like("source_url", "%/entreprise/consultation/%")` qui rejette les NULL
-- Mais elles polluent toujours la liste `/tenders` avec des titres "Accéder à la consultation"
+**Cause racine** : l'ingestion (`atexoExecutor.ts`) écrit délibérément un titre placeholder `Consultation Atexo {id}` quand l'enrichissement détail n'a pas eu le temps de tourner, ou n'est pas tenté du tout. Le rattrapage est laissé à un backfill 100 % manuel → tout ce qui arrive entre deux clics reste cassé en UI.
 
-**Catégorie B — 2 fiches avec source_url mais détail HTTP en échec** :
-- `regionreunion.com/506471` 
-- `departement86.fr/502586`
-- Cause : consultations probablement archivées/supprimées par l'acheteur → 4xx ou redirect login
-- ❗ Le bouton "Rétro-enrichir" boucle indéfiniment dessus (visible dans les logs : 30+ retries en quelques secondes pendant que l'UI itérait)
+## Plan v3.9 — éliminer le placeholder à la source
 
-## Plan v3.8 — Cleanup final
+### 1. Cron horaire sur `atexo-backfill`
+Ajouter un cron pg_cron qui appelle l'edge function toutes les heures (batch de 80) tant qu'il reste des placeholders. Plus jamais besoin de cliquer le bouton.
 
-### 1. Anti-boucle infinie dans `atexo-backfill`
-Ajouter un compteur `enriched_data.backfill_attempts` incrémenté à chaque échec. Après **3 échecs**, marquer `enriched_data.backfill_skip = true` et exclure du filtre via `.not("enriched_data->>backfill_skip", "eq", "true")`.
+### 2. Forcer l'enrichissement détail à l'ingestion pour TOUS les hosts Atexo
+Dans `_shared/atexoExecutor.ts` (bloc step 4, ligne ~310) : retirer la condition `stats.engine === "prado_event_chain"`. Aujourd'hui, si l'engine est autre chose (ex. fallback Firecrawl ou ingestion directe `single_page` sur `maximilien.fr`), **aucun appel détail n'est lancé** → tous les items partent en placeholder. On veut enrichir dès que `allIds.size > 0`, peu importe l'engine.
 
-Bénéfice : la queue se vide naturellement, le bouton "Rétro-enrichir" sait s'arrêter pour de vrai.
+### 3. Bornes de robustesse
+- Augmenter `MAX_ATTEMPTS` de 3 → 5 dans `atexo-backfill` pour les hosts lents.
+- Loguer le `host` dans `scrape_logs.metadata` du backfill pour identifier les nouveaux domaines (déjà fait, vérifier).
 
-### 2. Migration SQL one-shot pour nettoyer les 9 résidus
-```sql
-UPDATE tenders
-SET 
-  title = CASE 
-    WHEN title ILIKE 'Accéder%' THEN 'Consultation Atexo (archivée)' 
-    ELSE title 
-  END,
-  buyer_name = CASE 
-    WHEN buyer_name ~ '^[a-z0-9\-]{2,15}$' THEN 'Acheteur public (non identifié)'
-    ELSE buyer_name 
-  END,
-  status = 'closed',
-  enriched_data = jsonb_set(
-    COALESCE(enriched_data, '{}'::jsonb),
-    '{backfill_skip}', 'true'::jsonb
-  )
-WHERE source_url IS NULL 
-  AND (title ILIKE 'Accéder%' OR title ~* '^Consultation [0-9]+$');
-```
+### 4. Cleanup ponctuel des 223 placeholders existants
+Lancer manuellement `atexo-backfill` 3-4 fois (batch=100) pour rattraper le retard, puis vérifier `remaining`. Les irrécupérables (404 / archives) seront marqués `backfill_skip=true` automatiquement après 5 tentatives.
 
-### 3. Fix warning React console
-Bug détecté en console : `Warning: Function components cannot be given refs` sur le composant `Badge` dans `Sourcing.tsx`. Cause : `Badge` est utilisé comme enfant direct d'un `TooltipTrigger` (qui forwarde un ref). 
+### 5. UI : masquer ou marquer les placeholders restants
+Sur `/tenders` (`src/pages/Tenders.tsx`), filtrer ou taguer visuellement (badge "En cours d'enrichissement") les lignes dont le titre matche `^Consultation Atexo \d+$`, pour qu'ils ne ressemblent plus à des AO normaux pendant la fenêtre cron (≤1 h).
 
-Fix : wrapper le `Badge` dans un `<span>` ou ajouter `forwardRef` au composant Badge si pertinent à toute l'app.
+## Détails techniques
 
-### Fichiers modifiés
-- `supabase/functions/atexo-backfill/index.ts` — anti-boucle + filtre skip
-- `src/pages/Sourcing.tsx` — wrapper Badge dans `<span>` (1 ligne)
-- Migration SQL (UPDATE 9 lignes via outil migration)
+**Fichiers modifiés** :
+- `supabase/functions/_shared/atexoExecutor.ts` — relâcher la garde `engine === "prado_event_chain"` du step 4
+- `supabase/functions/atexo-backfill/index.ts` — `MAX_ATTEMPTS = 5`
+- Migration SQL — `cron.schedule('atexo-backfill-hourly', '0 * * * *', ...)` invoquant l'edge function via `net.http_post` avec batch=80
+- `src/pages/Tenders.tsx` — badge "Enrichissement en cours" si `/^Consultation Atexo \d+$/.test(title)`
 
-### Résultat attendu
-- Bouton "Rétro-enrichir" s'arrête proprement à `remaining=0` après 1 batch
-- 9 fiches résiduelles affichent "Consultation Atexo (archivée)" / "Acheteur public (non identifié)" + statut `closed` (donc filtrables)
-- Plus de warning React console
+**Sécurité** : le cron passe le service role key via `Authorization` header (jamais exposé client).
+
+**Validation** : après déploiement, vérifier sur `/tenders` que `937132`, `931590`, `935923` affichent leur vrai titre dans l'heure qui suit.

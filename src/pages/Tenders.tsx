@@ -386,7 +386,19 @@ const Tenders = () => {
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                     <div className="flex-1 min-w-0 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-foreground text-sm sm:text-base truncate">{tender.title}</h3>
+                        {(() => {
+                          const isPlaceholder = /^Consultation Atexo \d+$/i.test(tender.title ?? "");
+                          return (
+                            <h3 className={`font-semibold text-sm sm:text-base truncate ${isPlaceholder ? "text-muted-foreground italic" : "text-foreground"}`}>
+                              {isPlaceholder ? "Consultation en cours d'enrichissement…" : tender.title}
+                            </h3>
+                          );
+                        })()}
+                        {/^Consultation Atexo \d+$/i.test(tender.title ?? "") && (
+                          <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400">
+                            Enrichissement…
+                          </Badge>
+                        )}
                         {tender.status && (
                           <Badge variant="outline" className={getStatusColor(tender.status)}>
                             {statusLabel[tender.status] ?? tender.status}

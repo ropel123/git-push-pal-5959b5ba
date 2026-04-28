@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
     "buyer_name.in.(\"Organisme Public\",\"Non spécifié\",\"\")",
     "deadline.is.null",
   ].join(",");
-  const MAX_ATTEMPTS = 3;
+  const MAX_ATTEMPTS = 5;
 
   const { count: remainingBefore } = await supabase
     .from("tenders")
