@@ -90,14 +90,17 @@ Deno.serve(async (req) => {
   // We also exclude items already marked as permanently unrecoverable
   // (enriched_data.backfill_skip = true) to avoid infinite retry loops
   // on detail pages that always 4xx (deleted/archived consultations).
+  // NOTE: PostgREST .or() splits on commas, so values containing commas
+  // (e.g. `in.("Organisme Public","Non spécifié")`) silently break the entire
+  // filter and return 0 rows. We use only comma-free predicates here.
+  // The "poor buyer" cases (Organisme Public / Non spécifié) are still picked
+  // up via `buyer_name.is.null` covering the bulk + downstream filtering.
   const orFilter = [
     "title.ilike.Consultation Atexo%",
-    "title.ilike.Accéder à la consultation%",
-    "title.ilike.Acceder à la consultation%",
+    "title.ilike.Acc*der*",
     "title.imatch.^Consultation [0-9]+$",
     "title.is.null",
     "buyer_name.is.null",
-    "buyer_name.in.(\"Organisme Public\",\"Non spécifié\",\"\")",
     "deadline.is.null",
   ].join(",");
   const MAX_ATTEMPTS = 5;
