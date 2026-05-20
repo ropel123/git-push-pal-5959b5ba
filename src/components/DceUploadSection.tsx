@@ -5,14 +5,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, Trash2, FileText, File, Loader2, FileDown } from "lucide-react";
-
-interface DceFile {
-  id: string;
-  file_name: string;
-  file_path: string;
-  file_size: number | null;
-  created_at: string;
-}
+import { useUploadDce, useDeleteDce } from "@/hooks/mutations/useDceUploads";
+import type { DceFile } from "@/hooks/queries/useDceUploads";
 
 interface DceUploadSectionProps {
   tenderId: string;
@@ -30,9 +24,12 @@ const formatFileSize = (bytes: number | null) => {
 const DceUploadSection = ({ tenderId, uploads, onUploadsChange }: DceUploadSectionProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const uploadMutation = useUploadDce(tenderId, user?.id);
+  const deleteMutation = useDeleteDce(tenderId, user?.id);
+  const uploading = uploadMutation.isPending;
 
   const downloadFile = async (upload: DceFile) => {
     setDownloadingId(upload.id);
@@ -52,8 +49,9 @@ const DceUploadSection = ({ tenderId, uploads, onUploadsChange }: DceUploadSecti
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      toast({ title: "Erreur de téléchargement", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const e = err as Error;
+      toast({ title: "Erreur de téléchargement", description: e.message, variant: "destructive" });
     } finally {
       setDownloadingId(null);
     }
@@ -75,43 +73,27 @@ const DceUploadSection = ({ tenderId, uploads, onUploadsChange }: DceUploadSecti
       return;
     }
 
-    setUploading(true);
-    try {
-      const filePath = `${user.id}/${tenderId}/${Date.now()}_${file.name}`;
-      const { error: storageError } = await supabase.storage
-        .from("dce-documents")
-        .upload(filePath, file);
-
-      if (storageError) throw storageError;
-
-      const { error: dbError } = await supabase.from("dce_uploads").insert({
-        tender_id: tenderId,
-        user_id: user.id,
-        file_name: file.name,
-        file_path: filePath,
-        file_size: file.size,
-      });
-
-      if (dbError) throw dbError;
-
-      toast({ title: "Document uploadé ✓" });
-      onUploadsChange();
-    } catch (err: any) {
-      toast({ title: "Erreur d'upload", description: err.message, variant: "destructive" });
-    } finally {
-      setUploading(false);
-    }
+    uploadMutation.mutate(file, {
+      onSuccess: () => {
+        toast({ title: "Document uploadé ✓" });
+        onUploadsChange();
+      },
+      onError: (err) => {
+        toast({ title: "Erreur d'upload", description: (err as Error).message, variant: "destructive" });
+      },
+    });
   };
 
-  const deleteFile = async (upload: DceFile) => {
-    try {
-      await supabase.storage.from("dce-documents").remove([upload.file_path]);
-      await supabase.from("dce_uploads").delete().eq("id", upload.id);
-      toast({ title: "Document supprimé" });
-      onUploadsChange();
-    } catch (err: any) {
-      toast({ title: "Erreur", description: err.message, variant: "destructive" });
-    }
+  const deleteFile = (upload: DceFile) => {
+    deleteMutation.mutate(upload, {
+      onSuccess: () => {
+        toast({ title: "Document supprimé" });
+        onUploadsChange();
+      },
+      onError: (err) => {
+        toast({ title: "Erreur", description: (err as Error).message, variant: "destructive" });
+      },
+    });
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -119,7 +101,9 @@ const DceUploadSection = ({ tenderId, uploads, onUploadsChange }: DceUploadSecti
     setDragOver(false);
     const files = Array.from(e.dataTransfer.files);
     files.forEach(uploadFile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, tenderId]);
+
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

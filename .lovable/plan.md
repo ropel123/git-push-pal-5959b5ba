@@ -1,99 +1,90 @@
-# Plan — Chantier 4 (fin) puis Chantier 3 (TS strict)
+# Plan — Finalisation des 4 résiduels
 
-Livraison séquentielle : un seul plan ici pour le **chantier 4**, qui sera ouvert et validé en autonomie. Une fois mergé, j'ouvre un **second plan dédié** au chantier 3 (TS strict) pour ne pas mélanger les diffs.
+Refacto chirurgical, zéro changement UI/UX. Tout en un commit.
 
----
+## 1. Pipeline — Realtime + Optimistic updates
 
-## Chantier 4 — Migration TanStack Query (suite et fin)
+**Fichier** : `src/hooks/queries/usePipeline.ts`
 
-### Pages restantes à migrer
+- Ajouter `useEffect` dans `usePipelineItems` qui souscrit au channel Supabase `postgres_changes` sur `pipeline_items` filtré par `user_id=eq.{userId}`. À chaque event, invalider `["pipeline-items", userId]` + `["pipeline-distribution"]` + `["dashboard-stats"]`.
+- `useUpdatePipelineStage` : ajouter `onMutate` qui patch optimistiquement toutes les queries `["pipeline-items", *]` du cache (snapshot + rollback en `onError`, invalidation finale en `onSettled`).
+- `useRemovePipelineItem` : même pattern (filter optimiste, rollback, invalidation finale).
+- `Pipeline.tsx` : aucun changement (l'API des hooks reste identique).
 
-| Page | Lectures actuelles | Hook(s) à créer |
-|---|---|---|
-| `Dashboard.tsx` | 6 requêtes (counts tenders/pipeline, monthly, pipeline distribution, recent pipeline, urgent, saved searches) | `useDashboardStats`, `useTendersMonthly`, `usePipelineDistribution`, `useRecentPipeline`, `useUrgentTenders`, `useSavedSearches` |
-| `Pipeline.tsx` | pipeline_items + comments + mutations stage/notes | `usePipelineItems`, `usePipelineComments`, mutations `useMovePipelineStage`, `useUpdatePipelineNotes`, `useAddPipelineComment` |
-| `Awards.tsx` | award_notices joints aux tenders | `useAwards` |
-| `BuyerDetail.tsx` | tenders d'un acheteur + awards associés | `useBuyerTenders`, réutilise `useAwards` filtré |
-| `SettingsPage.tsx` | profil + logo + roles | `useProfile`, mutation `useUpdateProfile` |
-| `Sourcing.tsx` | sourcing_urls + scrape_logs (admin) | `useSourcingUrls`, `useScrapeLogs`, mutations CRUD |
-| `AgentMonitor.tsx` | agent_runs + playbooks (admin) | `useAgentRuns`, `useAgentPlaybooks` |
-| `Activity.tsx` | logs récents | `useActivityFeed` |
+**Gain** : drag-drop instantané, multi-utilisateurs/multi-onglets synchronisés.
 
-### Structure cible
+## 2. Sourcing.tsx — Migration TanStack Query
 
-```text
-src/hooks/
-  queries/
-    useTenders.ts          (déjà fait)
-    useDashboard.ts        (regroupe stats + monthly + distribution)
-    usePipeline.ts         (items + comments)
-    useAwards.ts
-    useBuyer.ts
-    useProfile.ts
-    useSourcing.ts
-    useAgentRuns.ts
-    useActivity.ts
-    useSavedSearches.ts
-  mutations/
-    usePipelineMutations.ts
-    useProfileMutations.ts
-    useSavedSearchMutations.ts
-    useSourcingMutations.ts
-  useDebounce.ts           (déjà fait)
+**Nouveau fichier** : `src/hooks/queries/useSourcingAdmin.ts`
+
+```ts
+export function useSourcingUrls(enabled: boolean)     // sourcing_urls *
+export function useScrapeLogs(enabled: boolean)       // scrape_logs source LIKE 'scrape:%' limit 50
 ```
 
-### Conventions appliquées
+Chaque hook retourne `{ data, isLoading, refetch }`. `enabled` câblé sur `isAdmin`.
 
-- `queryKey` typé en tableau `["domain", paramsObject]`, paramsObject sérialisable.
-- `enabled` systématique quand la query dépend de `user.id` ou d'un param.
-- `placeholderData: keepPreviousData` sur les listes paginées.
-- Mutations : `onSuccess` invalide les `queryKey` impactées (`queryClient.invalidateQueries({ queryKey: ["pipeline"] })`) → suppression des `fetchX()` manuels après écriture.
-- Toasts d'erreur centralisés via `onError` (utiliser le `useToast` existant).
-- Aucun changement de UI/UX visible — comportement strictement équivalent, juste mise en cache + refetch automatique au refocus.
+**Refacto `src/pages/Sourcing.tsx`** :
+- Supprimer `useState<SourcingUrl[]>([])` / `useState<ScrapeLog[]>([])` / `useState(true)` (loading) / la fonction `load()` / le `useEffect` qui appelle `load()`.
+- Remplacer par `const { data: urls = [], isLoading, refetch } = useSourcingUrls(!!isAdmin)` et idem pour `logs`.
+- Toutes les mutations existantes (`addUrl`, `bulkImport`, `toggleActive`, `remove`, `saveEdit`, `runNow`, `dryRun`, `reclassifyOne`, `reclassifyAll`, `runAtexoBackfill`) : remplacer `load()` par `refetch()`.
 
-### Ordre d'exécution (2-3 jours)
+**Gain** : cache automatique, plus de race conditions sur la fonction `load()`.
 
-1. **Jour 1** — Dashboard + Awards + BuyerDetail (lectures simples, fort gain perçu sur le retour à `/dashboard`).
-2. **Jour 2** — Pipeline (avec mutations stage/notes/comments) + SavedSearches (partagé Dashboard/Tenders).
-3. **Jour 3** — SettingsPage + Sourcing + AgentMonitor + Activity (pages secondaires/admin).
+## 3. AgentMonitor.tsx — Migration TanStack Query
 
-### Validation
+**Nouveau fichier** : `src/hooks/queries/useAgentAdmin.ts`
 
-- Build vert, smoke test manuel route par route (Dashboard, /tenders, /tenders/:id, /pipeline, /awards, /buyers/:id, /settings, /sourcing, /agent-monitor, /activity).
-- Vérifier React Query DevTools (déjà présent) : pas de query dupliquée, pas de refetch en boucle.
-- Vérifier qu'aucun `setX` n'est resté dans les useEffect remplacés (grep `setLoading|setTenders|setItems...`).
+```ts
+export function useAgentRuns(enabled: boolean)        // agent_runs order created_at desc limit 50
+export function usePlatformRobots(enabled: boolean)   // platform_robots order platform
+export function useAgentPlaybooks(enabled: boolean)   // agent_playbooks order platform
+export function useAnonIdentity(enabled: boolean)     // agent_anonymous_identity is_default=true
+```
 
-### Hors scope (volontaire)
+Chaque hook supporte realtime invalidation pour les `agent_runs` (subscription existante actuellement câblée dans le composant → la déplacer dans le hook).
 
-- Subscriptions realtime Supabase (à traiter dans un chantier ultérieur si besoin).
-- Optimistic updates fines sur le Kanban (peut être ajouté en option si le drag-drop perd en fluidité).
-- Migration des composants `DceUploadSection` / `MemoirAIChat` (UI lourde, peu de gain — restent en `supabase.from` direct).
+**Refacto `src/pages/AgentMonitor.tsx`** :
+- Supprimer les 4 `useState` listes + `setLoading` + `loadAll()` + le `useEffect` qui contient la subscription realtime.
+- Brancher les 4 hooks avec `enabled: !!isAdmin`.
+- Mutations (`addRobot`, `deleteRobot`, `runTest`, `saveIdentity`) : remplacer `loadAll()` par `refetch()` ciblé (ex: `refetchRobots()` après ajout/suppression).
 
----
+**Gain** : suppression du pattern `loadAll()` qui rafraîchit 4 tables à chaque mutation, realtime déplacé dans le hook (réutilisable).
 
-## Chantier 3 — TypeScript strict (plan séparé après merge du chantier 4)
+## 4. DceUploadSection + MemoirAIChat — Mutations TanStack
 
-À l'issue du chantier 4, j'ouvre un **nouveau plan** structuré ainsi :
+**Nouveau fichier** : `src/hooks/mutations/useDceUploads.ts`
 
-1. **Audit préalable** : activer `strict: true` localement, compter et catégoriser les erreurs (`tsc --noEmit | sort | uniq -c`).
-2. **Découpage par lot** :
-   - Lot A : `src/lib/*`, `src/hooks/*` (fondations).
-   - Lot B : `src/components/ui/*` (peu d'erreurs, surtout `noImplicitAny`).
-   - Lot C : `src/components/*` (composants métier).
-   - Lot D : `src/pages/*` (typiquement les plus gros).
-   - Lot E : `supabase/functions/*` (Deno, tsconfig séparé).
-3. **Stratégie de correction** :
-   - Remplacer `any` par les types `Database["public"]["Tables"][...]["Row"]` de `integrations/supabase/types.ts`.
-   - Ajouter `null` guards sur les `.data` Supabase.
-   - Préciser les `useState<T>()` non initialisés.
-   - **Aucun `// @ts-expect-error`** sauf cas documenté.
-4. **Activation finale** : commit unique qui flip `strict: true` une fois tous les lots verts.
-5. **Validation** : `tsc --noEmit` 0 erreur + build vert + run de l'app.
+```ts
+export function useUploadDce()    // storage.upload + dce_uploads.insert
+export function useDeleteDce()    // storage.remove + dce_uploads.delete
+```
 
-Le chantier 3 sera estimé plus précisément après l'audit du lot 1 (probablement 2-3 jours mais peut s'étendre selon le volume réel d'erreurs).
+Invalident `["dce-uploads", tenderId]` en `onSuccess`.
 
----
+**Nouveau fichier** : `src/hooks/queries/useDceUploads.ts`
 
-## Décision demandée
+```ts
+export function useDceUploads(tenderId: string, userId?: string)  // read dce_uploads
+```
 
-Approuve ce plan pour lancer le **chantier 4** (fin de migration TanStack Query). Le chantier 3 sera proposé dans un plan dédié juste après.
+**Refacto** :
+- `src/components/DceUploadSection.tsx` : remplacer les appels directs `supabase.from/storage` dans `uploadFile` et `deleteFile` par les hooks. La prop `onUploadsChange` devient optionnelle (le cache gère).
+- `src/pages/TenderDetail.tsx` : remplacer la lecture inline `dce_uploads` par `useDceUploads(id, user?.id)`, supprimer le state local correspondant.
+
+**Refacto `src/components/MemoirAIChat.tsx`** :
+- Wrapper l'`update profiles` de `handleSaveMemoir` dans une mutation TanStack qui invalide `["profile", userId]`.
+- La prop `onMemoirSaved` reste (utilisée par Onboarding pour navigation + par SettingsPage déjà sur `refetchProfile`).
+
+**Gain** : cohérence avec le reste du code, plus de callbacks manuels.
+
+## Validation
+
+- `tsc --noEmit` : 0 erreur (strict est actif depuis le chantier 3).
+- Smoke test : `/pipeline` (drag cards + ouvrir 2 onglets pour vérifier le realtime), `/sourcing` (admin only), `/agent-monitor` (admin only), `/tenders/:id` (upload/delete DCE), `/settings` (sauvegarde mémoire technique).
+
+## Hors scope
+
+- Refonte UI des pages admin.
+- Migration des edge functions.
+- Migration de `Onboarding.tsx` (déjà clean, juste consommateur de MemoirAIChat).
