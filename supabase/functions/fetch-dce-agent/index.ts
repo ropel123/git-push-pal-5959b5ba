@@ -1222,25 +1222,37 @@ Deno.serve(async (req) => {
     if (sessionId) {
       const archive = await downloadSessionArchive(sessionId);
       if (archive) {
-        archiveSize = archive.byteLength;
-        const filename = `${tender_id}/agent_${Date.now()}.zip`;
-        const { error: upErr } = await supabase.storage
-          .from("dce-documents")
-          .upload(filename, archive, { contentType: "application/zip", upsert: true });
-        if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
-        log("storage.upload", "ok", `${filename} (${archiveSize} B)`);
+        const { bytes, contentType } = archive;
+        archiveSize = bytes.byteLength;
+        const head = toHex(bytes.slice(0, 16));
+        const tail = toHex(bytes.slice(Math.max(0, bytes.byteLength - 16)));
+        const check = isValidZip(bytes);
+        if (!check.ok) {
+          log(
+            "archive.invalid",
+            "failed",
+            `reason=${check.reason} size=${archiveSize} ct=${contentType} head=${head} tail=${tail}`,
+          );
+        } else {
+          const filename = `${tender_id}/agent_${Date.now()}.zip`;
+          const { error: upErr } = await supabase.storage
+            .from("dce-documents")
+            .upload(filename, bytes, { contentType: "application/zip", upsert: true });
+          if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
+          log("storage.upload", "ok", `${filename} (${archiveSize} B) ct=${contentType} head=${head}`);
 
-        if (triggered_by) {
-          await supabase.from("dce_uploads").insert({
-            tender_id,
-            user_id: triggered_by,
-            file_name: `DCE_agent_${platform}.zip`,
-            file_path: filename,
-            file_size: archiveSize,
-            agent_run_id: runId,
-          });
+          if (triggered_by) {
+            await supabase.from("dce_uploads").insert({
+              tender_id,
+              user_id: triggered_by,
+              file_name: `DCE_agent_${platform}.zip`,
+              file_path: filename,
+              file_size: archiveSize,
+              agent_run_id: runId,
+            });
+          }
+          filesUploaded = 1;
         }
-        filesUploaded = 1;
       } else {
         log("storage.upload", "skipped", "aucune archive");
       }
