@@ -310,7 +310,7 @@ const SettingsPage = () => {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <MemoirAIChat onMemoirSaved={loadProfile} />
+              <MemoirAIChat onMemoirSaved={() => { refetchProfile(); }} />
             </CardContent>
           </Card>
 
@@ -525,7 +525,7 @@ const SettingsPage = () => {
                         <p className="text-sm font-medium text-foreground">{alert.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {alert.frequency === "daily" ? "Quotidienne" : alert.frequency === "weekly" ? "Hebdomadaire" : alert.frequency}
-                          {alert.filters?.keywords?.length > 0 && ` · ${alert.filters.keywords.join(", ")}`}
+                          {(alert.filters as any)?.keywords?.length > 0 && ` · ${(alert.filters as any).keywords.join(", ")}`}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
