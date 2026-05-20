@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,8 +10,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ChevronRight, ChevronLeft, Trash2, Euro, MessageSquare, Send, Download, AlertTriangle } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { fr } from "date-fns/locale";
-
-type Stage = "spotted" | "analyzing" | "no_go" | "responding" | "won" | "lost";
+import {
+  Stage,
+  usePipelineItems,
+  usePipelineComments,
+  useUpdatePipelineStage,
+  useRemovePipelineItem,
+  useAddPipelineComment,
+} from "@/hooks/queries/usePipeline";
 
 const STAGES: { key: Stage; label: string; color: string }[] = [
   { key: "spotted", label: "Repéré", color: "bg-blue-500/20 text-blue-400" },
@@ -23,88 +28,45 @@ const STAGES: { key: Stage; label: string; color: string }[] = [
   { key: "lost", label: "Perdu", color: "bg-muted text-muted-foreground" },
 ];
 
-interface PipelineItem {
-  id: string;
-  stage: Stage;
-  score: number | null;
-  notes: string | null;
-  tender_id: string;
-  tenders: { title: string; buyer_name: string | null; estimated_amount: number | null; deadline: string | null } | null;
-}
-
-interface Comment {
-  id: string;
-  content: string;
-  created_at: string | null;
-}
-
 const Pipeline = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [items, setItems] = useState<PipelineItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState("");
+
+  const { data: items = [], isLoading: loading } = usePipelineItems(user?.id);
+  const updateStage = useUpdatePipelineStage();
+  const removeMutation = useRemovePipelineItem();
+  const addComment = useAddPipelineComment();
+
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
-  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const { data: comments = [], isLoading: commentsLoading } = usePipelineComments(activeItemId);
 
-  useEffect(() => {
-    if (user) fetchItems();
-  }, [user]);
-
-  const fetchItems = async () => {
-    const { data } = await supabase
-      .from("pipeline_items")
-      .select("*, tenders(title, buyer_name, estimated_amount, deadline)")
-      .eq("user_id", user!.id)
-      .order("created_at", { ascending: false });
-    if (data) setItems(data as PipelineItem[]);
-    setLoading(false);
-  };
-
-  const moveStage = async (itemId: string, direction: "next" | "prev") => {
+  const moveStage = (itemId: string, direction: "next" | "prev") => {
     const item = items.find((i) => i.id === itemId);
     if (!item) return;
     const currentIdx = STAGES.findIndex((s) => s.key === item.stage);
     const newIdx = direction === "next" ? currentIdx + 1 : currentIdx - 1;
     if (newIdx < 0 || newIdx >= STAGES.length) return;
-    const newStage = STAGES[newIdx].key;
-    await supabase.from("pipeline_items").update({ stage: newStage }).eq("id", itemId);
-    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, stage: newStage } : i)));
+    updateStage.mutate({ itemId, stage: STAGES[newIdx].key });
   };
 
-  const removeItem = async (itemId: string) => {
-    await supabase.from("pipeline_items").delete().eq("id", itemId);
-    setItems((prev) => prev.filter((i) => i.id !== itemId));
-    toast({ title: "Retiré du pipeline" });
+  const removeItem = (itemId: string) => {
+    removeMutation.mutate(itemId, {
+      onSuccess: () => toast({ title: "Retiré du pipeline" }),
+    });
   };
 
-  const openComments = async (itemId: string) => {
-    setActiveItemId(itemId);
-    setCommentsLoading(true);
-    const { data } = await supabase
-      .from("pipeline_comments")
-      .select("id, content, created_at")
-      .eq("pipeline_item_id", itemId)
-      .order("created_at", { ascending: true });
-    setComments(data ?? []);
-    setCommentsLoading(false);
-  };
-
-  const addComment = async () => {
+  const handleAddComment = () => {
     if (!user || !activeItemId || !newComment.trim()) return;
-    const { data, error } = await supabase
-      .from("pipeline_comments")
-      .insert({ pipeline_item_id: activeItemId, user_id: user.id, content: newComment.trim() })
-      .select("id, content, created_at")
-      .single();
-    if (error) {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    } else if (data) {
-      setComments((prev) => [...prev, data]);
-      setNewComment("");
-    }
+    addComment.mutate(
+      { pipeline_item_id: activeItemId, user_id: user.id, content: newComment.trim() },
+      {
+        onSuccess: () => setNewComment(""),
+        onError: (err: any) =>
+          toast({ title: "Erreur", description: err.message, variant: "destructive" }),
+      },
+    );
   };
 
   const exportCSV = () => {
@@ -192,9 +154,9 @@ const Pipeline = () => {
                           </Button>
                         </div>
                         <div className="flex gap-1">
-                          <Dialog>
+                          <Dialog onOpenChange={(open) => { if (open) setActiveItemId(item.id); }}>
                             <DialogTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openComments(item.id)}>
+                              <Button variant="ghost" size="icon" className="h-6 w-6">
                                 <MessageSquare className="h-3 w-3" />
                               </Button>
                             </DialogTrigger>
@@ -218,7 +180,7 @@ const Pipeline = () => {
                               </div>
                               <div className="flex gap-2">
                                 <Textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Ajouter un commentaire..." className="min-h-[60px]" />
-                                <Button size="icon" onClick={addComment} disabled={!newComment.trim()}>
+                                <Button size="icon" onClick={handleAddComment} disabled={!newComment.trim()}>
                                   <Send className="h-4 w-4" />
                                 </Button>
                               </div>
