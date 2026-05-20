@@ -923,5 +923,6 @@ const Sourcing = () => {
   );
 };
 
-// (DialogDescription importé depuis @/components/ui/dialog)
+export default Sourcing;
+
 

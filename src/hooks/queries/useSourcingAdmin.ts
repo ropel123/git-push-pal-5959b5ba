@@ -14,7 +14,8 @@ export type SourcingUrl = {
   last_items_found: number | null;
   last_items_inserted: number | null;
   last_error: string | null;
-  metadata: unknown;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  metadata: any;
 };
 
 export type ScrapeLog = {
