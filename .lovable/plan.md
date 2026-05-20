@@ -1,31 +1,60 @@
-Fix simple pour les `timeout after 25000ms` sur les plateformes lentes (e-marchespublics, mpi, achatpublic root).
+## Cause
 
-## Cause confirmée
+L'erreur `Object not found` (HTTP 400/404) sur `dce-documents/{tender_id}/agent_*.zip` est en réalité un **refus RLS déguisé en 404** par Supabase Storage.
 
-Dans `supabase/functions/_shared/firecrawlScrape.ts` (ligne 84), le budget par défaut par appel Firecrawl est `25_000` ms. Toutes les plateformes lentes (ColdFusion `marches-publics.info`, pages racine `www.e-marchespublics.com`, `www.achatpublic.com/sdm/ent2`) dépassent ce seuil à cause du rendu JS + LLM extraction côté Firecrawl. La fonction edge marque alors le job en `failed` mais n'a pas crashé — c'est une coupure volontaire.
+La politique RLS actuelle sur `storage.objects` pour `dce-documents` est :
 
-## Changement
+```
+(storage.foldername(name))[1] = auth.uid()::text
+```
 
-Un seul fichier modifié :
+Donc elle attend un chemin `{user_id}/...`. Or l'agent (`fetch-dce-agent`) enregistre les ZIPs sous `{tender_id}/agent_*.zip`. Conséquence : l'upload réussit (service role bypass RLS), mais aucun utilisateur ne peut générer une signed URL → 404.
 
-- `supabase/functions/_shared/firecrawlScrape.ts` ligne 84
-  - Avant : `const timeoutMs = opts.timeoutMs ?? 25_000;`
-  - Après : `const timeoutMs = opts.timeoutMs ?? 40_000;`
+Les deux ZIPs `DCE_agent_maximilien.zip` existent bien dans le bucket et dans `dce_uploads` (vérifié en base).
 
-## Pourquoi 40s
+## Correctif
 
-- Wall-clock edge function Supabase : 150s, on garde une grosse marge.
-- Concurrence du scheduler : 3 URLs en parallèle → pire cas 3 × 40s = 120s < 150s.
-- Les plateformes lentes mesurées se résolvent entre 26s et 35s : 40s couvre 100% des cas observés sans changer le code des callers.
+Migration RLS : autoriser le SELECT (et DELETE) sur `dce-documents` si l'utilisateur possède un enregistrement correspondant dans `dce_uploads`.
 
-## Déploiement
+```sql
+DROP POLICY "Users can view own DCE files" ON storage.objects;
+DROP POLICY "Users can delete own DCE files" ON storage.objects;
 
-Redéploiement automatique de `scrape-list` (et toute fonction qui importe `_shared/firecrawlScrape.ts`).
+CREATE POLICY "Users can view own DCE files" ON storage.objects
+FOR SELECT TO authenticated
+USING (
+  bucket_id = 'dce-documents' AND (
+    (storage.foldername(name))[1] = auth.uid()::text
+    OR EXISTS (
+      SELECT 1 FROM public.dce_uploads
+      WHERE dce_uploads.file_path = storage.objects.name
+        AND dce_uploads.user_id = auth.uid()
+    )
+  )
+);
 
-## Suite (optionnel, pas dans ce plan)
+CREATE POLICY "Users can delete own DCE files" ON storage.objects
+FOR DELETE TO authenticated
+USING (
+  bucket_id = 'dce-documents' AND (
+    (storage.foldername(name))[1] = auth.uid()::text
+    OR EXISTS (
+      SELECT 1 FROM public.dce_uploads
+      WHERE dce_uploads.file_path = storage.objects.name
+        AND dce_uploads.user_id = auth.uid()
+    )
+  )
+);
+```
 
-Si certaines URLs continuent à timeout >40s, on pourra :
-- les passer en mode `template` léger (sans extraction LLM) via `metadata.scrape_mode`,
-- ou les remettre dans une queue background avec `EdgeRuntime.waitUntil`.
+Cela couvre :
+- les uploads manuels (chemin `{user_id}/...`)
+- les ZIPs produits par l'agent (chemin `{tender_id}/agent_*.zip`) tant qu'il y a une ligne `dce_uploads` rattachant le fichier à l'user.
 
-Mais à mesurer après ce premier fix.
+## Bonus UI (optionnel, à valider)
+
+Le tender affiche deux fois le même ZIP (deux runs successifs ont chacun produit un fichier). Pour éviter ça :
+- soit on déduplique côté UI sur `file_name + file_size`,
+- soit on garde seulement le dernier `agent_run_id` par tender.
+
+Pas inclus dans ce plan tant que tu ne le demandes pas.
