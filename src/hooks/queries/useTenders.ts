@@ -17,6 +17,7 @@ export type TendersFilters = {
   region?: string;
   status?: TenderStatus;
   procedure?: string;
+  platform?: string;
   dceOnly?: boolean;
   smart?: SmartProfile;
   /** Désactive temporairement la query (ex: profil pas encore chargé). */
