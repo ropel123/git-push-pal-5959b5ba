@@ -96,6 +96,59 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function detectExtension(bytes: Uint8Array): string {
+  if (bytes.length < 4) return "bin";
+  const b = bytes;
+  if (b[0] === 0x50 && b[1] === 0x4b && (b[2] === 0x03 || b[2] === 0x05 || b[2] === 0x07)) return "zip";
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return "pdf";
+  if (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0) return "doc"; // legacy MS Office
+  if (b[0] === 0x52 && b[1] === 0x61 && b[2] === 0x72 && b[3] === 0x21) return "rar";
+  if (b[0] === 0x37 && b[1] === 0x7a && b[2] === 0xbc && b[3] === 0xaf) return "7z";
+  if (b[0] === 0x1f && b[1] === 0x8b) return "gz";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  return "bin";
+}
+
+/**
+ * Browserbase wraps every downloaded file in an outer ZIP and replaces filenames
+ * with internal UUIDs (no extension). This unwraps the archive so the user gets
+ * a clean .zip whose entries have proper extensions detected from magic bytes.
+ *
+ * Returns null if the archive cannot be parsed; the caller should keep the raw bytes.
+ */
+function repackDceArchive(raw: Uint8Array, platform: string): { bytes: Uint8Array; suggestedExt: string; entries: number } | null {
+  try {
+    const entries = unzipSync(raw);
+    const names = Object.keys(entries);
+    if (names.length === 0) return null;
+
+    // Case: single inner file that is itself an archive → upload it directly.
+    if (names.length === 1) {
+      const onlyData = entries[names[0]];
+      const ext = detectExtension(onlyData);
+      if (ext === "zip") {
+        return { bytes: onlyData, suggestedExt: "zip", entries: 1 };
+      }
+      // Single non-zip file → wrap in a clean zip with a proper extension
+      const repack = zipSync({ [`DCE_agent_${platform}.${ext}`]: onlyData });
+      return { bytes: repack, suggestedExt: "zip", entries: 1 };
+    }
+
+    // Multiple entries → rename each one with detected extension, keep zip wrapper
+    const renamed: Record<string, Uint8Array> = {};
+    names.forEach((n, i) => {
+      const data = entries[n];
+      const ext = detectExtension(data);
+      renamed[`file_${String(i + 1).padStart(2, "0")}.${ext}`] = data;
+    });
+    const repack = zipSync(renamed);
+    return { bytes: repack, suggestedExt: "zip", entries: names.length };
+  } catch (_e) {
+    return null;
+  }
+}
+
 async function closeBrowserbaseSession(sessionId: string): Promise<void> {
   try {
     await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}`, {
