@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useSaveMemoir } from "@/hooks/mutations/useMemoir";
 import { Bot, Send, Loader2, Save, Sparkles, Paperclip, X, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
