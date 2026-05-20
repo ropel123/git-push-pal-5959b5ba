@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -23,9 +24,34 @@ export interface PipelineComment {
   created_at: string | null;
 }
 
+const PIPELINE_KEY = (userId: string | undefined) => ["pipeline-items", userId];
+
 export function usePipelineItems(userId: string | undefined) {
+  const qc = useQueryClient();
+
+  // Realtime : tout INSERT/UPDATE/DELETE sur pipeline_items du user invalide le cache.
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`pipeline-items-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pipeline_items", filter: `user_id=eq.${userId}` },
+        () => {
+          qc.invalidateQueries({ queryKey: PIPELINE_KEY(userId) });
+          qc.invalidateQueries({ queryKey: ["pipeline-distribution"] });
+          qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+          qc.invalidateQueries({ queryKey: ["recent-pipeline"] });
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, qc]);
+
   return useQuery({
-    queryKey: ["pipeline-items", userId],
+    queryKey: PIPELINE_KEY(userId),
     enabled: !!userId,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -55,6 +81,8 @@ export function usePipelineComments(itemId: string | null) {
   });
 }
 
+type Snapshot = ReadonlyArray<readonly [readonly unknown[], PipelineItem[] | undefined]>;
+
 export function useUpdatePipelineStage() {
   const qc = useQueryClient();
   return useMutation({
@@ -62,7 +90,24 @@ export function useUpdatePipelineStage() {
       const { error } = await supabase.from("pipeline_items").update({ stage }).eq("id", itemId);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onMutate: async ({ itemId, stage }): Promise<{ snapshots: Snapshot }> => {
+      await qc.cancelQueries({ queryKey: ["pipeline-items"] });
+      const queries = qc.getQueriesData<PipelineItem[]>({ queryKey: ["pipeline-items"] });
+      const snapshots = queries.map(([key, data]) => {
+        if (data) {
+          qc.setQueryData<PipelineItem[]>(
+            key,
+            data.map((item) => (item.id === itemId ? { ...item, stage } : item)),
+          );
+        }
+        return [key, data] as const;
+      });
+      return { snapshots };
+    },
+    onError: (_err, _vars, ctx) => {
+      ctx?.snapshots.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["pipeline-items"] });
       qc.invalidateQueries({ queryKey: ["pipeline-distribution"] });
       qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
@@ -77,7 +122,24 @@ export function useRemovePipelineItem() {
       const { error } = await supabase.from("pipeline_items").delete().eq("id", itemId);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onMutate: async (itemId): Promise<{ snapshots: Snapshot }> => {
+      await qc.cancelQueries({ queryKey: ["pipeline-items"] });
+      const queries = qc.getQueriesData<PipelineItem[]>({ queryKey: ["pipeline-items"] });
+      const snapshots = queries.map(([key, data]) => {
+        if (data) {
+          qc.setQueryData<PipelineItem[]>(
+            key,
+            data.filter((item) => item.id !== itemId),
+          );
+        }
+        return [key, data] as const;
+      });
+      return { snapshots };
+    },
+    onError: (_err, _vars, ctx) => {
+      ctx?.snapshots.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["pipeline-items"] });
       qc.invalidateQueries({ queryKey: ["pipeline-distribution"] });
       qc.invalidateQueries({ queryKey: ["recent-pipeline"] });
