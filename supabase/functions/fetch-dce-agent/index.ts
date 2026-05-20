@@ -2,6 +2,7 @@
 // Pas de Playwright/Stagehand : 100% Deno-native, compatible edge runtime.
 
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
+import { unzipSync, zipSync } from "https://esm.sh/fflate@0.8.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,14 +61,92 @@ async function createBrowserbaseSession(): Promise<{ id: string; connectUrl: str
   return { id: data.id, connectUrl: data.connectUrl };
 }
 
-async function downloadSessionArchive(sessionId: string): Promise<Uint8Array | null> {
+async function downloadSessionArchive(sessionId: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   const res = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}/downloads`, {
     headers: { "X-BB-API-Key": BROWSERBASE_API_KEY, Accept: "application/zip" },
   });
-  if (!res.ok) return null;
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!res.ok) {
+    console.warn(`[agent] downloadSessionArchive http=${res.status} ct=${contentType}`);
+    return null;
+  }
   const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.byteLength < 100) return null;
-  return buf;
+  if (buf.byteLength < 100) {
+    console.warn(`[agent] downloadSessionArchive too_small=${buf.byteLength} ct=${contentType}`);
+    return null;
+  }
+  return { bytes: buf, contentType };
+}
+
+function isValidZip(bytes: Uint8Array): { ok: boolean; reason?: string } {
+  if (bytes.byteLength < 22) return { ok: false, reason: "too_small" };
+  if (!(bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04)) {
+    return { ok: false, reason: "bad_magic" };
+  }
+  const tailStart = Math.max(0, bytes.byteLength - 65557);
+  for (let i = bytes.byteLength - 22; i >= tailStart; i--) {
+    if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+      return { ok: true };
+    }
+  }
+  return { ok: false, reason: "no_eocd" };
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function detectExtension(bytes: Uint8Array): string {
+  if (bytes.length < 4) return "bin";
+  const b = bytes;
+  if (b[0] === 0x50 && b[1] === 0x4b && (b[2] === 0x03 || b[2] === 0x05 || b[2] === 0x07)) return "zip";
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return "pdf";
+  if (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0) return "doc"; // legacy MS Office
+  if (b[0] === 0x52 && b[1] === 0x61 && b[2] === 0x72 && b[3] === 0x21) return "rar";
+  if (b[0] === 0x37 && b[1] === 0x7a && b[2] === 0xbc && b[3] === 0xaf) return "7z";
+  if (b[0] === 0x1f && b[1] === 0x8b) return "gz";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  return "bin";
+}
+
+/**
+ * Browserbase wraps every downloaded file in an outer ZIP and replaces filenames
+ * with internal UUIDs (no extension). This unwraps the archive so the user gets
+ * a clean .zip whose entries have proper extensions detected from magic bytes.
+ *
+ * Returns null if the archive cannot be parsed; the caller should keep the raw bytes.
+ */
+function repackDceArchive(raw: Uint8Array, platform: string): { bytes: Uint8Array; suggestedExt: string; entries: number } | null {
+  try {
+    const entries = unzipSync(raw);
+    const names = Object.keys(entries);
+    if (names.length === 0) return null;
+
+    // Case: single inner file that is itself an archive → upload it directly.
+    if (names.length === 1) {
+      const onlyData = entries[names[0]];
+      const ext = detectExtension(onlyData);
+      if (ext === "zip") {
+        return { bytes: onlyData, suggestedExt: "zip", entries: 1 };
+      }
+      // Single non-zip file → wrap in a clean zip with a proper extension
+      const repack = zipSync({ [`DCE_agent_${platform}.${ext}`]: onlyData });
+      return { bytes: repack, suggestedExt: "zip", entries: 1 };
+    }
+
+    // Multiple entries → rename each one with detected extension, keep zip wrapper
+    const renamed: Record<string, Uint8Array> = {};
+    names.forEach((n, i) => {
+      const data = entries[n];
+      const ext = detectExtension(data);
+      renamed[`file_${String(i + 1).padStart(2, "0")}.${ext}`] = data;
+    });
+    const repack = zipSync(renamed);
+    return { bytes: repack, suggestedExt: "zip", entries: names.length };
+  } catch (_e) {
+    return null;
+  }
 }
 
 async function closeBrowserbaseSession(sessionId: string): Promise<void> {
@@ -1197,25 +1276,50 @@ Deno.serve(async (req) => {
     if (sessionId) {
       const archive = await downloadSessionArchive(sessionId);
       if (archive) {
-        archiveSize = archive.byteLength;
-        const filename = `${tender_id}/agent_${Date.now()}.zip`;
-        const { error: upErr } = await supabase.storage
-          .from("dce-documents")
-          .upload(filename, archive, { contentType: "application/zip", upsert: true });
-        if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
-        log("storage.upload", "ok", `${filename} (${archiveSize} B)`);
+        const { bytes, contentType } = archive;
+        archiveSize = bytes.byteLength;
+        const head = toHex(bytes.slice(0, 16));
+        const tail = toHex(bytes.slice(Math.max(0, bytes.byteLength - 16)));
+        const check = isValidZip(bytes);
+        if (!check.ok) {
+          log(
+            "archive.invalid",
+            "failed",
+            `reason=${check.reason} size=${archiveSize} ct=${contentType} head=${head} tail=${tail}`,
+          );
+        } else {
+          // Browserbase wraps everything in an outer zip with UUID-named entries.
+          // Repack so the user gets a clean .zip whose contents have proper extensions.
+          const repacked = repackDceArchive(bytes, platform);
+          const finalBytes = repacked?.bytes ?? bytes;
+          const finalExt = repacked?.suggestedExt ?? "zip";
+          const finalSize = finalBytes.byteLength;
+          if (repacked) {
+            log("archive.repack", "ok", `entries=${repacked.entries} in=${archiveSize}B out=${finalSize}B ext=${finalExt}`);
+          } else {
+            log("archive.repack", "skipped", "fallback to raw bytes");
+          }
 
-        if (triggered_by) {
-          await supabase.from("dce_uploads").insert({
-            tender_id,
-            user_id: triggered_by,
-            file_name: `DCE_agent_${platform}.zip`,
-            file_path: filename,
-            file_size: archiveSize,
-            agent_run_id: runId,
-          });
+          const filename = `${tender_id}/agent_${Date.now()}.${finalExt}`;
+          const mime = finalExt === "pdf" ? "application/pdf" : "application/zip";
+          const { error: upErr } = await supabase.storage
+            .from("dce-documents")
+            .upload(filename, finalBytes, { contentType: mime, upsert: true });
+          if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
+          log("storage.upload", "ok", `${filename} (${finalSize} B) ct=${contentType} head=${head}`);
+
+          if (triggered_by) {
+            await supabase.from("dce_uploads").insert({
+              tender_id,
+              user_id: triggered_by,
+              file_name: `DCE_agent_${platform}.${finalExt}`,
+              file_path: filename,
+              file_size: finalSize,
+              agent_run_id: runId,
+            });
+          }
+          filesUploaded = 1;
         }
-        filesUploaded = 1;
       } else {
         log("storage.upload", "skipped", "aucune archive");
       }
