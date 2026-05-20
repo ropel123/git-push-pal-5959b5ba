@@ -2,6 +2,7 @@
 // Pas de Playwright/Stagehand : 100% Deno-native, compatible edge runtime.
 
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
+import { unzipSync, zipSync } from "https://esm.sh/fflate@0.8.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
