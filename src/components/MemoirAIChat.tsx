@@ -49,7 +49,8 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [memoirData, setMemoirData] = useState<MemoirData | null>(null);
-  const [saving, setSaving] = useState(false);
+  const saveMemoirMutation = useSaveMemoir(user?.id);
+  const saving = saveMemoirMutation.isPending;
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -309,11 +310,10 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     sendToAI(newMessages);
   };
 
-  const handleSaveMemoir = async () => {
+  const handleSaveMemoir = () => {
     if (!user || !memoirData) return;
-    setSaving(true);
 
-    const updateData: Record<string, any> = {};
+    const updateData: Record<string, unknown> = {};
     if (memoirData.company_name) updateData.company_name = memoirData.company_name;
     if (memoirData.siren) updateData.siren = memoirData.siren;
     if (memoirData.company_size) updateData.company_size = memoirData.company_size;
@@ -333,21 +333,22 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
       updateData.onboarding_completed = true;
     }
 
-    const { error } = await supabase.from("profiles").update(updateData as any).eq("user_id", user.id);
-
-    if (error) {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Mémoire technique sauvegardé ✓" });
-      onMemoirSaved();
-      if (mode === "dialog") {
-        setOpen(false);
-        setMessages([]);
-        setMemoirData(null);
-      }
-    }
-    setSaving(false);
+    saveMemoirMutation.mutate(updateData, {
+      onSuccess: () => {
+        toast({ title: "Mémoire technique sauvegardé ✓" });
+        onMemoirSaved();
+        if (mode === "dialog") {
+          setOpen(false);
+          setMessages([]);
+          setMemoirData(null);
+        }
+      },
+      onError: (err) => {
+        toast({ title: "Erreur", description: (err as Error).message, variant: "destructive" });
+      },
+    });
   };
+
 
   const chatContent = (
     <>
