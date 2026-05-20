@@ -78,6 +78,7 @@ export function useTenders(filters: TendersFilters = {}) {
         query = query.eq("status", status as TenderStatus);
       }
       if (procedure && procedure !== "all") query = query.eq("procedure_type", procedure);
+      if (platform && platform !== "all") query = query.eq("source", platform);
 
       const { data, count, error } = await query;
       if (error) throw error;
