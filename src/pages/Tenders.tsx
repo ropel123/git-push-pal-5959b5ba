@@ -303,7 +303,7 @@ const Tenders = () => {
       {showFilters && (
         <Card className="bg-card border-border">
           <CardContent className="pt-4 space-y-4">
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
               <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(0); }}>
                 <SelectTrigger><SelectValue placeholder="Région" /></SelectTrigger>
                 <SelectContent>
