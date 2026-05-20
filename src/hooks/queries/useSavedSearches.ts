@@ -25,7 +25,7 @@ export function useCreateSavedSearch() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { user_id: string; name: string; filters: Record<string, unknown> }) => {
-      const { error } = await supabase.from("saved_searches").insert(input);
+      const { error } = await supabase.from("saved_searches").insert([input]);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-searches"] }),
