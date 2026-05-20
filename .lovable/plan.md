@@ -1,40 +1,101 @@
-## Pourquoi tu vois encore ces titres
+# Refactoring stratégique — Plan en 4 chantiers
 
-Diagnostic sur les 3 AO de la capture (`937132`, `931590`, `935923`) :
+Objectif : exécuter les 4 refactorings identifiés à l'audit dans un ordre qui minimise les conflits (backend d'abord, puis types, puis UI). Estimation totale : 7-11 jours de travail consolidé en livraisons incrémentales.
 
-- Tous viennent de `https://marches.maximilien.fr/entreprise/consultation/{id}` — un host qui **n'avait jamais été enrichi** auparavant (les runs précédents ne touchaient que `departement86` et `regionreunion`).
-- Leur `enriched_data` est `NULL` → 0 tentative de backfill, pas de flag `skip`.
-- Ils sont bien dans la queue, mais le backfill ne tourne **pas tout seul** : pas de cron, déclenché uniquement par le bouton "Rétro-enrichir Atexo" sur `/sourcing`.
-- Dernier run : 26/04 10:14. Depuis, **223 nouveaux placeholders** ont été insérés (dont 171 sur `maximilien.fr`), créés par le scraper de listing entre le 26/04 et le 28/04 12:08.
+## Ordre d'exécution
 
-**Cause racine** : l'ingestion (`atexoExecutor.ts`) écrit délibérément un titre placeholder `Consultation Atexo {id}` quand l'enrichissement détail n'a pas eu le temps de tourner, ou n'est pas tenté du tout. Le rattrapage est laissé à un backfill 100 % manuel → tout ce qui arrive entre deux clics reste cassé en UI.
+```text
+Chantier 1 (1j)  →  Chantier 2 (1-2j)  →  Chantier 3 (2-3j)  →  Chantier 4 (3-5j)
+SQL + Upsert        AI Gateway          TS strict             TanStack Query
+```
 
-## Plan v3.9 — éliminer le placeholder à la source
+Chaque chantier est livré indépendamment, testable, et peut être validé avant de passer au suivant.
 
-### 1. Cron horaire sur `atexo-backfill`
-Ajouter un cron pg_cron qui appelle l'edge function toutes les heures (batch de 80) tant qu'il reste des placeholders. Plus jamais besoin de cliquer le bouton.
+---
 
-### 2. Forcer l'enrichissement détail à l'ingestion pour TOUS les hosts Atexo
-Dans `_shared/atexoExecutor.ts` (bloc step 4, ligne ~310) : retirer la condition `stats.engine === "prado_event_chain"`. Aujourd'hui, si l'engine est autre chose (ex. fallback Firecrawl ou ingestion directe `single_page` sur `maximilien.fr`), **aucun appel détail n'est lancé** → tous les items partent en placeholder. On veut enrichir dès que `allIds.size > 0`, peu importe l'engine.
+## Chantier 1 — Upsert batch + index SQL (1j)
 
-### 3. Bornes de robustesse
-- Augmenter `MAX_ATTEMPTS` de 3 → 5 dans `atexo-backfill` pour les hosts lents.
-- Loguer le `host` dans `scrape_logs.metadata` du backfill pour identifier les nouveaux domaines (déjà fait, vérifier).
+**Objectif** : passer de 2 round-trips par item à 1 seul appel batch, et accélérer les requêtes Dashboard/Tenders.
 
-### 4. Cleanup ponctuel des 223 placeholders existants
-Lancer manuellement `atexo-backfill` 3-4 fois (batch=100) pour rattraper le retard, puis vérifier `remaining`. Les irrécupérables (404 / archives) seront marqués `backfill_skip=true` automatiquement après 5 tentatives.
+- **Migration SQL** : index sur `tenders(status)`, `tenders(region)`, `tenders(deadline)`, `tenders(source, reference)` (composite pour upsert), `pipeline_items(user_id, stage)`.
+- **Contrainte unique** sur `tenders(source, reference)` si absente (requise pour `onConflict`).
+- **Refactor `upsert-tenders/index.ts`** :
+  - Normaliser tous les items en mémoire
+  - Un seul `supabase.from('tenders').upsert(rows, { onConflict: 'source,reference', ignoreDuplicates: false })`
+  - Pour le merge `enriched_data` : pré-fetch en 1 query `IN (...)` puis merge côté JS avant upsert
+- **Bénéfice mesuré attendu** : 10-50× sur les gros batches (>100 items), élimine les timeouts edge function.
 
-### 5. UI : masquer ou marquer les placeholders restants
-Sur `/tenders` (`src/pages/Tenders.tsx`), filtrer ou taguer visuellement (badge "En cours d'enrichissement") les lignes dont le titre matche `^Consultation Atexo \d+$`, pour qu'ils ne ressemblent plus à des AO normaux pendant la fenêtre cron (≤1 h).
+---
 
-## Détails techniques
+## Chantier 2 — AI Gateway centralisé (1-2j)
 
-**Fichiers modifiés** :
-- `supabase/functions/_shared/atexoExecutor.ts` — relâcher la garde `engine === "prado_event_chain"` du step 4
-- `supabase/functions/atexo-backfill/index.ts` — `MAX_ATTEMPTS = 5`
-- Migration SQL — `cron.schedule('atexo-backfill-hourly', '0 * * * *', ...)` invoquant l'edge function via `net.http_post` avec batch=80
-- `src/pages/Tenders.tsx` — badge "Enrichissement en cours" si `/^Consultation Atexo \d+$/.test(title)`
+**Objectif** : un seul point d'entrée pour tous les appels IA, avec retry/fallback unifié.
 
-**Sécurité** : le cron passe le service role key via `Authorization` header (jamais exposé client).
+- **Créer `supabase/functions/_shared/aiGateway.ts`** exposant :
+  - `callAI({ provider: 'claude' | 'gemini', messages, tools?, jsonSchema?, maxTokens })`
+  - Fallback automatique Claude → Gemini sur 429/402/timeout
+  - Retry exponential backoff (3 tentatives)
+  - Logging unifié (model, tokens, latency, cost estimé)
+- **Migrer les call sites** :
+  - `analyze-tender` : repasser sur Claude 3.5 Sonnet (OpenRouter) avec fallback Gemini — actuellement Gemini Flash uniquement, viole `mem://architecture/strategie-ia`
+  - `generate-memoir`, `generate-pricing-strategy`, `generate-tender-document` : utiliser le gateway
+  - `aiClassifier.ts` + `aiClassifierAnthropic.ts` : factoriser le dispatcher sur `aiGateway`
+- **Bénéfice** : un seul endroit pour changer de modèle, retry cohérent, observabilité homogène.
 
-**Validation** : après déploiement, vérifier sur `/tenders` que `937132`, `931590`, `935923` affichent leur vrai titre dans l'heure qui suit.
+---
+
+## Chantier 3 — TypeScript strict mode (2-3j)
+
+**Objectif** : activer `strict: true` et éliminer les `any`.
+
+- **Activer dans `tsconfig.app.json`** :
+  - `strict: true`
+  - `noImplicitAny: true`
+  - `strictNullChecks: true`
+- **Corriger les ~50-100 erreurs attendues** par lots :
+  1. Pages (`Tenders.tsx`, `TenderDetail.tsx`, `Dashboard.tsx`, `Pipeline.tsx`, `Sourcing.tsx`, `Onboarding.tsx`)
+  2. Composants critiques (`MemoirAIChat`, `PricingChat`, `TenderAnalysisSection`, `TenderDocumentGenerator`)
+  3. Hooks (`useIsAdmin`, `use-toast`)
+  4. Lib (`scoring.ts`, `generatePdf.ts`, `generatePptx.ts`)
+- **Typer correctement** les retours Supabase (`Database['public']['Tables']['tenders']['Row']` etc.)
+- **Edge functions Deno** : appliquer également (déjà partiellement typées)
+- **Bénéfice** : élimination d'une classe entière de bugs runtime, autocomplete fiable.
+
+---
+
+## Chantier 4 — TanStack Query partout (3-5j)
+
+**Objectif** : remplacer les `useState/useEffect` manuels par des hooks React Query.
+
+- **Configurer `QueryClient`** dans `App.tsx` :
+  - `staleTime: 60_000` (1 min par défaut)
+  - `refetchOnWindowFocus: false` pour les listes lourdes
+- **Créer `src/hooks/queries/`** :
+  - `useTenders(filters)` — remplace fetch manuel dans `Tenders.tsx` + `Dashboard.tsx`
+  - `useTender(id)` — `TenderDetail.tsx`
+  - `usePipelineItems()` — `Pipeline.tsx`
+  - `useAwards()` — `Awards.tsx`
+  - `useProfile()` — `Onboarding.tsx` + `SettingsPage.tsx`
+  - `useSourcingUrls()` — `Sourcing.tsx`
+  - `useTenderAnalyses(tenderId)` — `TenderAnalysisSection`
+- **Créer `src/hooks/mutations/`** :
+  - `useUpdatePipelineStage()` avec invalidation
+  - `useDeleteSourcingUrl()` etc.
+- **Migrer page par page**, en gardant l'ancien code jusqu'à validation
+- **Bénéfice** : cache partagé entre pages, refetch automatique, états loading/error standardisés, suppression de ~300 lignes de boilerplate.
+
+---
+
+## Livraison & validation
+
+À la fin de chaque chantier :
+1. Build + typecheck verts
+2. Test manuel sur les pages impactées
+3. Validation utilisateur avant de passer au chantier suivant
+
+## Notes techniques
+
+- Les chantiers 1 et 2 touchent uniquement le backend Supabase (functions + migrations), aucun risque UI.
+- Le chantier 3 (strict) peut révéler des bugs latents — prévoir une demi-journée de marge.
+- Le chantier 4 est le plus visible côté UX (loading states plus rapides grâce au cache).
+- Les Quick Wins de l'audit (`.env` git, auth guards, etc.) sont **hors scope** de ce plan stratégique — à traiter séparément si besoin.
