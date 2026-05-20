@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.atexo-backfill]
 verify_jwt = false
+
+[functions.inspect-dce-zip]
+verify_jwt = false
