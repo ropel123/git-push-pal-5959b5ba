@@ -60,14 +60,39 @@ async function createBrowserbaseSession(): Promise<{ id: string; connectUrl: str
   return { id: data.id, connectUrl: data.connectUrl };
 }
 
-async function downloadSessionArchive(sessionId: string): Promise<Uint8Array | null> {
+async function downloadSessionArchive(sessionId: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   const res = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}/downloads`, {
     headers: { "X-BB-API-Key": BROWSERBASE_API_KEY, Accept: "application/zip" },
   });
-  if (!res.ok) return null;
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!res.ok) {
+    console.warn(`[agent] downloadSessionArchive http=${res.status} ct=${contentType}`);
+    return null;
+  }
   const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.byteLength < 100) return null;
-  return buf;
+  if (buf.byteLength < 100) {
+    console.warn(`[agent] downloadSessionArchive too_small=${buf.byteLength} ct=${contentType}`);
+    return null;
+  }
+  return { bytes: buf, contentType };
+}
+
+function isValidZip(bytes: Uint8Array): { ok: boolean; reason?: string } {
+  if (bytes.byteLength < 22) return { ok: false, reason: "too_small" };
+  if (!(bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04)) {
+    return { ok: false, reason: "bad_magic" };
+  }
+  const tailStart = Math.max(0, bytes.byteLength - 65557);
+  for (let i = bytes.byteLength - 22; i >= tailStart; i--) {
+    if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+      return { ok: true };
+    }
+  }
+  return { ok: false, reason: "no_eocd" };
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function closeBrowserbaseSession(sessionId: string): Promise<void> {
