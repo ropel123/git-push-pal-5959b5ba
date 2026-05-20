@@ -1,30 +1,12 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Building2, Euro, FileText, Calendar, MapPin } from "lucide-react";
+import { ArrowLeft, Building2, Euro, Calendar, MapPin } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-
-interface BuyerTender {
-  id: string;
-  title: string;
-  status: string | null;
-  estimated_amount: number | null;
-  publication_date: string | null;
-  deadline: string | null;
-  region: string | null;
-}
-
-interface BuyerAward {
-  id: string;
-  winner_name: string | null;
-  awarded_amount: number | null;
-  award_date: string | null;
-  tender_id: string | null;
-}
+import { useBuyerData } from "@/hooks/queries/useBuyer";
 
 const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
 const statusColor: Record<string, string> = {
@@ -38,31 +20,24 @@ const BuyerDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const buyerName = id ? decodeURIComponent(id) : "";
-  const [tenders, setTenders] = useState<BuyerTender[]>([]);
-  const [awards, setAwards] = useState<BuyerAward[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!buyerName) return;
-    Promise.all([
-      supabase.from("tenders").select("id, title, status, estimated_amount, publication_date, deadline, region").eq("buyer_name", buyerName).order("publication_date", { ascending: false }),
-      supabase.from("award_notices").select("id, winner_name, awarded_amount, award_date, tender_id"),
-    ]).then(([tendersRes, awardsRes]) => {
-      const buyerTenders = tendersRes.data ?? [];
-      setTenders(buyerTenders);
-      const tenderIds = buyerTenders.map((t) => t.id);
-      setAwards((awardsRes.data ?? []).filter((a) => a.tender_id && tenderIds.includes(a.tender_id)));
-      setLoading(false);
+  const { data, isLoading: loading } = useBuyerData(buyerName);
+  const tenders = data?.tenders ?? [];
+  const awards = data?.awards ?? [];
+
+  const { totalAmount, avgAmount, topWinners } = useMemo(() => {
+    const total = tenders.reduce((sum, t) => sum + (t.estimated_amount ?? 0), 0);
+    const avg = tenders.length > 0 ? total / tenders.length : 0;
+    const counts: Record<string, number> = {};
+    awards.forEach((a) => {
+      if (a.winner_name) counts[a.winner_name] = (counts[a.winner_name] ?? 0) + 1;
     });
-  }, [buyerName]);
-
-  const totalAmount = tenders.reduce((sum, t) => sum + (t.estimated_amount ?? 0), 0);
-  const avgAmount = tenders.length > 0 ? totalAmount / tenders.length : 0;
-  const winnerCounts: Record<string, number> = {};
-  awards.forEach((a) => {
-    if (a.winner_name) winnerCounts[a.winner_name] = (winnerCounts[a.winner_name] ?? 0) + 1;
-  });
-  const topWinners = Object.entries(winnerCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    return {
+      totalAmount: total,
+      avgAmount: avg,
+      topWinners: Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5),
+    };
+  }, [tenders, awards]);
 
   if (loading) return <div className="text-center py-12 text-muted-foreground">Chargement...</div>;
 
