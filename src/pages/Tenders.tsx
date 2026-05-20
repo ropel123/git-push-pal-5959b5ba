@@ -58,6 +58,7 @@ const Tenders = () => {
   const [regionFilter, setRegionFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [procedureFilter, setProcedureFilter] = useState("");
+  const [platformFilter, setPlatformFilter] = useState("");
   const [dceFilter, setDceFilter] = useState(false);
   const [smartFilter, setSmartFilter] = useState(true);
   const [profile, setProfile] = useState<any>(null);
