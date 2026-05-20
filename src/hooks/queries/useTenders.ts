@@ -17,6 +17,7 @@ export type TendersFilters = {
   region?: string;
   status?: TenderStatus;
   procedure?: string;
+  platform?: string;
   dceOnly?: boolean;
   smart?: SmartProfile;
   /** Désactive temporairement la query (ex: profil pas encore chargé). */
@@ -31,6 +32,7 @@ export function useTenders(filters: TendersFilters = {}) {
     region = "",
     status = "",
     procedure = "",
+    platform = "",
     dceOnly = false,
     smart = null,
     enabled = true,
@@ -39,7 +41,7 @@ export function useTenders(filters: TendersFilters = {}) {
   return useQuery({
     enabled,
     placeholderData: keepPreviousData,
-    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, dceOnly, smart }],
+    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, platform, dceOnly, smart }],
     queryFn: async () => {
       const from = page * pageSize;
       const to = from + pageSize - 1;
@@ -76,6 +78,7 @@ export function useTenders(filters: TendersFilters = {}) {
         query = query.eq("status", status as TenderStatus);
       }
       if (procedure && procedure !== "all") query = query.eq("procedure_type", procedure);
+      if (platform && platform !== "all") query = query.eq("source", platform);
 
       const { data, count, error } = await query;
       if (error) throw error;

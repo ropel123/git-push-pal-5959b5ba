@@ -50,6 +50,21 @@ const REGIONS = [
   "Île-de-France", "Normandie", "Nouvelle-Aquitaine", "Occitanie",
   "Pays de la Loire", "Provence-Alpes-Côte d'Azur", "Outre-mer",
 ];
+const formatPlatformLabel = (source: string): string => {
+  if (source === "boamp") return "BOAMP";
+  if (source === "ted") return "TED";
+  if (source === "manual") return "Manuel";
+  const stripped = source.startsWith("scrape:") ? source.slice(7) : source;
+  if (stripped === "mpi") return "MPI";
+  if (stripped === "aura") return "AURA";
+  if (stripped === "aws") return "AWS";
+  if (stripped === "place") return "PLACE";
+  return stripped
+    .split(/[-_]/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
+
 
 const Tenders = () => {
   const [page, setPage] = useState(0);
@@ -58,6 +73,7 @@ const Tenders = () => {
   const [regionFilter, setRegionFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [procedureFilter, setProcedureFilter] = useState("");
+  const [platformFilter, setPlatformFilter] = useState("");
   const [dceFilter, setDceFilter] = useState(false);
   const [smartFilter, setSmartFilter] = useState(true);
   const [profile, setProfile] = useState<any>(null);
@@ -66,6 +82,7 @@ const Tenders = () => {
   const [savingSearch, setSavingSearch] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [procedures, setProcedures] = useState<string[]>([]);
+  const [platforms, setPlatforms] = useState<string[]>([]);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -81,6 +98,12 @@ const Tenders = () => {
         if (data) {
           const unique = [...new Set(data.map((d) => d.procedure_type).filter(Boolean))] as string[];
           setProcedures(unique);
+        }
+      });
+      supabase.from("tenders").select("source").not("source", "is", null).then(({ data }) => {
+        if (data) {
+          const unique = [...new Set(data.map((d) => d.source).filter(Boolean))] as string[];
+          setPlatforms(unique.sort());
         }
       });
     }
@@ -108,6 +131,7 @@ const Tenders = () => {
     region: regionFilter,
     status: (statusFilter || undefined) as TenderStatus | undefined,
     procedure: procedureFilter,
+    platform: platformFilter,
     dceOnly: dceFilter,
     smart: smartFilter && profile ? { regions: profile.regions, keywords: profile.keywords } : null,
     enabled: profileLoaded,
@@ -138,6 +162,7 @@ const Tenders = () => {
     setRegionFilter(f.regionFilter ?? "");
     setStatusFilter(f.statusFilter ?? "");
     setProcedureFilter(f.procedureFilter ?? "");
+    setPlatformFilter(f.platformFilter ?? "");
     setDceFilter(f.dceFilter ?? false);
     setShowFilters(true);
     setPage(0);
@@ -169,7 +194,7 @@ const Tenders = () => {
   const saveSearch = async () => {
     if (!user || !searchName.trim()) return;
     setSavingSearch(true);
-    const filters = { search, regionFilter, statusFilter, procedureFilter, dceFilter };
+    const filters = { search, regionFilter, statusFilter, procedureFilter, platformFilter, dceFilter };
     await supabase.from("saved_searches").insert({ user_id: user.id, name: searchName.trim(), filters });
     toast({ title: "Recherche sauvegardée ✓" });
     setSearchName("");
@@ -278,7 +303,7 @@ const Tenders = () => {
       {showFilters && (
         <Card className="bg-card border-border">
           <CardContent className="pt-4 space-y-4">
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
               <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(0); }}>
                 <SelectTrigger><SelectValue placeholder="Région" /></SelectTrigger>
                 <SelectContent>
@@ -303,6 +328,13 @@ const Tenders = () => {
                   {procedures.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <Select value={platformFilter} onValueChange={(v) => { setPlatformFilter(v); setPage(0); }}>
+                <SelectTrigger><SelectValue placeholder="Plateforme" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les plateformes</SelectItem>
+                  {platforms.map((p) => <SelectItem key={p} value={p}>{formatPlatformLabel(p)}</SelectItem>)}
+                </SelectContent>
+              </Select>
               <div className="flex items-center gap-2">
                 <Switch id="dce-filter" checked={dceFilter} onCheckedChange={(v) => { setDceFilter(v); setPage(0); }} />
                 <Label htmlFor="dce-filter" className="flex items-center gap-1.5 text-sm cursor-pointer">
@@ -315,7 +347,7 @@ const Tenders = () => {
               <Button variant="secondary" size="sm" onClick={saveSearch} disabled={savingSearch || !searchName.trim()}>
                 <Save className="h-4 w-4 mr-1" /> Sauvegarder
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setDceFilter(false); setSearch(""); setPage(0); }}>
+              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setPlatformFilter(""); setDceFilter(false); setSearch(""); setPage(0); }}>
                 Réinitialiser
               </Button>
             </div>
