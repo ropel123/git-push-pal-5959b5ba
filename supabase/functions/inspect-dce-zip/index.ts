@@ -1,5 +1,19 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { unzipSync } from "https://esm.sh/fflate@0.8.2";
+import { unzipSync, zipSync } from "https://esm.sh/fflate@0.8.2";
+
+function detectExtension(bytes: Uint8Array): string {
+  if (bytes.length < 4) return "bin";
+  const b = bytes;
+  if (b[0] === 0x50 && b[1] === 0x4b && (b[2] === 0x03 || b[2] === 0x05 || b[2] === 0x07)) return "zip";
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return "pdf";
+  if (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0) return "doc";
+  if (b[0] === 0x52 && b[1] === 0x61 && b[2] === 0x72 && b[3] === 0x21) return "rar";
+  if (b[0] === 0x37 && b[1] === 0x7a && b[2] === 0xbc && b[3] === 0xaf) return "7z";
+  if (b[0] === 0x1f && b[1] === 0x8b) return "gz";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  return "bin";
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
