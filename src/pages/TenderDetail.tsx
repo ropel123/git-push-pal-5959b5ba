@@ -15,6 +15,7 @@ import DceAgentFetchButton from "@/components/DceAgentFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import PricingChat from "@/components/PricingChat";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
+import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
 
 interface Tender {
   id: string;
