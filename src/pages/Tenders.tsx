@@ -85,6 +85,12 @@ const Tenders = () => {
           setProcedures(unique);
         }
       });
+      supabase.from("tenders").select("source").not("source", "is", null).then(({ data }) => {
+        if (data) {
+          const unique = [...new Set(data.map((d) => d.source).filter(Boolean))] as string[];
+          setPlatforms(unique.sort());
+        }
+      });
     }
   }, [user]);
 
