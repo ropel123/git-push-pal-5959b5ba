@@ -50,6 +50,21 @@ const REGIONS = [
   "Île-de-France", "Normandie", "Nouvelle-Aquitaine", "Occitanie",
   "Pays de la Loire", "Provence-Alpes-Côte d'Azur", "Outre-mer",
 ];
+const formatPlatformLabel = (source: string): string => {
+  if (source === "boamp") return "BOAMP";
+  if (source === "ted") return "TED";
+  if (source === "manual") return "Manuel";
+  const stripped = source.startsWith("scrape:") ? source.slice(7) : source;
+  if (stripped === "mpi") return "MPI";
+  if (stripped === "aura") return "AURA";
+  if (stripped === "aws") return "AWS";
+  if (stripped === "place") return "PLACE";
+  return stripped
+    .split(/[-_]/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
+
 
 const Tenders = () => {
   const [page, setPage] = useState(0);
