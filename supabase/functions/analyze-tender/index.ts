@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { callAI } from "../_shared/aiGateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -176,32 +177,18 @@ Sois stratégique et orienté vers la victoire. Base ton analyse sur le profil r
 
     const systemPrompt = systemPrompts[analysis_type] || systemPrompts.quick;
 
-    // Call Lovable AI Gateway
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY non configurée" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+    // Appel IA via passerelle unifiée — Claude 3.5 Sonnet par défaut, fallback Gemini
+    let aiResult;
+    try {
+      aiResult = await callAI({
+        provider: "claude",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: tenderContext },
         ],
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const status = aiResponse.status;
+      });
+    } catch (e) {
+      const status = (e as any)?.status;
       if (status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded, please try again later." }), {
           status: 429,
@@ -214,17 +201,15 @@ Sois stratégique et orienté vers la victoire. Base ton analyse sur le profil r
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const errText = await aiResponse.text();
-      console.error("AI Gateway error:", status, errText);
-      return new Response(JSON.stringify({ error: "Erreur IA: " + status }), {
+      console.error("AI Gateway error:", e);
+      return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Erreur IA" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiData = await aiResponse.json();
-    const result = aiData.choices?.[0]?.message?.content || "Aucun résultat";
-    const tokensUsed = aiData.usage?.total_tokens || null;
+    const result = aiResult.content || "Aucun résultat";
+    const tokensUsed = aiResult.tokensUsed;
 
     // Save analysis
     await supabase.from("tender_analyses").insert({
@@ -232,11 +217,11 @@ Sois stratégique et orienté vers la victoire. Base ton analyse sur le profil r
       user_id: user.id,
       analysis_type,
       result,
-      model_used: "google/gemini-2.5-flash",
+      model_used: aiResult.model,
       tokens_used: tokensUsed,
     });
 
-    return new Response(JSON.stringify({ result, tokens_used: tokensUsed }), {
+    return new Response(JSON.stringify({ result, tokens_used: tokensUsed, model: aiResult.model, provider: aiResult.provider }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
