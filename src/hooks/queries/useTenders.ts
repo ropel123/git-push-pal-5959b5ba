@@ -32,6 +32,7 @@ export function useTenders(filters: TendersFilters = {}) {
     region = "",
     status = "",
     procedure = "",
+    platform = "",
     dceOnly = false,
     smart = null,
     enabled = true,
@@ -40,7 +41,7 @@ export function useTenders(filters: TendersFilters = {}) {
   return useQuery({
     enabled,
     placeholderData: keepPreviousData,
-    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, dceOnly, smart }],
+    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, platform, dceOnly, smart }],
     queryFn: async () => {
       const from = page * pageSize;
       const to = from + pageSize - 1;
