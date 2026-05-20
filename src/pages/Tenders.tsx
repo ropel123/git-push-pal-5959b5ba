@@ -67,6 +67,7 @@ const Tenders = () => {
   const [savingSearch, setSavingSearch] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [procedures, setProcedures] = useState<string[]>([]);
+  const [platforms, setPlatforms] = useState<string[]>([]);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
