@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -15,6 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { computeScore, getScoreColor } from "@/lib/scoring";
+import { useTenders, type TenderStatus } from "@/hooks/queries/useTenders";
+import { useDebounce } from "@/hooks/useDebounce";
 
 interface Tender {
   id: string;
@@ -50,11 +52,8 @@ const REGIONS = [
 ];
 
 const Tenders = () => {
-  const [tenders, setTenders] = useState<Tender[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [regionFilter, setRegionFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -100,72 +99,32 @@ const Tenders = () => {
     return parts.join(", ");
   }, [profile, smartFilter]);
 
-  const fetchTenders = useCallback(async () => {
-    if (!profileLoaded) return;
-    setLoading(true);
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
+  const debouncedSearch = useDebounce(search, 300);
 
-    let query = supabase
-      .from("tenders")
-      .select("*", { count: "exact" })
-      .order("publication_date", { ascending: false })
-      .range(from, to);
+  const tendersQuery = useTenders({
+    page,
+    pageSize: PAGE_SIZE,
+    search: debouncedSearch,
+    region: regionFilter,
+    status: (statusFilter || undefined) as TenderStatus | undefined,
+    procedure: procedureFilter,
+    dceOnly: dceFilter,
+    smart: smartFilter && profile ? { regions: profile.regions, keywords: profile.keywords } : null,
+    enabled: profileLoaded,
+  });
 
-    // Smart filter: apply profile regions & keywords
-    if (smartFilter && profile) {
-      const regions = profile.regions ?? [];
-      const keywords = profile.keywords ?? [];
-
-      if (regions.length > 0) {
-        query = query.in("region", regions);
-      }
-
-      if (keywords.length > 0) {
-        const orClauses = keywords.flatMap((kw: string) => [
-          `title.ilike.%${kw}%`,
-          `object.ilike.%${kw}%`,
-        ]);
-        query = query.or(orClauses.join(","));
-      }
-    }
-
-    if (dceFilter) {
-      query = query.not("dce_url", "is", null).neq("dce_url", "");
-    }
-
-    if (search.trim()) {
-      query = query.or(`title.ilike.%${search.trim()}%,buyer_name.ilike.%${search.trim()}%,object.ilike.%${search.trim()}%`);
-    }
-    if (regionFilter && regionFilter !== "all") {
-      query = query.eq("region", regionFilter);
-    }
-    if (statusFilter && statusFilter !== "all") {
-      query = query.eq("status", statusFilter as "open" | "closed" | "awarded" | "cancelled");
-    }
-    if (procedureFilter && procedureFilter !== "all") {
-      query = query.eq("procedure_type", procedureFilter);
-    }
-
-    const { data, count } = await query;
-    let results = data ?? [];
-
-    // Sort by score when smart filter is active
-    if (smartFilter && profile && results.length > 0) {
-      results = results
+  const loading = tendersQuery.isLoading || tendersQuery.isFetching;
+  const totalCount = tendersQuery.data?.count ?? 0;
+  const tenders = useMemo(() => {
+    const items = tendersQuery.data?.items ?? [];
+    if (smartFilter && profile && items.length > 0) {
+      return [...items]
         .map((t) => ({ ...t, _score: computeScore(t, profile) }))
         .sort((a, b) => b._score - a._score);
     }
+    return items;
+  }, [tendersQuery.data, smartFilter, profile]);
 
-    setTenders(results);
-    if (count !== null) setTotalCount(count);
-    setLoading(false);
-  }, [page, search, regionFilter, statusFilter, procedureFilter, dceFilter, smartFilter, profile, profileLoaded]);
-
-  useEffect(() => {
-    const timeout = setTimeout(() => fetchTenders(), 300);
-    return () => clearTimeout(timeout);
-  }, [fetchTenders]);
 
   const fetchSavedSearches = async () => {
     if (!user) return;

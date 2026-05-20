@@ -15,6 +15,7 @@ import DceAgentFetchButton from "@/components/DceAgentFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import PricingChat from "@/components/PricingChat";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
+import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
 
 interface Tender {
   id: string;
@@ -76,10 +77,14 @@ const TenderDetail = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
-  const [tender, setTender] = useState<Tender | null>(null);
-  const [awards, setAwards] = useState<AwardNotice[]>([]);
+
+  const tenderQuery = useTender(id);
+  const awardsQuery = useTenderAwards(id);
+  const tender = (tenderQuery.data ?? null) as Tender | null;
+  const awards = (awardsQuery.data ?? []) as AwardNotice[];
+  const loading = tenderQuery.isLoading;
+
   const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [dceUploads, setDceUploads] = useState<any[]>([]);
   const [analyses, setAnalyses] = useState<any[]>([]);
   const [pipelineItem, setPipelineItem] = useState<any>(null);
@@ -99,19 +104,18 @@ const TenderDetail = () => {
   };
 
   useEffect(() => {
-    if (!id) return;
-    Promise.all([
-      supabase.from("tenders").select("*").eq("id", id).single(),
-      supabase.from("award_notices").select("*").eq("tender_id", id),
-      user ? supabase.from("profiles").select("*").eq("user_id", user.id).single() : Promise.resolve({ data: null }),
-    ]).then(([tenderRes, awardsRes, profileRes]) => {
-      if (tenderRes.data) setTender(tenderRes.data as any);
-      if (awardsRes.data) setAwards(awardsRes.data);
-      if (profileRes.data) setProfile(profileRes.data);
-      setLoading(false);
-    });
+    if (!user) {
+      setProfile(null);
+      return;
+    }
+    supabase.from("profiles").select("*").eq("user_id", user.id).single()
+      .then(({ data }) => setProfile(data ?? null));
+  }, [user]);
+
+  useEffect(() => {
     fetchDceAndAnalyses();
     fetchPipelineItem();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user]);
 
   const addToPipeline = async () => {

@@ -1,30 +1,85 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-/** Liste des appels d'offres avec filtres optionnels.
- *  Premier hook de la migration vers TanStack Query (chantier 4). */
+/** Hooks TanStack Query pour la lecture des appels d'offres (chantier 4). */
+
+export type TenderStatus = "open" | "closed" | "awarded" | "cancelled";
+
+export type SmartProfile = {
+  regions?: string[] | null;
+  keywords?: string[] | null;
+} | null;
+
 export type TendersFilters = {
-  status?: "open" | "closed" | "awarded";
-  region?: string;
+  page?: number;
+  pageSize?: number;
   search?: string;
-  limit?: number;
+  region?: string;
+  status?: TenderStatus;
+  procedure?: string;
+  dceOnly?: boolean;
+  smart?: SmartProfile;
+  /** Désactive temporairement la query (ex: profil pas encore chargé). */
+  enabled?: boolean;
 };
 
 export function useTenders(filters: TendersFilters = {}) {
+  const {
+    page = 0,
+    pageSize = 20,
+    search = "",
+    region = "",
+    status = "",
+    procedure = "",
+    dceOnly = false,
+    smart = null,
+    enabled = true,
+  } = filters;
+
   return useQuery({
-    queryKey: ["tenders", filters],
+    enabled,
+    placeholderData: keepPreviousData,
+    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, dceOnly, smart }],
     queryFn: async () => {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
       let query = supabase
         .from("tenders")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(filters.limit ?? 200);
-      if (filters.status) query = query.eq("status", filters.status);
-      if (filters.region) query = query.eq("region", filters.region);
-      if (filters.search) query = query.ilike("title", `%${filters.search}%`);
-      const { data, error } = await query;
+        .select("*", { count: "exact" })
+        .order("publication_date", { ascending: false })
+        .range(from, to);
+
+      if (smart) {
+        const regions = smart.regions ?? [];
+        const keywords = smart.keywords ?? [];
+        if (regions.length > 0) query = query.in("region", regions);
+        if (keywords.length > 0) {
+          const orClauses = keywords.flatMap((kw) => [
+            `title.ilike.%${kw}%`,
+            `object.ilike.%${kw}%`,
+          ]);
+          query = query.or(orClauses.join(","));
+        }
+      }
+
+      if (dceOnly) query = query.not("dce_url", "is", null).neq("dce_url", "");
+
+      const term = search.trim();
+      if (term) {
+        query = query.or(
+          `title.ilike.%${term}%,buyer_name.ilike.%${term}%,object.ilike.%${term}%`,
+        );
+      }
+      if (region && region !== "all") query = query.eq("region", region);
+      if (status && status !== ("all" as TenderStatus)) {
+        query = query.eq("status", status as TenderStatus);
+      }
+      if (procedure && procedure !== "all") query = query.eq("procedure_type", procedure);
+
+      const { data, count, error } = await query;
       if (error) throw error;
-      return data ?? [];
+      return { items: data ?? [], count: count ?? 0 };
     },
   });
 }
@@ -34,9 +89,28 @@ export function useTender(id: string | undefined) {
     queryKey: ["tender", id],
     enabled: !!id,
     queryFn: async () => {
-      const { data, error } = await supabase.from("tenders").select("*").eq("id", id!).maybeSingle();
+      const { data, error } = await supabase
+        .from("tenders")
+        .select("*")
+        .eq("id", id!)
+        .maybeSingle();
       if (error) throw error;
       return data;
+    },
+  });
+}
+
+export function useTenderAwards(tenderId: string | undefined) {
+  return useQuery({
+    queryKey: ["tender-awards", tenderId],
+    enabled: !!tenderId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("award_notices")
+        .select("*")
+        .eq("tender_id", tenderId!);
+      if (error) throw error;
+      return data ?? [];
     },
   });
 }
