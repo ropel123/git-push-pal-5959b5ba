@@ -25,7 +25,8 @@ Deno.serve(async (req) => {
 
   try {
     const auth = req.headers.get("Authorization");
-    if (!auth) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    console.log("inspect-dce-zip called, has_auth=", !!auth);
+    if (!auth) return new Response(JSON.stringify({ error: "unauthorized", reason: "no_auth_header" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
