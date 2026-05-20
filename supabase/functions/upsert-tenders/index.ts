@@ -1,4 +1,4 @@
-// upsert-tenders : normalise + upsert idempotent sur (source, reference)
+// upsert-tenders : normalise + upsert idempotent batch sur (source, reference)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import {
@@ -21,14 +21,12 @@ function makeReference(item: any): string {
     const cleaned = cleanReference(String(item.reference));
     if (cleaned) return cleaned;
   }
-  // Fallback: hash based on source + title + buyer
   const seed = `${item._source_url}|${item.title || ""}|${item.buyer_name || ""}`;
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
   return `auto-${Math.abs(h).toString(36)}`;
 }
 
-// Patterns d'URL "page de listing/résultats" (sans identifiant de consultation)
 const GENERIC_LINK_PATTERNS: RegExp[] = [
   /fuseaction=pub\.affResultats(?![^#]*[?&]ref(Pub|Cons|Consult)=)/i,
   /fuseaction=pub\.affPublication(?![^#]*[?&]ref(Pub|Cons|Consult)=)/i,
@@ -50,8 +48,6 @@ function normalize(item: any) {
   const estimated_amount = parseAmount(item.estimated_amount);
   const contract_type = item.contract_type || detectContractType(item.title);
 
-  // Lien direct vers la fiche de la consultation, validé contre l'URL de listing
-  // pour éviter qu'une hallucination Firecrawl pointe vers un autre portail.
   const listing_url: string = item._source_url || "";
   const raw_item_link: string | null =
     item.dce_url && /^https?:\/\//.test(item.dce_url) ? item.dce_url : null;
@@ -65,50 +61,22 @@ function normalize(item: any) {
       try {
         const itemHost = new URL(raw_item_link).hostname.toLowerCase();
         const listingHost = listing_url ? new URL(listing_url).hostname.toLowerCase() : "";
-        // BOAMP et TED sont définitivement exclus de la stratégie data : on n'accepte
-        // plus aucun lien fédéré vers ces publicateurs (cf. mem://constraints/strategie-data).
         const BLOCKED_PUBLISHERS = ["boamp.fr", "ted.europa.eu"];
         if (BLOCKED_PUBLISHERS.some((d) => itemHost.endsWith(d))) {
           item_link_rejected_reason = `blocked publisher (${itemHost})`;
-          item_link = null;
-          return {
-            source: `scrape:${item._platform || "custom"}`,
-            reference: makeReference(item),
-            title: String(item.title || "Sans titre").slice(0, 1000),
-            description: item.description || null,
-            object: item.title || null,
-            buyer_name: item.buyer_name || null,
-            deadline,
-            publication_date: publication_date ? publication_date.slice(0, 10) : null,
-            contract_type,
-            procedure_type: item.procedure_type || null,
-            estimated_amount,
-            department: dept,
-            region,
-            execution_location: item.location || null,
-            dce_url: null,
-            source_url: null,
-            status: "open",
-            enriched_data: {
-              scraped_at: new Date().toISOString(),
-              platform: item._platform,
-              listing_url,
-              item_link_rejected_reason,
-              raw: item,
-            },
-          };
-        }
-        const FEDERATED = ["marches-publics.gouv.fr"];
-        const isFederated = FEDERATED.some((d) => itemHost.endsWith(d));
-        const sameHost =
-          listingHost &&
-          (itemHost === listingHost ||
-            itemHost.endsWith(`.${listingHost}`) ||
-            listingHost.endsWith(`.${itemHost}`));
-        if (sameHost || isFederated || !listingHost) {
-          item_link = raw_item_link;
         } else {
-          item_link_rejected_reason = `cross-domain ${itemHost} vs ${listingHost}`;
+          const FEDERATED = ["marches-publics.gouv.fr"];
+          const isFederated = FEDERATED.some((d) => itemHost.endsWith(d));
+          const sameHost =
+            listingHost &&
+            (itemHost === listingHost ||
+              itemHost.endsWith(`.${listingHost}`) ||
+              listingHost.endsWith(`.${itemHost}`));
+          if (sameHost || isFederated || !listingHost) {
+            item_link = raw_item_link;
+          } else {
+            item_link_rejected_reason = `cross-domain ${itemHost} vs ${listingHost}`;
+          }
         }
       } catch {
         item_link_rejected_reason = "invalid url";
@@ -116,9 +84,6 @@ function normalize(item: any) {
     }
   }
 
-  // dce_url et source_url : on ne stocke QUE le vrai lien fiche.
-  // Si on n'en a pas, on laisse null (le bouton "Voir l'avis original" sera masqué côté front)
-  // plutôt que d'envoyer l'utilisateur sur une page de listing générique.
   const dce_url = item_link;
   const source_url = item_link;
 
@@ -161,10 +126,10 @@ Deno.serve(async (req) => {
     const items: any[] = Array.isArray(body.items) ? body.items : [];
     if (items.length === 0) return json({ inserted: 0, updated: 0, skipped: 0 });
 
-    let inserted = 0,
-      updated = 0,
-      skipped = 0;
-
+    // 1) Normalize + dedupe in-memory (last write wins on same key)
+    const normalized: ReturnType<typeof normalize>[] = [];
+    let skipped = 0;
+    const byKey = new Map<string, ReturnType<typeof normalize>>();
     for (const raw of items) {
       try {
         const row = normalize(raw);
@@ -172,45 +137,60 @@ Deno.serve(async (req) => {
           skipped++;
           continue;
         }
-        // Check existing to merge enriched_data
-        const { data: existing } = await supabase
-          .from("tenders")
-          .select("id, enriched_data")
-          .eq("source", row.source)
-          .eq("reference", row.reference)
-          .maybeSingle();
-
-        if (existing) {
-          const merged = {
-            ...(existing.enriched_data || {}),
-            ...(row.enriched_data || {}),
-          };
-          const { error } = await supabase
-            .from("tenders")
-            .update({ ...row, enriched_data: merged })
-            .eq("id", existing.id);
-          if (error) {
-            console.error("update error", error);
-            skipped++;
-          } else {
-            updated++;
-          }
-        } else {
-          const { error } = await supabase.from("tenders").insert(row);
-          if (error) {
-            console.error("insert error", error);
-            skipped++;
-          } else {
-            inserted++;
-          }
-        }
+        byKey.set(`${row.source}::${row.reference}`, row);
       } catch (e) {
         console.error("normalize error", e);
         skipped++;
       }
     }
+    for (const r of byKey.values()) normalized.push(r);
+    if (normalized.length === 0) {
+      return json({ inserted: 0, updated: 0, skipped, total: items.length });
+    }
 
-    return json({ inserted, updated, skipped, total: items.length });
+    // 2) Pre-fetch existing rows in 1 query to merge enriched_data
+    const sources = Array.from(new Set(normalized.map((r) => r.source)));
+    const refs = Array.from(new Set(normalized.map((r) => r.reference)));
+    const { data: existingRows, error: fetchErr } = await supabase
+      .from("tenders")
+      .select("id, source, reference, enriched_data")
+      .in("source", sources)
+      .in("reference", refs);
+    if (fetchErr) console.error("prefetch error", fetchErr);
+
+    const existingMap = new Map<string, { id: string; enriched_data: any }>();
+    for (const r of existingRows ?? []) {
+      existingMap.set(`${r.source}::${r.reference}`, { id: r.id, enriched_data: r.enriched_data });
+    }
+
+    // 3) Merge enriched_data and build final rows
+    const finalRows = normalized.map((row) => {
+      const ex = existingMap.get(`${row.source}::${row.reference}`);
+      if (ex) {
+        return { ...row, enriched_data: { ...(ex.enriched_data || {}), ...(row.enriched_data || {}) } };
+      }
+      return row;
+    });
+
+    const existingCount = finalRows.filter((r) => existingMap.has(`${r.source}::${r.reference}`)).length;
+    const newCount = finalRows.length - existingCount;
+
+    // 4) Single batch upsert
+    const { error: upsertErr } = await supabase
+      .from("tenders")
+      .upsert(finalRows, { onConflict: "source,reference", ignoreDuplicates: false });
+
+    if (upsertErr) {
+      console.error("batch upsert error", upsertErr);
+      return json({ error: upsertErr.message, inserted: 0, updated: 0, skipped: skipped + finalRows.length }, 500);
+    }
+
+    return json({
+      inserted: newCount,
+      updated: existingCount,
+      skipped,
+      total: items.length,
+    });
   } catch (e) {
     console.error("upsert-tenders error:", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
