@@ -328,6 +328,13 @@ const Tenders = () => {
                   {procedures.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <Select value={platformFilter} onValueChange={(v) => { setPlatformFilter(v); setPage(0); }}>
+                <SelectTrigger><SelectValue placeholder="Plateforme" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les plateformes</SelectItem>
+                  {platforms.map((p) => <SelectItem key={p} value={p}>{formatPlatformLabel(p)}</SelectItem>)}
+                </SelectContent>
+              </Select>
               <div className="flex items-center gap-2">
                 <Switch id="dce-filter" checked={dceFilter} onCheckedChange={(v) => { setDceFilter(v); setPage(0); }} />
                 <Label htmlFor="dce-filter" className="flex items-center gap-1.5 text-sm cursor-pointer">
