@@ -1288,20 +1288,33 @@ Deno.serve(async (req) => {
             `reason=${check.reason} size=${archiveSize} ct=${contentType} head=${head} tail=${tail}`,
           );
         } else {
-          const filename = `${tender_id}/agent_${Date.now()}.zip`;
+          // Browserbase wraps everything in an outer zip with UUID-named entries.
+          // Repack so the user gets a clean .zip whose contents have proper extensions.
+          const repacked = repackDceArchive(bytes, platform);
+          const finalBytes = repacked?.bytes ?? bytes;
+          const finalExt = repacked?.suggestedExt ?? "zip";
+          const finalSize = finalBytes.byteLength;
+          if (repacked) {
+            log("archive.repack", "ok", `entries=${repacked.entries} in=${archiveSize}B out=${finalSize}B ext=${finalExt}`);
+          } else {
+            log("archive.repack", "skipped", "fallback to raw bytes");
+          }
+
+          const filename = `${tender_id}/agent_${Date.now()}.${finalExt}`;
+          const mime = finalExt === "pdf" ? "application/pdf" : "application/zip";
           const { error: upErr } = await supabase.storage
             .from("dce-documents")
-            .upload(filename, bytes, { contentType: "application/zip", upsert: true });
+            .upload(filename, finalBytes, { contentType: mime, upsert: true });
           if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
-          log("storage.upload", "ok", `${filename} (${archiveSize} B) ct=${contentType} head=${head}`);
+          log("storage.upload", "ok", `${filename} (${finalSize} B) ct=${contentType} head=${head}`);
 
           if (triggered_by) {
             await supabase.from("dce_uploads").insert({
               tender_id,
               user_id: triggered_by,
-              file_name: `DCE_agent_${platform}.zip`,
+              file_name: `DCE_agent_${platform}.${finalExt}`,
               file_path: filename,
-              file_size: archiveSize,
+              file_size: finalSize,
               agent_run_id: runId,
             });
           }
