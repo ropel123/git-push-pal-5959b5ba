@@ -158,18 +158,8 @@ const Sourcing = () => {
     if (!adminLoading && isAdmin === false) navigate("/dashboard");
   }, [isAdmin, adminLoading, navigate]);
 
-  const load = async () => {
-    setLoading(true);
-    const [{ data: u }, { data: l }] = await Promise.all([
-      supabase.from("sourcing_urls").select("*").order("created_at", { ascending: false }),
-      supabase.from("scrape_logs").select("*").like("source", "scrape:%").order("started_at", { ascending: false }).limit(50),
-    ]);
-    setUrls((u as SourcingUrl[]) || []);
-    setLogs((l as ScrapeLog[]) || []);
-    setLoading(false);
-  };
+  // load/refetch piloté par TanStack Query (cf. top of file)
 
-  useEffect(() => { if (isAdmin) load(); }, [isAdmin]);
 
   const addUrl = async () => {
     if (!form.url.trim()) return;
@@ -933,7 +923,5 @@ const Sourcing = () => {
   );
 };
 
-// Tiny shim to avoid extra import
-const DialogDescription = ({ children }: { children?: React.ReactNode }) => <div className="text-sm text-muted-foreground">{children}</div>;
+// (DialogDescription importé depuis @/components/ui/dialog)
 
-export default Sourcing;
