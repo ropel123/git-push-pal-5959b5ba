@@ -116,6 +116,7 @@ const Tenders = () => {
     region: regionFilter,
     status: (statusFilter || undefined) as TenderStatus | undefined,
     procedure: procedureFilter,
+    platform: platformFilter,
     dceOnly: dceFilter,
     smart: smartFilter && profile ? { regions: profile.regions, keywords: profile.keywords } : null,
     enabled: profileLoaded,
