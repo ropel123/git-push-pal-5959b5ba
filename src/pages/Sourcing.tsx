@@ -24,7 +24,7 @@ const Sourcing = () => {
   const { toast } = useToast();
   const { isAdmin, loading: adminLoading } = useIsAdmin();
   const { data: urls = [], isLoading: urlsLoading, refetch: refetchUrls } = useSourcingUrls(!!isAdmin);
-  const { refetch: refetchLogs } = useScrapeLogs(!!isAdmin);
+  const { data: logs = [], refetch: refetchLogs } = useScrapeLogs(!!isAdmin);
   const loading = urlsLoading;
   const load = async () => {
     await Promise.all([refetchUrls(), refetchLogs()]);
