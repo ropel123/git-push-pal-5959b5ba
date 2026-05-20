@@ -45,12 +45,21 @@ Deno.serve(async (req) => {
     const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
     const eocdAt = findEOCD(bytes);
 
-    let unzipResult: { ok: boolean; files?: { name: string; size: number }[]; error?: string } = { ok: false };
+    let unzipResult: { ok: boolean; files?: { name: string; size: number; head_hex?: string; magic_ascii?: string }[]; error?: string } = { ok: false };
     try {
       const entries = unzipSync(bytes);
       unzipResult = {
         ok: true,
-        files: Object.entries(entries).map(([name, data]) => ({ name, size: (data as Uint8Array).byteLength })),
+        files: Object.entries(entries).map(([name, data]) => {
+          const u = data as Uint8Array;
+          const h = u.slice(0, 16);
+          return {
+            name,
+            size: u.byteLength,
+            head_hex: toHex(h),
+            magic_ascii: String.fromCharCode(...Array.from(h).map((b) => (b >= 32 && b < 127 ? b : 46))),
+          };
+        }),
       };
     } catch (e: any) {
       unzipResult = { ok: false, error: e?.message ?? String(e) };
