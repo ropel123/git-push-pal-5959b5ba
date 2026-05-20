@@ -23,57 +23,6 @@ import { Bot, Play, RefreshCw, Lock, BookOpen, Trash2, ExternalLink, CheckCircle
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
-type TraceEntry = { ts: string; step: string; status: "ok" | "skipped" | "failed"; duration_ms?: number; detail?: string };
-
-type Run = {
-  id: string;
-  platform: string;
-  status: string;
-  started_at: string;
-  finished_at: string | null;
-  duration_ms: number | null;
-  cost_usd: number | null;
-  captchas_solved: number | null;
-  files_downloaded: number | null;
-  error_message: string | null;
-  tender_id: string | null;
-  browserbase_session_id: string | null;
-  trace: TraceEntry[] | null;
-  dce_url: string;
-};
-
-type Robot = {
-  id: string;
-  platform: string;
-  login: string;
-  password_encrypted: string;
-  is_active: boolean;
-  success_count: number;
-  failure_count: number;
-  last_used_at: string | null;
-};
-
-type Playbook = {
-  id: string;
-  platform: string;
-  display_name: string;
-  url_pattern: string;
-  requires_auth: boolean;
-  requires_captcha: boolean;
-  steps: any;
-  is_active: boolean;
-};
-
-type AnonIdentity = {
-  id?: string;
-  email: string;
-  company_name: string;
-  siret: string;
-  last_name: string;
-  first_name: string;
-  phone: string;
-};
-
 const statusBadge = (s: string) => {
   const map: Record<string, string> = {
     success: "bg-green-500/20 text-green-400",
@@ -95,56 +44,44 @@ const traceIcon = (status: TraceEntry["status"]) => {
 const AgentMonitor = () => {
   const { toast } = useToast();
   const { isAdmin, loading: adminLoading } = useIsAdmin();
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [robots, setRobots] = useState<Robot[]>([]);
-  const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
-  const [, setLoading] = useState(true);
+
+  const { data: runs = [], refetch: refetchRuns } = useAgentRuns(!!isAdmin);
+  const { data: robots = [], refetch: refetchRobots } = usePlatformRobots(!!isAdmin);
+  const { data: playbooks = [] } = useAgentPlaybooks(!!isAdmin);
+  const { data: identityRow, refetch: refetchIdentity } = useAnonIdentity(!!isAdmin);
+
   const [testUrl, setTestUrl] = useState("");
   const [testing, setTesting] = useState(false);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
 
   const [newRobot, setNewRobot] = useState({ platform: "", login: "", password: "" });
-  const [identity, setIdentity] = useState<AnonIdentity>({
-    email: "", company_name: "", siret: "", last_name: "", first_name: "", phone: "",
+  const [identity, setIdentity] = useState({
+    id: undefined as string | undefined,
+    email: "",
+    company_name: "",
+    siret: "",
+    last_name: "",
+    first_name: "",
+    phone: "",
   });
   const [savingIdentity, setSavingIdentity] = useState(false);
 
-  const loadAll = async () => {
-    setLoading(true);
-    const [r1, r2, r3, r4] = await Promise.all([
-      supabase.from("agent_runs").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("platform_robots").select("*").order("platform"),
-      supabase.from("agent_playbooks").select("*").order("platform"),
-      supabase.from("agent_anonymous_identity").select("*").eq("is_default", true).maybeSingle(),
-    ]);
-    if (r1.data) setRuns(r1.data as unknown as Run[]);
-    if (r2.data) setRobots(r2.data as Robot[]);
-    if (r3.data) setPlaybooks(r3.data as Playbook[]);
-    if (r4.data) {
-      setIdentity({
-        id: r4.data.id,
-        email: r4.data.email ?? "",
-        company_name: r4.data.company_name ?? "",
-        siret: r4.data.siret ?? "",
-        last_name: r4.data.last_name ?? "",
-        first_name: r4.data.first_name ?? "",
-        phone: r4.data.phone ?? "",
-      });
-    }
-    setLoading(false);
-  };
+  // Hydrate identity form on first load / refetch
+  if (identityRow && identity.id !== identityRow.id) {
+    setIdentity({
+      id: identityRow.id,
+      email: identityRow.email,
+      company_name: identityRow.company_name,
+      siret: identityRow.siret ?? "",
+      last_name: identityRow.last_name,
+      first_name: identityRow.first_name,
+      phone: identityRow.phone ?? "",
+    });
+  }
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    loadAll();
-    const chan = supabase
-      .channel("agent_runs_realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "agent_runs" }, () => loadAll())
-      .subscribe();
-    return () => {
-      supabase.removeChannel(chan);
-    };
-  }, [isAdmin]);
+  const loadAll = async () => {
+    await Promise.all([refetchRuns(), refetchRobots(), refetchIdentity()]);
+  };
 
   if (adminLoading) {
     return <div className="container mx-auto p-6 text-sm text-muted-foreground">Chargement…</div>;
