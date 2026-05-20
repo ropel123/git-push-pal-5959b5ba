@@ -1,101 +1,99 @@
-# Refactoring stratégique — Plan en 4 chantiers
+# Plan — Chantier 4 (fin) puis Chantier 3 (TS strict)
 
-Objectif : exécuter les 4 refactorings identifiés à l'audit dans un ordre qui minimise les conflits (backend d'abord, puis types, puis UI). Estimation totale : 7-11 jours de travail consolidé en livraisons incrémentales.
+Livraison séquentielle : un seul plan ici pour le **chantier 4**, qui sera ouvert et validé en autonomie. Une fois mergé, j'ouvre un **second plan dédié** au chantier 3 (TS strict) pour ne pas mélanger les diffs.
 
-## Ordre d'exécution
+---
+
+## Chantier 4 — Migration TanStack Query (suite et fin)
+
+### Pages restantes à migrer
+
+| Page | Lectures actuelles | Hook(s) à créer |
+|---|---|---|
+| `Dashboard.tsx` | 6 requêtes (counts tenders/pipeline, monthly, pipeline distribution, recent pipeline, urgent, saved searches) | `useDashboardStats`, `useTendersMonthly`, `usePipelineDistribution`, `useRecentPipeline`, `useUrgentTenders`, `useSavedSearches` |
+| `Pipeline.tsx` | pipeline_items + comments + mutations stage/notes | `usePipelineItems`, `usePipelineComments`, mutations `useMovePipelineStage`, `useUpdatePipelineNotes`, `useAddPipelineComment` |
+| `Awards.tsx` | award_notices joints aux tenders | `useAwards` |
+| `BuyerDetail.tsx` | tenders d'un acheteur + awards associés | `useBuyerTenders`, réutilise `useAwards` filtré |
+| `SettingsPage.tsx` | profil + logo + roles | `useProfile`, mutation `useUpdateProfile` |
+| `Sourcing.tsx` | sourcing_urls + scrape_logs (admin) | `useSourcingUrls`, `useScrapeLogs`, mutations CRUD |
+| `AgentMonitor.tsx` | agent_runs + playbooks (admin) | `useAgentRuns`, `useAgentPlaybooks` |
+| `Activity.tsx` | logs récents | `useActivityFeed` |
+
+### Structure cible
 
 ```text
-Chantier 1 (1j)  →  Chantier 2 (1-2j)  →  Chantier 3 (2-3j)  →  Chantier 4 (3-5j)
-SQL + Upsert        AI Gateway          TS strict             TanStack Query
+src/hooks/
+  queries/
+    useTenders.ts          (déjà fait)
+    useDashboard.ts        (regroupe stats + monthly + distribution)
+    usePipeline.ts         (items + comments)
+    useAwards.ts
+    useBuyer.ts
+    useProfile.ts
+    useSourcing.ts
+    useAgentRuns.ts
+    useActivity.ts
+    useSavedSearches.ts
+  mutations/
+    usePipelineMutations.ts
+    useProfileMutations.ts
+    useSavedSearchMutations.ts
+    useSourcingMutations.ts
+  useDebounce.ts           (déjà fait)
 ```
 
-Chaque chantier est livré indépendamment, testable, et peut être validé avant de passer au suivant.
+### Conventions appliquées
+
+- `queryKey` typé en tableau `["domain", paramsObject]`, paramsObject sérialisable.
+- `enabled` systématique quand la query dépend de `user.id` ou d'un param.
+- `placeholderData: keepPreviousData` sur les listes paginées.
+- Mutations : `onSuccess` invalide les `queryKey` impactées (`queryClient.invalidateQueries({ queryKey: ["pipeline"] })`) → suppression des `fetchX()` manuels après écriture.
+- Toasts d'erreur centralisés via `onError` (utiliser le `useToast` existant).
+- Aucun changement de UI/UX visible — comportement strictement équivalent, juste mise en cache + refetch automatique au refocus.
+
+### Ordre d'exécution (2-3 jours)
+
+1. **Jour 1** — Dashboard + Awards + BuyerDetail (lectures simples, fort gain perçu sur le retour à `/dashboard`).
+2. **Jour 2** — Pipeline (avec mutations stage/notes/comments) + SavedSearches (partagé Dashboard/Tenders).
+3. **Jour 3** — SettingsPage + Sourcing + AgentMonitor + Activity (pages secondaires/admin).
+
+### Validation
+
+- Build vert, smoke test manuel route par route (Dashboard, /tenders, /tenders/:id, /pipeline, /awards, /buyers/:id, /settings, /sourcing, /agent-monitor, /activity).
+- Vérifier React Query DevTools (déjà présent) : pas de query dupliquée, pas de refetch en boucle.
+- Vérifier qu'aucun `setX` n'est resté dans les useEffect remplacés (grep `setLoading|setTenders|setItems...`).
+
+### Hors scope (volontaire)
+
+- Subscriptions realtime Supabase (à traiter dans un chantier ultérieur si besoin).
+- Optimistic updates fines sur le Kanban (peut être ajouté en option si le drag-drop perd en fluidité).
+- Migration des composants `DceUploadSection` / `MemoirAIChat` (UI lourde, peu de gain — restent en `supabase.from` direct).
 
 ---
 
-## Chantier 1 — Upsert batch + index SQL (1j)
+## Chantier 3 — TypeScript strict (plan séparé après merge du chantier 4)
 
-**Objectif** : passer de 2 round-trips par item à 1 seul appel batch, et accélérer les requêtes Dashboard/Tenders.
+À l'issue du chantier 4, j'ouvre un **nouveau plan** structuré ainsi :
 
-- **Migration SQL** : index sur `tenders(status)`, `tenders(region)`, `tenders(deadline)`, `tenders(source, reference)` (composite pour upsert), `pipeline_items(user_id, stage)`.
-- **Contrainte unique** sur `tenders(source, reference)` si absente (requise pour `onConflict`).
-- **Refactor `upsert-tenders/index.ts`** :
-  - Normaliser tous les items en mémoire
-  - Un seul `supabase.from('tenders').upsert(rows, { onConflict: 'source,reference', ignoreDuplicates: false })`
-  - Pour le merge `enriched_data` : pré-fetch en 1 query `IN (...)` puis merge côté JS avant upsert
-- **Bénéfice mesuré attendu** : 10-50× sur les gros batches (>100 items), élimine les timeouts edge function.
+1. **Audit préalable** : activer `strict: true` localement, compter et catégoriser les erreurs (`tsc --noEmit | sort | uniq -c`).
+2. **Découpage par lot** :
+   - Lot A : `src/lib/*`, `src/hooks/*` (fondations).
+   - Lot B : `src/components/ui/*` (peu d'erreurs, surtout `noImplicitAny`).
+   - Lot C : `src/components/*` (composants métier).
+   - Lot D : `src/pages/*` (typiquement les plus gros).
+   - Lot E : `supabase/functions/*` (Deno, tsconfig séparé).
+3. **Stratégie de correction** :
+   - Remplacer `any` par les types `Database["public"]["Tables"][...]["Row"]` de `integrations/supabase/types.ts`.
+   - Ajouter `null` guards sur les `.data` Supabase.
+   - Préciser les `useState<T>()` non initialisés.
+   - **Aucun `// @ts-expect-error`** sauf cas documenté.
+4. **Activation finale** : commit unique qui flip `strict: true` une fois tous les lots verts.
+5. **Validation** : `tsc --noEmit` 0 erreur + build vert + run de l'app.
 
----
-
-## Chantier 2 — AI Gateway centralisé (1-2j)
-
-**Objectif** : un seul point d'entrée pour tous les appels IA, avec retry/fallback unifié.
-
-- **Créer `supabase/functions/_shared/aiGateway.ts`** exposant :
-  - `callAI({ provider: 'claude' | 'gemini', messages, tools?, jsonSchema?, maxTokens })`
-  - Fallback automatique Claude → Gemini sur 429/402/timeout
-  - Retry exponential backoff (3 tentatives)
-  - Logging unifié (model, tokens, latency, cost estimé)
-- **Migrer les call sites** :
-  - `analyze-tender` : repasser sur Claude 3.5 Sonnet (OpenRouter) avec fallback Gemini — actuellement Gemini Flash uniquement, viole `mem://architecture/strategie-ia`
-  - `generate-memoir`, `generate-pricing-strategy`, `generate-tender-document` : utiliser le gateway
-  - `aiClassifier.ts` + `aiClassifierAnthropic.ts` : factoriser le dispatcher sur `aiGateway`
-- **Bénéfice** : un seul endroit pour changer de modèle, retry cohérent, observabilité homogène.
+Le chantier 3 sera estimé plus précisément après l'audit du lot 1 (probablement 2-3 jours mais peut s'étendre selon le volume réel d'erreurs).
 
 ---
 
-## Chantier 3 — TypeScript strict mode (2-3j)
+## Décision demandée
 
-**Objectif** : activer `strict: true` et éliminer les `any`.
-
-- **Activer dans `tsconfig.app.json`** :
-  - `strict: true`
-  - `noImplicitAny: true`
-  - `strictNullChecks: true`
-- **Corriger les ~50-100 erreurs attendues** par lots :
-  1. Pages (`Tenders.tsx`, `TenderDetail.tsx`, `Dashboard.tsx`, `Pipeline.tsx`, `Sourcing.tsx`, `Onboarding.tsx`)
-  2. Composants critiques (`MemoirAIChat`, `PricingChat`, `TenderAnalysisSection`, `TenderDocumentGenerator`)
-  3. Hooks (`useIsAdmin`, `use-toast`)
-  4. Lib (`scoring.ts`, `generatePdf.ts`, `generatePptx.ts`)
-- **Typer correctement** les retours Supabase (`Database['public']['Tables']['tenders']['Row']` etc.)
-- **Edge functions Deno** : appliquer également (déjà partiellement typées)
-- **Bénéfice** : élimination d'une classe entière de bugs runtime, autocomplete fiable.
-
----
-
-## Chantier 4 — TanStack Query partout (3-5j)
-
-**Objectif** : remplacer les `useState/useEffect` manuels par des hooks React Query.
-
-- **Configurer `QueryClient`** dans `App.tsx` :
-  - `staleTime: 60_000` (1 min par défaut)
-  - `refetchOnWindowFocus: false` pour les listes lourdes
-- **Créer `src/hooks/queries/`** :
-  - `useTenders(filters)` — remplace fetch manuel dans `Tenders.tsx` + `Dashboard.tsx`
-  - `useTender(id)` — `TenderDetail.tsx`
-  - `usePipelineItems()` — `Pipeline.tsx`
-  - `useAwards()` — `Awards.tsx`
-  - `useProfile()` — `Onboarding.tsx` + `SettingsPage.tsx`
-  - `useSourcingUrls()` — `Sourcing.tsx`
-  - `useTenderAnalyses(tenderId)` — `TenderAnalysisSection`
-- **Créer `src/hooks/mutations/`** :
-  - `useUpdatePipelineStage()` avec invalidation
-  - `useDeleteSourcingUrl()` etc.
-- **Migrer page par page**, en gardant l'ancien code jusqu'à validation
-- **Bénéfice** : cache partagé entre pages, refetch automatique, états loading/error standardisés, suppression de ~300 lignes de boilerplate.
-
----
-
-## Livraison & validation
-
-À la fin de chaque chantier :
-1. Build + typecheck verts
-2. Test manuel sur les pages impactées
-3. Validation utilisateur avant de passer au chantier suivant
-
-## Notes techniques
-
-- Les chantiers 1 et 2 touchent uniquement le backend Supabase (functions + migrations), aucun risque UI.
-- Le chantier 3 (strict) peut révéler des bugs latents — prévoir une demi-journée de marge.
-- Le chantier 4 est le plus visible côté UX (loading states plus rapides grâce au cache).
-- Les Quick Wins de l'audit (`.env` git, auth guards, etc.) sont **hors scope** de ce plan stratégique — à traiter séparément si besoin.
+Approuve ce plan pour lancer le **chantier 4** (fin de migration TanStack Query). Le chantier 3 sera proposé dans un plan dédié juste après.

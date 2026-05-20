@@ -12,14 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Save, Plus, Trash2, Bell, Palette, Upload, FileText, Award, Building2, Bot, Globe, MapPin, Tag, Users, Wrench, Briefcase } from "lucide-react";
 import MemoirAIChat from "@/components/MemoirAIChat";
-
-interface Alert {
-  id: string;
-  name: string;
-  filters: any;
-  frequency: string | null;
-  enabled: boolean | null;
-}
+import { useProfile, useUpdateProfile } from "@/hooks/queries/useProfile";
+import { useAlerts, useCreateAlert, useToggleAlert, useDeleteAlert } from "@/hooks/queries/useAlerts";
 
 interface Reference {
   title: string;
@@ -44,56 +38,48 @@ const SettingsPage = () => {
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [newAlertName, setNewAlertName] = useState("");
   const [newAlertKeywords, setNewAlertKeywords] = useState("");
   const [newAlertFrequency, setNewAlertFrequency] = useState("daily");
   const [references, setReferences] = useState<Reference[]>([]);
   const [newRef, setNewRef] = useState<Reference>({ title: "", client: "", amount: "", date: "", description: "" });
 
-  const loadProfile = async () => {
-    if (!user) return;
-    const { data } = await supabase.from("profiles").select("*").eq("user_id", user.id).single();
-    if (data) {
-      setProfile({
-        company_name: data.company_name ?? "",
-        siren: data.siren ?? "",
-        sectors: (data.sectors as string[])?.join(", ") ?? "",
-        regions: (data.regions as string[])?.join(", ") ?? "",
-        keywords: (data.keywords as string[])?.join(", ") ?? "",
-        company_size: data.company_size ?? "",
-        company_description: (data as any).company_description ?? "",
-        company_website: (data as any).company_website ?? "",
-        primary_color: (data as any).primary_color ?? "#F97316",
-        secondary_color: (data as any).secondary_color ?? "#1E293B",
-        company_certifications: ((data as any).company_certifications as string[])?.join(", ") ?? "",
-        company_skills: (data as any).company_skills ?? "",
-        company_team: (data as any).company_team ?? "",
-        company_equipment: (data as any).company_equipment ?? "",
-        company_past_work: (data as any).company_past_work ?? "",
-      });
-      if ((data as any).company_logo_path) {
-        supabase.storage.from("company-assets").createSignedUrl((data as any).company_logo_path, 3600)
-          .then(({ data: urlData }) => {
-            if (urlData?.signedUrl) setLogoPreview(urlData.signedUrl);
-          });
-      }
-      const refs = (data as any).company_references;
-      if (Array.isArray(refs)) setReferences(refs);
-    }
-  };
+  const { data: profileData, refetch: refetchProfile } = useProfile(user?.id);
+  const { data: alerts = [] } = useAlerts(user?.id);
+  const updateProfileMutation = useUpdateProfile();
+  const createAlertMutation = useCreateAlert();
+  const toggleAlertMutation = useToggleAlert();
+  const deleteAlertMutation = useDeleteAlert();
 
+  // Synchronise le state local d'édition avec la donnée serveur fraîchement chargée.
   useEffect(() => {
-    if (!user) return;
-    loadProfile();
-    fetchAlerts();
-  }, [user]);
-
-  const fetchAlerts = async () => {
-    if (!user) return;
-    const { data } = await supabase.from("alerts").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
-    if (data) setAlerts(data as Alert[]);
-  };
+    if (!profileData) return;
+    const data = profileData as any;
+    setProfile({
+      company_name: data.company_name ?? "",
+      siren: data.siren ?? "",
+      sectors: (data.sectors as string[])?.join(", ") ?? "",
+      regions: (data.regions as string[])?.join(", ") ?? "",
+      keywords: (data.keywords as string[])?.join(", ") ?? "",
+      company_size: data.company_size ?? "",
+      company_description: data.company_description ?? "",
+      company_website: data.company_website ?? "",
+      primary_color: data.primary_color ?? "#F97316",
+      secondary_color: data.secondary_color ?? "#1E293B",
+      company_certifications: (data.company_certifications as string[])?.join(", ") ?? "",
+      company_skills: data.company_skills ?? "",
+      company_team: data.company_team ?? "",
+      company_equipment: data.company_equipment ?? "",
+      company_past_work: data.company_past_work ?? "",
+    });
+    if (data.company_logo_path) {
+      supabase.storage.from("company-assets").createSignedUrl(data.company_logo_path, 3600)
+        .then(({ data: urlData }) => {
+          if (urlData?.signedUrl) setLogoPreview(urlData.signedUrl);
+        });
+    }
+    if (Array.isArray(data.company_references)) setReferences(data.company_references);
+  }, [profileData]);
 
   const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -107,41 +93,49 @@ const SettingsPage = () => {
   const handleSaveProfile = async () => {
     if (!user) return;
     setLoading(true);
-    const { error } = await supabase.from("profiles").update({
-      company_name: profile.company_name || null,
-      siren: profile.siren || null,
-      sectors: profile.sectors.split(",").map((s) => s.trim()).filter(Boolean),
-      regions: profile.regions.split(",").map((s) => s.trim()).filter(Boolean),
-      keywords: profile.keywords.split(",").map((s) => s.trim()).filter(Boolean),
-      company_size: profile.company_size || null,
-      company_description: profile.company_description || null,
-      company_website: profile.company_website || null,
-    }).eq("user_id", user.id);
-    if (error) {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await updateProfileMutation.mutateAsync({
+        userId: user.id,
+        patch: {
+          company_name: profile.company_name || null,
+          siren: profile.siren || null,
+          sectors: profile.sectors.split(",").map((s) => s.trim()).filter(Boolean),
+          regions: profile.regions.split(",").map((s) => s.trim()).filter(Boolean),
+          keywords: profile.keywords.split(",").map((s) => s.trim()).filter(Boolean),
+          company_size: profile.company_size || null,
+          company_description: profile.company_description || null,
+          company_website: profile.company_website || null,
+        },
+      });
       toast({ title: "Profil sauvegardé ✓" });
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSaveMemoir = async () => {
     if (!user) return;
     setLoading(true);
-    const { error } = await supabase.from("profiles").update({
-      company_certifications: profile.company_certifications.split(",").map((s) => s.trim()).filter(Boolean),
-      company_skills: profile.company_skills || null,
-      company_team: profile.company_team || null,
-      company_equipment: profile.company_equipment || null,
-      company_past_work: profile.company_past_work || null,
-      company_references: references as any,
-    }).eq("user_id", user.id);
-    if (error) {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await updateProfileMutation.mutateAsync({
+        userId: user.id,
+        patch: {
+          company_certifications: profile.company_certifications.split(",").map((s) => s.trim()).filter(Boolean),
+          company_skills: profile.company_skills || null,
+          company_team: profile.company_team || null,
+          company_equipment: profile.company_equipment || null,
+          company_past_work: profile.company_past_work || null,
+          company_references: references,
+        },
+      });
       toast({ title: "Mémoire technique sauvegardé ✓" });
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSaveBranding = async () => {
@@ -154,17 +148,21 @@ const SettingsPage = () => {
       const { error: uploadErr } = await supabase.storage.from("company-assets").upload(path, logoFile, { upsert: true });
       if (!uploadErr) logoPath = path;
     }
-    const { error } = await supabase.from("profiles").update({
-      primary_color: profile.primary_color,
-      secondary_color: profile.secondary_color,
-      ...(logoPath ? { company_logo_path: logoPath } : {}),
-    }).eq("user_id", user.id);
-    if (error) {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await updateProfileMutation.mutateAsync({
+        userId: user.id,
+        patch: {
+          primary_color: profile.primary_color,
+          secondary_color: profile.secondary_color,
+          ...(logoPath ? { company_logo_path: logoPath } : {}),
+        },
+      });
       toast({ title: "Identité visuelle sauvegardée ✓" });
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const addReference = () => {
@@ -179,28 +177,32 @@ const SettingsPage = () => {
 
   const addAlert = async () => {
     if (!user || !newAlertName.trim()) return;
-    const { error } = await supabase.from("alerts").insert({
-      user_id: user.id, name: newAlertName.trim(),
-      filters: { keywords: newAlertKeywords.split(",").map((s) => s.trim()).filter(Boolean) },
-      frequency: newAlertFrequency, enabled: true,
-    });
-    if (error) {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Alerte créée ✓" }); setNewAlertName(""); setNewAlertKeywords(""); fetchAlerts();
+    try {
+      await createAlertMutation.mutateAsync({
+        user_id: user.id,
+        name: newAlertName.trim(),
+        filters: { keywords: newAlertKeywords.split(",").map((s) => s.trim()).filter(Boolean) },
+        frequency: newAlertFrequency,
+        enabled: true,
+      });
+      toast({ title: "Alerte créée ✓" });
+      setNewAlertName("");
+      setNewAlertKeywords("");
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
     }
   };
 
-  const toggleAlert = async (alertId: string, enabled: boolean) => {
-    await supabase.from("alerts").update({ enabled }).eq("id", alertId);
-    setAlerts((prev) => prev.map((a) => (a.id === alertId ? { ...a, enabled } : a)));
+  const toggleAlert = (alertId: string, enabled: boolean) => {
+    toggleAlertMutation.mutate({ id: alertId, enabled });
   };
 
-  const deleteAlert = async (alertId: string) => {
-    await supabase.from("alerts").delete().eq("id", alertId);
-    setAlerts((prev) => prev.filter((a) => a.id !== alertId));
-    toast({ title: "Alerte supprimée" });
+  const deleteAlert = (alertId: string) => {
+    deleteAlertMutation.mutate(alertId, {
+      onSuccess: () => toast({ title: "Alerte supprimée" }),
+    });
   };
+
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -308,7 +310,7 @@ const SettingsPage = () => {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <MemoirAIChat onMemoirSaved={loadProfile} />
+              <MemoirAIChat onMemoirSaved={() => { refetchProfile(); }} />
             </CardContent>
           </Card>
 
@@ -523,7 +525,7 @@ const SettingsPage = () => {
                         <p className="text-sm font-medium text-foreground">{alert.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {alert.frequency === "daily" ? "Quotidienne" : alert.frequency === "weekly" ? "Hebdomadaire" : alert.frequency}
-                          {alert.filters?.keywords?.length > 0 && ` · ${alert.filters.keywords.join(", ")}`}
+                          {(alert.filters as any)?.keywords?.length > 0 && ` · ${(alert.filters as any).keywords.join(", ")}`}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
