@@ -1,45 +1,25 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, Award, Euro, Users } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-
-interface AwardNotice {
-  id: string;
-  winner_name: string | null;
-  winner_siren: string | null;
-  awarded_amount: number | null;
-  num_candidates: number | null;
-  award_date: string | null;
-  contract_duration: string | null;
-  tenders: { title: string; buyer_name: string | null } | null;
-}
+import { useAwards } from "@/hooks/queries/useAwards";
 
 const Awards = () => {
-  const [awards, setAwards] = useState<AwardNotice[]>([]);
+  const { data: awards = [], isLoading: loading } = useAwards(100);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase
-        .from("award_notices")
-        .select("*, tenders(title, buyer_name)")
-        .order("award_date", { ascending: false })
-        .limit(100);
-      if (data) setAwards(data as AwardNotice[]);
-      setLoading(false);
-    };
-    fetch();
-  }, []);
-
-  const filtered = awards.filter((a) => {
+  const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return !q || a.winner_name?.toLowerCase().includes(q) || a.tenders?.title.toLowerCase().includes(q);
-  });
+    if (!q) return awards;
+    return awards.filter(
+      (a) =>
+        a.winner_name?.toLowerCase().includes(q) ||
+        a.tenders?.title.toLowerCase().includes(q),
+    );
+  }, [awards, search]);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
