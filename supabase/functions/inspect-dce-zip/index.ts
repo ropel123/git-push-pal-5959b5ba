@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(supabaseUrl, serviceKey);
 
-    const { file_path } = await req.json();
+    const { file_path, repack } = await req.json();
     if (!file_path || typeof file_path !== "string") {
       return new Response(JSON.stringify({ error: "file_path required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -59,12 +59,13 @@ Deno.serve(async (req) => {
     const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
     const eocdAt = findEOCD(bytes);
 
-    let unzipResult: { ok: boolean; files?: { name: string; size: number; head_hex?: string; magic_ascii?: string }[]; error?: string } = { ok: false };
+    let unzipResult: { ok: boolean; files?: { name: string; size: number; head_hex?: string; magic_ascii?: string; ext?: string }[]; error?: string } = { ok: false };
+    let entriesObj: Record<string, Uint8Array> | null = null;
     try {
-      const entries = unzipSync(bytes);
+      entriesObj = unzipSync(bytes);
       unzipResult = {
         ok: true,
-        files: Object.entries(entries).map(([name, data]) => {
+        files: Object.entries(entriesObj).map(([name, data]) => {
           const u = data as Uint8Array;
           const h = u.slice(0, 16);
           return {
@@ -72,11 +73,46 @@ Deno.serve(async (req) => {
             size: u.byteLength,
             head_hex: toHex(h),
             magic_ascii: String.fromCharCode(...Array.from(h).map((b) => (b >= 32 && b < 127 ? b : 46))),
+            ext: detectExtension(u),
           };
         }),
       };
     } catch (e: any) {
       unzipResult = { ok: false, error: e?.message ?? String(e) };
+    }
+
+    let repackResult: any = null;
+    if (repack === true && entriesObj) {
+      const names = Object.keys(entriesObj);
+      let finalBytes: Uint8Array;
+      let finalExt = "zip";
+      if (names.length === 1) {
+        const only = entriesObj[names[0]];
+        const ext = detectExtension(only);
+        if (ext === "zip") {
+          finalBytes = only;
+        } else {
+          finalBytes = zipSync({ [`DCE.${ext}`]: only });
+        }
+      } else {
+        const renamed: Record<string, Uint8Array> = {};
+        names.forEach((n, i) => {
+          const data = entriesObj![n];
+          const ext = detectExtension(data);
+          renamed[`file_${String(i + 1).padStart(2, "0")}.${ext}`] = data;
+        });
+        finalBytes = zipSync(renamed);
+      }
+
+      const { error: upErr } = await admin.storage
+        .from("dce-documents")
+        .upload(file_path, finalBytes, { contentType: "application/zip", upsert: true });
+      if (upErr) {
+        repackResult = { ok: false, error: upErr.message };
+      } else {
+        await admin.from("dce_uploads").update({ file_size: finalBytes.byteLength }).eq("file_path", file_path);
+        repackResult = { ok: true, new_size: finalBytes.byteLength, ext: finalExt };
+      }
     }
 
     return new Response(
@@ -89,6 +125,7 @@ Deno.serve(async (req) => {
         eocd_offset: eocdAt,
         eocd_from_end: eocdAt >= 0 ? size - eocdAt : null,
         unzip: unzipResult,
+        repack: repackResult,
       }, null, 2),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
