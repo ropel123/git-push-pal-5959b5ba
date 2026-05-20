@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { useSourcingUrls, useScrapeLogs, type SourcingUrl } from "@/hooks/queries/useSourcingAdmin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil, Search, X, ChevronDown } from "lucide-react";
@@ -18,41 +19,16 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { detectPlatform, PLATFORMS } from "@/lib/detectPlatform";
 
-type SourcingUrl = {
-  id: string;
-  url: string;
-  platform: string;
-  display_name: string | null;
-  frequency_hours: number;
-  is_active: boolean;
-  parser_type: string;
-  last_run_at: string | null;
-  last_status: string | null;
-  last_items_found: number | null;
-  last_items_inserted: number | null;
-  last_error: string | null;
-  metadata: any;
-};
-
-type ScrapeLog = {
-  id: string;
-  source: string;
-  status: string;
-  started_at: string;
-  finished_at: string | null;
-  items_found: number | null;
-  items_inserted: number | null;
-  items_updated: number | null;
-  errors: string | null;
-};
-
 const Sourcing = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { isAdmin, loading: adminLoading } = useIsAdmin();
-  const [urls, setUrls] = useState<SourcingUrl[]>([]);
-  const [logs, setLogs] = useState<ScrapeLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: urls = [], isLoading: urlsLoading, refetch: refetchUrls } = useSourcingUrls(!!isAdmin);
+  const { refetch: refetchLogs } = useScrapeLogs(!!isAdmin);
+  const loading = urlsLoading;
+  const load = async () => {
+    await Promise.all([refetchUrls(), refetchLogs()]);
+  };
   const [running, setRunning] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
