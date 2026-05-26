@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight, FileText, Sparkles } from "lucide-react";
+import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight, FileText, Sparkles, ExternalLink, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
