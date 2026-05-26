@@ -1838,15 +1838,15 @@ Deno.serve(async (req) => {
 
   try {
     const result = await Promise.race([runMain(), hardTimeout]);
-    if (cdp) cdp.close();
-    if (sessionId) await closeBrowserbaseSession(sessionId);
+    // NB: cdp.close() et closeBrowserbaseSession sont déclenchés en arrière-plan
+    // par finalize() pour éviter de dépasser le budget CPU avant la réponse.
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
     console.error("[agent] FATAL", err);
-    if (cdp) cdp.close();
-    if (sessionId) await closeBrowserbaseSession(sessionId);
+    try { if (cdp) cdp.close(); } catch (_) {}
+    try { if (sessionId) await closeBrowserbaseSession(sessionId); } catch (_) {}
     if (runId) {
       const isTimeout = /timeout/i.test(err.message ?? "");
       await supabase
