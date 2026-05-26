@@ -121,6 +121,18 @@ const Tenders = () => {
 
   const debouncedSearch = useDebounce(search, 300);
 
+  // Load distinct listing hosts when platform filter is a scrape source
+  useEffect(() => {
+    if (platformFilter && platformFilter !== "all" && platformFilter.startsWith("scrape:")) {
+      (supabase.rpc as any)("get_distinct_listing_hosts", { _source: platformFilter }).then(({ data }: any) => {
+        if (data) setListingHosts(data as { host: string; count: number }[]);
+      });
+    } else {
+      setListingHosts([]);
+      setListingHostFilter("");
+    }
+  }, [platformFilter]);
+
   const tendersQuery = useTenders({
     page,
     pageSize: PAGE_SIZE,
@@ -129,6 +141,7 @@ const Tenders = () => {
     status: (statusFilter || undefined) as TenderStatus | undefined,
     procedure: procedureFilter,
     platform: platformFilter,
+    listingHost: listingHostFilter,
     dceOnly: dceFilter,
     smart: smartFilter && profile ? { regions: profile.regions, keywords: profile.keywords } : null,
     enabled: profileLoaded,
