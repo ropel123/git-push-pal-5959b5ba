@@ -1053,15 +1053,28 @@ Deno.serve(async (req) => {
 
 
     const insertPayload: Record<string, unknown> = {
-      tender_id, platform, dce_url, status: "running", triggered_by: triggered_by ?? null,
+      tender_id,
+      platform,
+      dce_url,
+      status: "running",
+      triggered_by: triggered_by ?? null,
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error_message: null,
+      live_view_url: null,
+      browserbase_session_id: null,
+      trace: [],
+      files_downloaded: 0,
+      captchas_solved: 0,
+      cost_usd: 0,
+      duration_ms: null,
     };
     if (providedRunId) insertPayload.id = providedRunId;
-    const { data: runRow, error: runErr } = await supabase
-      .from("agent_runs")
-      .insert(insertPayload)
-      .select("id")
-      .single();
-    if (runErr) throw new Error(`agent_runs insert: ${runErr.message}`);
+    const runQuery = providedRunId
+      ? supabase.from("agent_runs").upsert(insertPayload, { onConflict: "id" })
+      : supabase.from("agent_runs").insert(insertPayload);
+    const { data: runRow, error: runErr } = await runQuery.select("id").single();
+    if (runErr) throw new Error(`agent_runs start: ${runErr.message}`);
     runId = runRow.id;
 
     let { data: playbook } = await supabase
