@@ -490,7 +490,7 @@ const Sourcing = () => {
                     <ChevronDown className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="max-h-[400px] overflow-y-auto">
                   <DropdownMenuItem onClick={() => reclassifyAll("custom")}>
                     <Wand2 className="mr-2 h-4 w-4" />
                     Relancer uniquement les custom ({urls.filter((u) => u.platform === "custom" || u.platform === "safetender").length})
@@ -499,6 +499,29 @@ const Sourcing = () => {
                     <RefreshCcw className="mr-2 h-4 w-4" />
                     Relancer toutes les URLs ({urls.length})
                   </DropdownMenuItem>
+                  {(() => {
+                    const counts = urls.reduce<Record<string, number>>((acc, u) => {
+                      const p = u.platform || "custom";
+                      acc[p] = (acc[p] ?? 0) + 1;
+                      return acc;
+                    }, {});
+                    const entries = Object.entries(counts)
+                      .filter(([p]) => p !== "custom" && p !== "safetender")
+                      .sort((a, b) => b[1] - a[1]);
+                    if (entries.length === 0) return null;
+                    return (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">Par plateforme</DropdownMenuLabel>
+                        {entries.map(([platform, count]) => (
+                          <DropdownMenuItem key={platform} onClick={() => reclassifyAll({ platform })}>
+                            <Wand2 className="mr-2 h-4 w-4" />
+                            Relancer uniquement {platform} ({count})
+                          </DropdownMenuItem>
+                        ))}
+                      </>
+                    );
+                  })()}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
