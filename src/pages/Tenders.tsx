@@ -94,18 +94,13 @@ const Tenders = () => {
         setProfileLoaded(true);
       });
       fetchSavedSearches();
-      supabase.from("tenders").select("procedure_type").not("procedure_type", "is", null).then(({ data }) => {
-        if (data) {
-          const unique = [...new Set(data.map((d) => d.procedure_type).filter(Boolean))] as string[];
-          setProcedures(unique);
-        }
+      supabase.rpc("get_distinct_tender_procedures").then(({ data }) => {
+        if (data) setProcedures((data as { procedure_type: string }[]).map((d) => d.procedure_type));
       });
-      supabase.from("tenders").select("source").not("source", "is", null).then(({ data }) => {
-        if (data) {
-          const unique = [...new Set(data.map((d) => d.source).filter(Boolean))] as string[];
-          setPlatforms(unique.sort());
-        }
+      supabase.rpc("get_distinct_tender_sources").then(({ data }) => {
+        if (data) setPlatforms((data as { source: string }[]).map((d) => d.source));
       });
+
     }
   }, [user]);
 

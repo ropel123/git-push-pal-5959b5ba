@@ -962,6 +962,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_distinct_tender_procedures: {
+        Args: never
+        Returns: {
+          procedure_type: string
+        }[]
+      }
+      get_distinct_tender_sources: {
+        Args: never
+        Returns: {
+          source: string
+        }[]
+      }
       get_unprocessed_tenders: {
         Args: { _limit?: number; _platform_filter?: string }
         Returns: {
