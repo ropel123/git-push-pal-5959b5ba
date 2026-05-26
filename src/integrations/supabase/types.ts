@@ -1019,6 +1019,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_distinct_listing_hosts: {
+        Args: { _source: string }
+        Returns: {
+          count: number
+          host: string
+        }[]
+      }
       get_distinct_tender_procedures: {
         Args: never
         Returns: {

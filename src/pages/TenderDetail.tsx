@@ -274,6 +274,44 @@ const TenderDetail = () => {
         </div>
       </div>
 
+      {/* Origine du scraping */}
+      {(() => {
+        const t: any = tender;
+        const rawUrl = t.enriched_data?.raw?._source_url as string | undefined;
+        const host = rawUrl ? (() => { try { return new URL(rawUrl).host; } catch { return null; } })() : null;
+        const rows: { label: string; value: string | null }[] = [
+          { label: "Source", value: t.source ?? null },
+          { label: "URL listing", value: rawUrl ?? null },
+          { label: "URL avis", value: t.source_url ?? null },
+          { label: "URL DCE", value: t.dce_url ?? null },
+        ].filter((r) => r.value);
+        if (rows.length === 0) return null;
+        return (
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+                <ExternalLink className="h-4 w-4" /> Origine du scraping
+                {host && <Badge variant="outline" className="ml-2 text-[10px]">{host}</Badge>}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {rows.map((r) => (
+                <div key={r.label} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 text-xs">
+                  <span className="font-medium text-muted-foreground shrink-0 w-24">{r.label}</span>
+                  {/^https?:\/\//i.test(r.value!) ? (
+                    <a href={r.value!} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all inline-flex items-center gap-1">
+                      {r.value}<ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
+                  ) : (
+                    <span className="break-all text-foreground">{r.value}</span>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* Description */}
       {tender.description ? (
         <Card className="bg-card border-border">
