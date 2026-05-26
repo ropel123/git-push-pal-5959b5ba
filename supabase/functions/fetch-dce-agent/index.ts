@@ -1406,6 +1406,91 @@ Deno.serve(async (req) => {
             break;
           }
 
+          case "branch_login_if_required": {
+            const isLogin = await cdp.eval(jsDetectLoginScreen());
+            if (!isLogin) {
+              log(label, "skipped", "pas d'écran login détecté (mode anonyme OK)", Date.now() - stepStart);
+              break;
+            }
+            if (!robot) {
+              log(label, "skipped", "login requis mais aucun robot disponible", Date.now() - stepStart);
+              break;
+            }
+            const fillJs = `
+(() => {
+  const login = ${JSON.stringify(robot.login)};
+  const pwd = ${JSON.stringify(robot.password_encrypted)};
+  const setVal = (el, v) => {
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v);
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+    el.dispatchEvent(new Event('change',{bubbles:true}));
+  };
+  const pwdEl = document.querySelector('input[type=password]');
+  if (!pwdEl) return { ok:false };
+  const all = Array.from(document.querySelectorAll('input'));
+  const idx = all.indexOf(pwdEl);
+  let loginEl = null;
+  for (let i = idx-1; i >= 0; i--) {
+    const t = (all[i].type||'').toLowerCase();
+    if (['text','email',''].includes(t)) { loginEl = all[i]; break; }
+  }
+  if (loginEl) setVal(loginEl, login);
+  setVal(pwdEl, pwd);
+  return { ok:true };
+})()`;
+            const fr = await cdp.eval(fillJs);
+            if (!fr?.ok) {
+              log(label, "skipped", "fill_login a échoué", Date.now() - stepStart);
+              break;
+            }
+            const submit = await cdp.eval(jsClickByText("Se connecter / Connexion / Valider / OK"));
+            await new Promise((r) => setTimeout(r, 2000));
+            const cap = await cdp.eval(jsDetectImageCaptcha()).catch(() => false);
+            if (cap) {
+              try {
+                const b64 = await cdp.eval(jsCaptureCaptchaBase64());
+                if (b64 && typeof b64 === "string" && b64.length > 50) {
+                  const solution = await solveImageCaptcha(b64);
+                  await cdp.eval(jsFillCaptchaInput(solution));
+                  captchasSolved++;
+                }
+              } catch (_) { /* noop */ }
+            }
+            log(label, "ok", `login=${robot.login}${submit?.clicked ? " + submit" : ""}`, Date.now() - stepStart);
+            break;
+          }
+          case "download_all_pieces": {
+            const snapshot = await cdp.eval(jsSnapshotClickables()) as Array<any> | null;
+            if (!Array.isArray(snapshot) || snapshot.length === 0) {
+              log(label, "skipped", "aucun cliquable visible", Date.now() - stepStart);
+              break;
+            }
+            const re = /(t[ée]l[ée]charger|download|retrait)/i;
+            const allBtn = snapshot.find((c: any) => /tout\s*t[ée]l[ée]charger|t[ée]l[ée]charger\s*tout|download\s*all/i.test(`${c.text} ${c.aria} ${c.title}`));
+            const targets = allBtn
+              ? [allBtn]
+              : snapshot.filter((c: any) => re.test(`${c.text} ${c.aria} ${c.title}`));
+            if (targets.length === 0) {
+              const top5 = snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag} "${String(c.text).slice(0, 30)}"`).join(" | ");
+              log(label, "skipped", `aucun bouton Télécharger — top5: ${top5}`, Date.now() - stepStart);
+              break;
+            }
+            let clicked = 0;
+            for (const t of targets) {
+              try {
+                const r = await cdp.eval(jsClickByIndex(t.i));
+                if (r?.clicked) {
+                  clicked++;
+                  await new Promise((r) => setTimeout(r, 3500));
+                }
+              } catch (_) { /* noop */ }
+              if (clicked >= 20) break;
+            }
+            log(label, clicked > 0 ? "ok" : "skipped", `${clicked} pièce(s) téléchargée(s)${allBtn ? " (via Tout)" : ""}`, Date.now() - stepStart);
+            break;
+          }
+
           default:
             log(label, "skipped", "action inconnue", Date.now() - stepStart);
         }
