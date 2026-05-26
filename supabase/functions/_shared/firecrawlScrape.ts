@@ -100,7 +100,7 @@ export async function firecrawlScrapeStructured(
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ url, formats, onlyMainContent: true, waitFor: 1500 }),
+          body: JSON.stringify({ url, formats, onlyMainContent: true, waitFor: 1500, timeout: timeoutMs - 5000 }),
         }),
         timeoutMs,
       );
