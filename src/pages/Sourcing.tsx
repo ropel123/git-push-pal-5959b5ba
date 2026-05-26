@@ -448,6 +448,62 @@ const Sourcing = () => {
     load();
   };
 
+  // ---- Relancer le scraping (différent de la re-classification IA) ----
+  const [rescrapeProgress, setRescrapeProgress] = useState<{ done: number; total: number; found: number; inserted: number; updated: number; errors: number } | null>(null);
+
+  const rescrapeScope = async (scope: "all" | { platform: string }) => {
+    let query = supabase
+      .from("sourcing_urls")
+      .select("id, platform, url")
+      .eq("is_active", true);
+    if (typeof scope === "object") query = query.eq("platform", scope.platform);
+    const { data: rows, error } = await query;
+    if (error || !rows) {
+      toast({ title: "Erreur", description: error?.message ?? "Impossible de charger", variant: "destructive" });
+      return;
+    }
+    if (rows.length === 0) {
+      toast({ title: "Aucune URL active à relancer" });
+      return;
+    }
+    const label = typeof scope === "object" ? `${rows.length} URLs ${scope.platform}` : `les ${rows.length} URLs actives`;
+    const minutes = Math.ceil((rows.length * 30) / 60);
+    if (!confirm(`Relancer le scraping de ${label} ? Durée estimée : ~${minutes} min (Firecrawl).`)) return;
+
+    setRunning("__rescrape__");
+    setRescrapeProgress({ done: 0, total: rows.length, found: 0, inserted: 0, updated: 0, errors: 0 });
+
+    let done = 0, found = 0, inserted = 0, updated = 0, errors = 0;
+    let cursor = 0;
+    const CONCURRENCY = 2;
+    const worker = async () => {
+      while (cursor < rows.length) {
+        const idx = cursor++;
+        const id = rows[idx].id;
+        try {
+          const { data, error } = await supabase.functions.invoke("scrape-list", { body: { sourcing_url_id: id } });
+          if (error) errors++;
+          else {
+            found += data?.items_found ?? 0;
+            inserted += data?.inserted ?? 0;
+            updated += data?.updated ?? 0;
+          }
+        } catch { errors++; }
+        done++;
+        setRescrapeProgress({ done, total: rows.length, found, inserted, updated, errors });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
+
+    setRunning(null);
+    toast({
+      title: "Re-scraping terminé",
+      description: `${done}/${rows.length} URLs · ${found} trouvés · ${inserted} insérés · ${updated} mis à jour${errors ? ` · ${errors} erreurs` : ""}`,
+    });
+    setTimeout(() => setRescrapeProgress(null), 8000);
+    load();
+  };
+
   if (adminLoading || loading) {
     return <div className="flex items-center justify-center h-64"><Loader2 className="animate-spin" /></div>;
   }
@@ -525,6 +581,55 @@ const Sourcing = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+          </div>
+
+          {/* Relancer le scraping (différent de la re-classification) */}
+          <div className="flex">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => rescrapeScope({ platform: "mpi" })}
+              disabled={running === "__rescrape__"}
+              className="rounded-r-none"
+            >
+              {running === "__rescrape__"
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <RefreshCcw className="mr-2 h-4 w-4" />}
+              {rescrapeProgress
+                ? `Scrape : ${rescrapeProgress.done}/${rescrapeProgress.total} · ${rescrapeProgress.inserted}+${rescrapeProgress.updated}`
+                : `Relancer scraping mpi (${urls.filter((u) => u.platform === "mpi" && u.is_active).length})`}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="secondary" disabled={running === "__rescrape__"} className="rounded-l-none border-l border-border px-2">
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-[400px] overflow-y-auto">
+                <DropdownMenuLabel className="text-xs text-muted-foreground">Relancer le scraping</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => rescrapeScope("all")}>
+                  <RefreshCcw className="mr-2 h-4 w-4" />
+                  Toutes les URLs actives ({urls.filter((u) => u.is_active).length})
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs text-muted-foreground">Par plateforme</DropdownMenuLabel>
+                {(() => {
+                  const counts = urls.filter((u) => u.is_active).reduce<Record<string, number>>((acc, u) => {
+                    const p = u.platform || "custom";
+                    acc[p] = (acc[p] ?? 0) + 1;
+                    return acc;
+                  }, {});
+                  return Object.entries(counts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([platform, count]) => (
+                      <DropdownMenuItem key={platform} onClick={() => rescrapeScope({ platform })}>
+                        <Play className="mr-2 h-4 w-4" />
+                        {platform} ({count})
+                      </DropdownMenuItem>
+                    ));
+                })()}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
