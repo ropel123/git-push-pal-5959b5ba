@@ -1041,7 +1041,10 @@ Deno.serve(async (req) => {
       const { data: fp, error: fpErr } = await supabase.functions.invoke("fetch-dce-mpi", {
         body: { tender_id, dce_url, triggered_by: triggered_by ?? null },
       });
-      if (fpErr) throw new Error(`fetch-dce-mpi: ${fpErr.message}`);
+      if (fpErr) {
+        const upstream = (fp as any)?.error ?? fpErr.message;
+        throw new Error(`fetch-dce-mpi: ${upstream}`);
+      }
       return fp;
     }
 
