@@ -224,7 +224,7 @@ async function execHybrid(ctx: ExecutorContext): Promise<ExecutorResult> {
 
   // Sinon on récupère les liens détail pertinents (10-30 max)
   const detailLinks = (res.links ?? [])
-    .filter((l: string) => /detail|consultation|refConsult|refPub|idCons|annonce/i.test(l))
+    .filter((l: string) => /detail|consultation|refConsult|refPub|idCons|annonce|dspAvisDetail|orgAcronyme|fuseaction=pub\.dsp/i.test(l))
     .filter((l: string) => !/login|inscription|recherche|search/i.test(l))
     .slice(0, Math.min(30, MAX_CALLS_PER_URL - calls));
 
