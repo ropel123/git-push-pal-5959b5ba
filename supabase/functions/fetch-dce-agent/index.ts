@@ -1461,6 +1461,70 @@ Deno.serve(async (req) => {
             break;
           }
           case "download_all_pieces": {
+            // Étape 0 : page AW Solutions / MPI "Retrait DCE" — chercher la ligne
+            // "DCE (ou Pièces communes)" et cliquer SON bouton Télécharger précisément.
+            const dceLineResult = await cdp.eval(`
+(() => {
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none' && st.opacity !== '0';
+  };
+  const fireClick = (el) => {
+    try { el.scrollIntoView({ block: 'center' }); } catch (_) {}
+    try { el.focus(); } catch (_) {}
+    const opts = { bubbles: true, cancelable: true, view: window };
+    try { el.dispatchEvent(new MouseEvent('mousedown', opts)); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent('mouseup', opts)); } catch (_) {}
+    try { el.click(); } catch (_) {}
+  };
+  // Repérer toutes les cellules / lignes contenant le texte "DCE (ou Pièces communes)" ou variantes
+  const re = /dce\\s*\\(?\\s*ou\\s*pi[èe]ces?\\s*communes?\\)?|^\\s*dce\\s*$|pi[èe]ces?\\s*communes/i;
+  const all = Array.from(document.querySelectorAll('td, th, tr, div, span, label, p'))
+    .filter(isVisible);
+  // On veut les éléments dont le PROPRE texte (pas hérité) matche le libellé court
+  const labelEls = all.filter(el => {
+    const own = (el.innerText || '').trim();
+    if (own.length > 80) return false;
+    return re.test(own);
+  });
+  if (labelEls.length === 0) return { kind: 'no_label' };
+
+  // Prendre en priorité "DCE (ou Pièces communes)" exact, sinon le premier
+  labelEls.sort((a, b) => {
+    const ta = (a.innerText || '').toLowerCase();
+    const tb = (b.innerText || '').toLowerCase();
+    const sa = ta.includes('pi') && ta.includes('commun') ? 0 : 1;
+    const sb = tb.includes('pi') && tb.includes('commun') ? 0 : 1;
+    return sa - sb;
+  });
+
+  for (const label of labelEls) {
+    const row = label.closest('tr') || label.parentElement;
+    if (!row) continue;
+    const btns = Array.from(row.querySelectorAll('a, button, input[type=submit], input[type=button]'))
+      .filter(isVisible)
+      .filter(el => /t[ée]l[ée]charger|download/i.test((el.innerText || el.value || el.getAttribute('aria-label') || el.title || '') + ''));
+    if (btns.length === 0) continue;
+    fireClick(btns[0]);
+    return {
+      kind: 'clicked_dce_row',
+      label: (label.innerText || '').slice(0, 80),
+      btnText: (btns[0].innerText || btns[0].value || '').slice(0, 60),
+    };
+  }
+  return { kind: 'label_without_button', candidates: labelEls.length };
+})()
+            `).catch((e: any) => ({ kind: 'error', error: String(e?.message ?? e) }));
+
+            if (dceLineResult?.kind === 'clicked_dce_row') {
+              log(label, "ok", `DCE pièces communes cliqué — "${dceLineResult.btnText}" (ligne: "${dceLineResult.label}")`, Date.now() - stepStart);
+              // Laisser amplement le temps au gros téléchargement de démarrer
+              await new Promise((r) => setTimeout(r, 10000));
+              break;
+            }
+
             // Étape 1 : si on est sur une page de sélection de lots (MPI verifLotsDCE notamment),
             // cocher toutes les cases puis soumettre le formulaire.
             const lotResult = await cdp.eval(`
