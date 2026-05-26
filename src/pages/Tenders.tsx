@@ -433,6 +433,32 @@ const Tenders = () => {
                         {tender.region && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {tender.region}</span>}
                         {tender.estimated_amount && <span className="flex items-center gap-1"><Euro className="h-3 w-3" /> {new Intl.NumberFormat("fr-FR").format(tender.estimated_amount)} €</span>}
                         {tender.deadline && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {format(new Date(tender.deadline), "dd MMM yyyy", { locale: fr })}</span>}
+                        {(() => {
+                          const t: any = tender;
+                          const src = t.source as string | undefined;
+                          const rawUrl = t.enriched_data?.raw?._source_url as string | undefined;
+                          const host = rawUrl ? (() => { try { return new URL(rawUrl).host; } catch { return null; } })() : null;
+                          if (!src && !host) return null;
+                          return (
+                            <span className="flex items-center gap-1.5 text-muted-foreground/80">
+                              <Globe className="h-3 w-3" />
+                              {src && <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4">{formatPlatformLabel(src)}</Badge>}
+                              {host && rawUrl && (
+                                <a
+                                  href={rawUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="hover:text-primary inline-flex items-center gap-0.5"
+                                  title={rawUrl}
+                                >
+                                  {host}<ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              )}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       </div>
                     </div>
                     <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }} className="shrink-0 self-start">
