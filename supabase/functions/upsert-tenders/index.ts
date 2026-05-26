@@ -78,7 +78,7 @@ function normalize(item: any) {
             (itemHost === listingHost ||
               itemHost.endsWith(`.${listingHost}`) ||
               listingHost.endsWith(`.${itemHost}`));
-          if (sameHost || isFederated || !listingHost) {
+          if (sameHost || isFederated || bothInMpiFamily || !listingHost) {
             item_link = raw_item_link;
           } else {
             item_link_rejected_reason = `cross-domain ${itemHost} vs ${listingHost}`;
