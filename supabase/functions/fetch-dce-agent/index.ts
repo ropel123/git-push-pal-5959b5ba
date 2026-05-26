@@ -1645,9 +1645,18 @@ Deno.serve(async (req) => {
 
             if (dceClicked) break;
 
-            log(`${label}.dce_row`, "skipped", `aucune ligne DCE cliquée (${lastDce?.kind ?? 'n/a'}, candidats=${lastDce?.candidates ?? 0})`, 0);
+            const sniffStr = Array.isArray(lastDce?.sniff) ? ` sniff=[${lastDce.sniff.join(' | ')}]` : '';
+            log(`${label}.dce_row`, "skipped", `aucune ligne DCE cliquée (${lastDce?.kind ?? 'n/a'}, candidats=${lastDce?.candidates ?? 0})${sniffStr}`, 0);
 
-            // Étape C (fallback historique) : n'importe quel bouton "Télécharger".
+            // Si on est sur la page de retrait (présence d'un libellé "DCE …"), NE PAS cliquer
+            // un Télécharger générique — cela téléchargerait le mauvais fichier (Conditions d'accès,
+            // Règlement de consultation, etc.). On préfère sortir en "skipped" et logger.
+            if (lastDce?.kind === 'label_without_button' || (Array.isArray(lastDce?.sniff) && lastDce.sniff.length > 0)) {
+              log(label, "skipped", `page de retrait détectée mais bouton DCE introuvable — fallback générique désactivé pour éviter mauvais téléchargement`, Date.now() - stepStart);
+              break;
+            }
+
+            // Étape C (fallback historique) : uniquement quand on n'est PAS sur une page de retrait DCE.
             const snapshot = await cdp.eval(jsSnapshotClickables()) as Array<any> | null;
             if (!Array.isArray(snapshot) || snapshot.length === 0) {
               log(label, "skipped", `aucun cliquable visible`, Date.now() - stepStart);
