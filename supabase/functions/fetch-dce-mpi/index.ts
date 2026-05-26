@@ -53,6 +53,13 @@ Deno.serve(async (req) => {
     if (runErr) throw new Error(`agent_runs insert: ${runErr.message}`);
     runId = runRow.id;
 
+    let jar: CookieJar = {};
+
+    // 0. Resolve real DCE retrieval URL (publication page → dematEnt.login&type=DCE&IDM=...)
+    const resolved = await resolveDceUrl(jar, dce_url);
+    const dceUrl = resolved.url;
+    log("dce.resolve_url", "ok", `via=${resolved.via} url=${dceUrl}`);
+
     // 1. Load existing session
     const { data: session } = await supabase
       .from("platform_sessions")
@@ -60,7 +67,6 @@ Deno.serve(async (req) => {
       .eq("platform", "mpi")
       .maybeSingle();
 
-    let jar: CookieJar = {};
     let needsLogin = true;
     let landingHtml = "";
 
@@ -68,7 +74,7 @@ Deno.serve(async (req) => {
       jar = session.cookies as CookieJar;
       log("session.reuse", "ok", `cookies=${Object.keys(jar).length} expires=${session.expires_at}`);
       // Quick probe — fetch DCE page and check if login required
-      const probeRes = await fetch(dce_url, {
+      const probeRes = await fetch(dceUrl, {
         headers: {
           Cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join("; "),
           "User-Agent":
