@@ -921,20 +921,21 @@ async function solveRecaptchaV2(siteKey: string, pageUrl: string): Promise<strin
 const HOSTNAME_PLATFORM_MAP: Array<[RegExp, string]> = [
   [/place\.marches-publics\.gouv\.fr/i, "place"],
   [/marches-publics\.info/i, "mpi"],
-  [/achatpublic\.com/i, "atexo_achatpublic"],
+  [/(^|\/\/)(www\.)?achatpublic\.com/i, "achatpublic"],
   [/local-trust\.com/i, "atexo_localtrust"],
   [/marches-securises\.fr/i, "marches_securises"],
   [/maximilien\.fr/i, "maximilien"],
   [/megalis\.bretagne\.bzh/i, "megalis"],
   [/megalisbretagne\.org/i, "megalis"],
   [/e-marchespublics\.com/i, "emarchespublics"],
-  [/profilacheteur\./i, "atexo_achatpublic"],
-  [/atexo/i, "atexo_achatpublic"],
+  [/profilacheteur\./i, "atexo_spl"],
+  [/atexo/i, "atexo_spl"],
 ];
 
 // Map tender.source ("scrape:atexo", "scrape:maximilien"…) → playbook platform
 const SOURCE_PLATFORM_MAP: Record<string, string> = {
-  atexo: "atexo_achatpublic",
+  achatpublic: "achatpublic",
+  atexo: "atexo_spl",
   maximilien: "maximilien",
   place: "place",
   mpi: "mpi",
@@ -942,6 +943,7 @@ const SOURCE_PLATFORM_MAP: Record<string, string> = {
   marches_securises: "marches_securises",
   emarchespublics: "emarchespublics",
 };
+
 
 function detectPlatformHeuristic(url: string): string {
   for (const [re, platform] of HOSTNAME_PLATFORM_MAP) {
