@@ -120,10 +120,14 @@ function looksLikeLoginForm(form: FormSpec): boolean {
 }
 
 function looksLikeDcePage(html: string): boolean {
-  // Heuristic: checkboxes for lots + a "télécharger" submit
+  // Heuristic: a form with checkboxes (lots) OR a download/télécharger trigger
+  if (!html) return false;
   const lower = html.toLowerCase();
-  return /télécharger|telecharger/.test(lower) &&
-    (/lot\s*\d/i.test(html) || /idlot/i.test(html));
+  const hasCheckboxes = /type\s*=\s*["']?checkbox/i.test(html);
+  const hasDownloadWord = /télécharger|telecharger|download/i.test(lower);
+  const hasLotKeyword = /idlot|lot\s*\d|verifLots|choixDCE|dematEnt\.dce/i.test(html);
+  return (hasCheckboxes && (hasDownloadWord || hasLotKeyword)) ||
+    (hasDownloadWord && hasLotKeyword);
 }
 
 // ---------- 2Captcha ----------
