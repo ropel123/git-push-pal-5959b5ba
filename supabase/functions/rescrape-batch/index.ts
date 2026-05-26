@@ -13,6 +13,22 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 const CONCURRENCY = 2;
+// Each scrape-list call gets at most this much wall-clock time; beyond that,
+// we abort the request, mark it as an error, and move on. Prevents one stuck
+// URL from holding the whole batch (and the worker) hostage.
+const PER_URL_TIMEOUT_MS = 120_000;
+// Mark any other running job as stale if it has not been updated in this long.
+const STALE_JOB_MS = 5 * 60_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 async function runJob(jobId: string, urls: { id: string; url: string; platform: string }[]) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -24,15 +40,19 @@ async function runJob(jobId: string, urls: { id: string; url: string; platform: 
       const idx = cursor++;
       const row = urls[idx];
       try {
-        const resp = await fetch(`${SUPABASE_URL}/functions/v1/scrape-list`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SERVICE_ROLE}`,
-            apikey: ANON_KEY,
+        const resp = await fetchWithTimeout(
+          `${SUPABASE_URL}/functions/v1/scrape-list`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SERVICE_ROLE}`,
+              apikey: ANON_KEY,
+            },
+            body: JSON.stringify({ sourcing_url_id: row.id }),
           },
-          body: JSON.stringify({ sourcing_url_id: row.id }),
-        });
+          PER_URL_TIMEOUT_MS,
+        );
         if (!resp.ok) {
           errors++;
         } else {
@@ -46,10 +66,14 @@ async function runJob(jobId: string, urls: { id: string; url: string; platform: 
         errors++;
       }
       done++;
-      await admin
-        .from("rescrape_jobs")
-        .update({ done, found, inserted, updated, errors, last_url: row.url })
-        .eq("id", jobId);
+      try {
+        await admin
+          .from("rescrape_jobs")
+          .update({ done, found, inserted, updated, errors, last_url: row.url })
+          .eq("id", jobId);
+      } catch (e) {
+        console.error("progress update failed", jobId, e);
+      }
     }
   };
 
@@ -111,6 +135,19 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Clean up stale jobs (running but updated_at older than STALE_JOB_MS) for this user.
+    const staleCutoff = new Date(Date.now() - STALE_JOB_MS).toISOString();
+    await admin
+      .from("rescrape_jobs")
+      .update({
+        status: "failed",
+        error_message: "stale worker timeout",
+        finished_at: new Date().toISOString(),
+      })
+      .eq("created_by", userId)
+      .eq("status", "running")
+      .lt("updated_at", staleCutoff);
 
     const body = await req.json().catch(() => ({}));
     const scope = body?.scope ?? "all"; // "all" | { platform: string }

@@ -452,6 +452,9 @@ const Sourcing = () => {
   const [rescrapeProgress, setRescrapeProgress] = useState<{ done: number; total: number; found: number; inserted: number; updated: number; errors: number } | null>(null);
   const [rescrapeJobId, setRescrapeJobId] = useState<string | null>(null);
 
+  // Un job sans progrès depuis 3 min est considéré comme mort.
+  const STALE_MS = 3 * 60_000;
+
   // Reprise au mount : si un job est encore "running" pour ce user, on s'y raccroche.
   useEffect(() => {
     if (!isAdmin) return;
@@ -460,20 +463,28 @@ const Sourcing = () => {
       if (!user) return;
       const { data } = await supabase
         .from("rescrape_jobs")
-        .select("id, total, done, found, inserted, updated, errors")
+        .select("id, total, done, found, inserted, updated, errors, updated_at")
         .eq("created_by", user.id)
         .eq("status", "running")
         .order("started_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (data) {
-        setRescrapeJobId(data.id);
-        setRescrapeProgress({
-          done: data.done, total: data.total, found: data.found,
-          inserted: data.inserted, updated: data.updated, errors: data.errors,
+      if (!data) return;
+      const isStale = data.updated_at && (Date.now() - new Date(data.updated_at).getTime() > STALE_MS);
+      if (isStale) {
+        toast({
+          title: "Ancien job de re-scraping bloqué",
+          description: `Le job précédent (${data.done}/${data.total}) ne répond plus. Relance pour repartir.`,
+          variant: "destructive",
         });
-        setRunning("__rescrape__");
+        return;
       }
+      setRescrapeJobId(data.id);
+      setRescrapeProgress({
+        done: data.done, total: data.total, found: data.found,
+        inserted: data.inserted, updated: data.updated, errors: data.errors,
+      });
+      setRunning("__rescrape__");
     })();
   }, [isAdmin]);
 
@@ -484,7 +495,7 @@ const Sourcing = () => {
     const tick = async () => {
       const { data } = await supabase
         .from("rescrape_jobs")
-        .select("status, total, done, found, inserted, updated, errors")
+        .select("status, total, done, found, inserted, updated, errors, updated_at")
         .eq("id", rescrapeJobId)
         .maybeSingle();
       if (cancelled || !data) return;
@@ -492,13 +503,20 @@ const Sourcing = () => {
         done: data.done, total: data.total, found: data.found,
         inserted: data.inserted, updated: data.updated, errors: data.errors,
       });
-      if (data.status !== "running") {
+      const isStale = data.status === "running" && data.updated_at &&
+        (Date.now() - new Date(data.updated_at).getTime() > STALE_MS);
+      if (data.status !== "running" || isStale) {
         setRunning(null);
         setRescrapeJobId(null);
+        const finalStatus = isStale ? "stale" : data.status;
         toast({
-          title: data.status === "done" ? "Re-scraping terminé" : "Re-scraping interrompu",
+          title: finalStatus === "done"
+            ? "Re-scraping terminé"
+            : finalStatus === "stale"
+              ? "Re-scraping bloqué (timeout)"
+              : "Re-scraping interrompu",
           description: `${data.done}/${data.total} URLs · ${data.found} trouvés · ${data.inserted} insérés · ${data.updated} mis à jour${data.errors ? ` · ${data.errors} erreurs` : ""}`,
-          variant: data.status === "done" ? undefined : "destructive",
+          variant: finalStatus === "done" ? undefined : "destructive",
         });
         setTimeout(() => setRescrapeProgress(null), 8000);
         load();
