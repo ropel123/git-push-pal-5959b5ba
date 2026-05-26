@@ -448,6 +448,62 @@ const Sourcing = () => {
     load();
   };
 
+  // ---- Relancer le scraping (différent de la re-classification IA) ----
+  const [rescrapeProgress, setRescrapeProgress] = useState<{ done: number; total: number; found: number; inserted: number; updated: number; errors: number } | null>(null);
+
+  const rescrapeScope = async (scope: "all" | { platform: string }) => {
+    let query = supabase
+      .from("sourcing_urls")
+      .select("id, platform, url")
+      .eq("is_active", true);
+    if (typeof scope === "object") query = query.eq("platform", scope.platform);
+    const { data: rows, error } = await query;
+    if (error || !rows) {
+      toast({ title: "Erreur", description: error?.message ?? "Impossible de charger", variant: "destructive" });
+      return;
+    }
+    if (rows.length === 0) {
+      toast({ title: "Aucune URL active à relancer" });
+      return;
+    }
+    const label = typeof scope === "object" ? `${rows.length} URLs ${scope.platform}` : `les ${rows.length} URLs actives`;
+    const minutes = Math.ceil((rows.length * 30) / 60);
+    if (!confirm(`Relancer le scraping de ${label} ? Durée estimée : ~${minutes} min (Firecrawl).`)) return;
+
+    setRunning("__rescrape__");
+    setRescrapeProgress({ done: 0, total: rows.length, found: 0, inserted: 0, updated: 0, errors: 0 });
+
+    let done = 0, found = 0, inserted = 0, updated = 0, errors = 0;
+    let cursor = 0;
+    const CONCURRENCY = 2;
+    const worker = async () => {
+      while (cursor < rows.length) {
+        const idx = cursor++;
+        const id = rows[idx].id;
+        try {
+          const { data, error } = await supabase.functions.invoke("scrape-list", { body: { sourcing_url_id: id } });
+          if (error) errors++;
+          else {
+            found += data?.items_found ?? 0;
+            inserted += data?.inserted ?? 0;
+            updated += data?.updated ?? 0;
+          }
+        } catch { errors++; }
+        done++;
+        setRescrapeProgress({ done, total: rows.length, found, inserted, updated, errors });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
+
+    setRunning(null);
+    toast({
+      title: "Re-scraping terminé",
+      description: `${done}/${rows.length} URLs · ${found} trouvés · ${inserted} insérés · ${updated} mis à jour${errors ? ` · ${errors} erreurs` : ""}`,
+    });
+    setTimeout(() => setRescrapeProgress(null), 8000);
+    load();
+  };
+
   if (adminLoading || loading) {
     return <div className="flex items-center justify-center h-64"><Loader2 className="animate-spin" /></div>;
   }
