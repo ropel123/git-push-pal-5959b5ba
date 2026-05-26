@@ -1,26 +1,29 @@
-Objectif : faire télécharger à l’agent le bouton exact associé à la ligne **“DCE (ou Pièces communes)”**, visible sur la page AW Solutions/MPI, au lieu de cliquer des boutons “Télécharger” au hasard ou de s’arrêter après la sélection des lots.
+## Objectif
+Corriger l’agent DCE MPI : il coche bien tous les lots, mais le clic sur “Télécharger les DCE sélectionnés” ne déclenche pas l’archive Browserbase. Il faut ensuite cibler et cliquer le lien/fichier **“DCE (ou Pièces communes)”** sur la page suivante.
 
-Plan d’implémentation :
+## Plan d’implémentation
+1. **Modifier `download_all_pieces` dans `supabase/functions/fetch-dce-agent/index.ts`**
+   - Après soumission de la sélection des lots, ne pas arrêter l’étape immédiatement.
+   - Attendre la navigation / mise à jour de page, puis lancer une deuxième passe dédiée au téléchargement réel.
 
-1. **Ajouter une détection dédiée AW Solutions dans `download_all_pieces`**
-   - Avant le fallback générique, analyser les lignes visibles de la page.
-   - Chercher le libellé `DCE (ou Pièces communes)` / `DCE` / `Pièces communes`.
-   - Identifier le bouton `Télécharger` situé dans la même ligne ou sur la même hauteur visuelle.
+2. **Ajouter une détection robuste de la ligne “DCE (ou Pièces communes)”**
+   - Chercher les libellés visibles : `DCE (ou Pièces communes)`, `Pièces communes`, `DCE`.
+   - Identifier le bouton/lien `Télécharger` dans la même ligne ou à proximité visuelle.
+   - Cliquer ce lien en priorité.
 
-2. **Cliquer ce bouton en priorité**
-   - Faire défiler la ligne au centre.
-   - Cliquer le bouton correspondant uniquement à cette ligne.
-   - Déclencher les événements nécessaires (`click`, éventuellement focus/mousedown/mouseup si besoin) pour que le téléchargement parte.
-   - Attendre quelques secondes que Browserbase capture le fichier.
+3. **Améliorer le fallback si le bouton est hors ligne DOM**
+   - Si aucun bouton n’est trouvé dans le même `<tr>`, chercher les boutons `Télécharger` alignés verticalement avec le libellé.
+   - Cliquer le meilleur candidat proche de la ligne “DCE”.
 
-3. **Conserver les comportements existants en fallback**
-   - Si la page est une page de sélection de lots, garder la logique de sélection/soumission déjà ajoutée.
-   - Si le bouton “DCE (ou Pièces communes)” n’est pas trouvé, retomber sur le fallback actuel qui clique les boutons “Télécharger” visibles.
+4. **Attendre davantage le démarrage du téléchargement**
+   - Après le clic final, attendre suffisamment pour que Browserbase capture le fichier volumineux.
+   - Garder les anciens fallbacks génériques uniquement si la cible “DCE / Pièces communes” n’est pas trouvée.
 
-4. **Améliorer les traces de debug**
-   - Journaliser explicitement : `DCE pièces communes cliqué`, le texte de ligne trouvé, et le nombre de boutons candidats.
-   - Cela permettra de vérifier rapidement dans `agent_runs` que le bon bouton a été ciblé.
+5. **Ajouter des logs de diagnostic**
+   - Logguer si l’agent a soumis les lots puis cliqué “DCE (ou Pièces communes)”.
+   - Logguer les cas `label_without_button`, `no_label`, et le nombre de candidats visibles pour faciliter le prochain debug.
 
-5. **Vérification après implémentation**
-   - Relancer l’agent sur ce tender.
-   - Résultat attendu : téléchargement du fichier d’environ `209489 ko`, archive Browserbase récupérée, upload dans `dce-documents`, et entrée `dce_uploads` créée.
+## Validation prévue
+- Déployer / relancer la fonction `fetch-dce-agent`.
+- Relancer l’agent sur l’appel d’offres concerné.
+- Succès attendu : `files_downloaded > 0`, archive Browserbase récupérée, fichier uploadé dans `dce-documents`, entrée créée dans `dce_uploads`.
