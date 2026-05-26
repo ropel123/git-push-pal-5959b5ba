@@ -1,47 +1,46 @@
-# Fix MPI — suivre la popup vers marches-publics.info
+## Objectif
 
-## Diagnostic
+Permettre à l’utilisateur de **voir en direct ce que fait l’agent dans le navigateur** au lieu de lire uniquement les logs texte.
 
-Sur `marchespublics.grandest.fr/avis/index.cfm?...&serveur=MPI`, le lien **"Dossier de Consultation des Entreprises"** est un `<a target="_blank" href="https://www.marches-publics.info/mpiaws/index.cfm?fuseaction=dematEnt.choixDCE&IDM=...&XFAOK=dce.verifLotsDCE">` (ou équivalent `window.open`).
+Browserbase fournit une URL de "Live View" intégrable en iframe pour chaque session. On va l’exposer et l’afficher dans l’app.
 
-Le log actuel le prouve :
-```
-[agent] OK click_if_present("...DCE...") — url=https://marchespublics.grandest.fr/avis/index.cfm?fuseaction=marchesP.affM2&IDM=
-```
-→ après le clic, l'URL **n'a pas changé** (toujours sur grandest.fr). La popup vers marches-publics.info s'est ouverte dans une nouvelle target CDP que l'agent **n'a jamais attachée**. Tous les steps suivants (login, captcha, download) s'exécutent sur la mauvaise page → ZIP de 22 octets.
+## Plan
 
-## Stratégie
+### 1. Edge Function `fetch-dce-agent`
 
-Plutôt que d'ajouter une logique de "suivre la popup" (complexe : `Target.setDiscoverTargets`, `targetCreated`, ré-attacher, basculer `defaultSessionId`), on extrait directement le **href** du lien DCE et on `navigate()` dessus dans la même page. C'est plus simple, déterministe, et évite tout problème multi-target.
+- Juste après `createBrowserbaseSession`, appeler `GET https://api.browserbase.com/v1/sessions/{id}/debug` pour récupérer `debuggerFullscreenUrl` (l’URL Live View embeddable).
+- Mettre à jour la ligne `agent_runs` (déjà créée juste avant) avec un nouveau champ `live_view_url`.
+- Logger un step `live_view.ready` avec l’URL pour fallback debug.
 
-## Changements
+### 2. Migration Supabase
 
-### 1. `supabase/functions/fetch-dce-agent/index.ts`
+- Ajouter colonne `live_view_url text` à `agent_runs`.
 
-Ajouter un nouveau type de step `extract_href_and_navigate` :
-- Reçoit `matcher` (texte du lien à trouver, ex: "Dossier de Consultation des Entreprises")
-- Exécute un `Runtime.evaluate` qui parcourt tous les `<a>`, trouve celui dont le texte contient le matcher, retourne `a.href`
-- Appelle `cdp.navigate(href)` sur la même session
-- Log : `OK extract_href_and_navigate → <url>`
+### 3. Frontend — bouton DCE Agent (`DceAgentFetchButton.tsx`)
 
-### 2. Migration DB — playbook MPI
+- Subscribe Supabase Realtime sur la ligne `agent_runs` du `run_id` retourné.
+- Dès que `live_view_url` arrive (~2-3s après lancement), afficher un panneau "Voir l’agent en direct" avec :
+  - une `iframe` plein cadre 16:9 pointant sur `live_view_url`,
+  - un bouton "Ouvrir dans un nouvel onglet".
+- Cacher le panneau quand le run passe en `success`, `no_files` ou `failed`.
 
-Remplacer l'étape 2 actuelle (`click_if_present("Dossier de Consultation des Entreprises")`) par :
-```json
-{ "action": "extract_href_and_navigate", "matcher": "Dossier de Consultation des Entreprises", "description": "Suivre le lien DCE vers marches-publics.info" }
-```
+### 4. Page `AgentMonitor`
 
-Le reste du playbook (wait → fill_login → login → check lots → CGU → captcha → download → wait_download) reste inchangé : il s'exécute alors sur la bonne URL `marches-publics.info/mpiaws/...`.
+- Dans la liste des runs `running`, ajouter un bouton "Voir live" qui ouvre `live_view_url` dans un nouvel onglet (déjà toute la plomberie Realtime existante).
 
-## Validation
+## Résultat utilisateur
 
-Re-cliquer "Récupérer le DCE automatiquement" sur le tender Grand Est. Attendus dans les logs :
-- `OK extract_href_and_navigate → https://www.marches-publics.info/mpiaws/index.cfm?fuseaction=dematEnt.choixDCE&IDM=1817250...`
-- `OK fill_login` (le formulaire MPI a bien un password field)
-- `OK wait_download` avec ZIP > 1 Ko dans `dce-documents`
+Quand on clique "Lancer l’agent IA", une fenêtre intégrée apparaît sous le bouton et montre en temps réel :
+- la navigation MPI,
+- le formulaire d’identité qui se remplit,
+- le captcha qui se résout,
+- le clic RETRAIT,
+- la page des boutons Télécharger.
+
+Plus besoin de deviner avec les logs.
 
 ## Détails techniques
 
-- Pas de changement au client CDP (toujours single-target).
-- `extract_href_and_navigate` est générique : réutilisable pour d'autres plateformes qui ouvrent en popup.
-- Si le lien est introuvable → step optionnel, on log SKIPPED et on continue (fail-soft existant).
+- Endpoint Browserbase : `GET /v1/sessions/{id}/debug` retourne `{ debuggerFullscreenUrl, debuggerUrl, wsUrl, pages: [...] }`. On utilise `debuggerFullscreenUrl`.
+- L’iframe nécessite que les cookies third-party soient autorisés. On ajoute `sandbox="allow-scripts allow-same-origin"` et un message d’aide si l’iframe reste vide.
+- `live_view_url` expire avec la session Browserbase. On la nettoie en base à la fin du run (set NULL) — optionnel, mais évite de pointer sur une session morte.
