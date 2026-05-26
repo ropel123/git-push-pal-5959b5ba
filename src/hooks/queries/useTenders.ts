@@ -18,6 +18,7 @@ export type TendersFilters = {
   status?: TenderStatus;
   procedure?: string;
   platform?: string;
+  listingHost?: string;
   dceOnly?: boolean;
   smart?: SmartProfile;
   /** Désactive temporairement la query (ex: profil pas encore chargé). */
@@ -33,6 +34,7 @@ export function useTenders(filters: TendersFilters = {}) {
     status = "",
     procedure = "",
     platform = "",
+    listingHost = "",
     dceOnly = false,
     smart = null,
     enabled = true,
@@ -41,7 +43,7 @@ export function useTenders(filters: TendersFilters = {}) {
   return useQuery({
     enabled,
     placeholderData: keepPreviousData,
-    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, platform, dceOnly, smart }],
+    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, platform, listingHost, dceOnly, smart }],
     queryFn: async () => {
       const from = page * pageSize;
       const to = from + pageSize - 1;
@@ -79,6 +81,9 @@ export function useTenders(filters: TendersFilters = {}) {
       }
       if (procedure && procedure !== "all") query = query.eq("procedure_type", procedure);
       if (platform && platform !== "all") query = query.eq("source", platform);
+      if (listingHost && listingHost !== "all") {
+        query = query.ilike("enriched_data->raw->>_source_url", `%${listingHost}%`);
+      }
 
       const { data, count, error } = await query;
       if (error) throw error;
