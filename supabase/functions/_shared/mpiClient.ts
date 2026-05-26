@@ -308,22 +308,65 @@ export async function downloadDce(jar: CookieJar, dceUrl: string, currentHtml?: 
     else body.append(k, v);
   }
 
-  console.log(`[mpi] POST download ${bestForm.action}`);
-  const headers = new Headers({
-    "User-Agent": UA,
-    "Content-Type": "application/x-www-form-urlencoded",
-    "Cookie": jarToHeader(jar),
-    "Referer": dceUrl,
-    "Origin": originOf(dceUrl),
-    "Accept": "*/*",
+  console.log(`[mpi] POST step ${bestForm.action}`);
+  let stepRes = await mpiFetch(jar, bestForm.action, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Referer": pageUrl,
+      "Origin": originOf(dceUrl),
+    },
+    body: body.toString(),
   });
-  const res = await fetch(bestForm.action, { method: "POST", headers, body: body.toString() });
-  mergeSetCookies(jar, res.headers);
-  const ct = res.headers.get("content-type") ?? "";
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  console.log(`[mpi] download status=${res.status} ct=${ct} bytes=${bytes.byteLength}`);
-  if (!res.ok || bytes.byteLength < 1000) {
-    throw new Error(`Download failed: status=${res.status} ct=${ct} size=${bytes.byteLength}`);
+
+  // If the response is HTML again (intermediate step like CGU acceptance), follow up to 3 hops.
+  for (let hop = 0; hop < 3; hop++) {
+    const ct = stepRes.res.headers.get("content-type") ?? "";
+    if (!/text\/html/i.test(ct)) break;
+    const nextHtml = stepRes.text;
+    const nextForms = parseForms(nextHtml, stepRes.res.url || bestForm.action);
+    // Pick first non-search form (form with submit action that downloads or accepts CGU)
+    const candidate = nextForms.find((f) =>
+      /telecharger|dce|cgu|accept/i.test(f.rawHtml)
+    ) ?? nextForms[0];
+    if (!candidate) break;
+
+    // Fill: keep hidden fields, check all checkboxes, fill any required text fields with "1"
+    const stepData: Record<string, string | string[]> = { ...candidate.fields };
+    const cbMulti2: Record<string, string[]> = {};
+    let cm2: RegExpExecArray | null;
+    const cbRe2 = /<input\b[^>]*type\s*=\s*["']?checkbox[^>]*>/gi;
+    while ((cm2 = cbRe2.exec(candidate.rawHtml)) !== null) {
+      const name = attr(cm2[0], "name");
+      const value = attr(cm2[0], "value") ?? "on";
+      if (!name) continue;
+      (cbMulti2[name] ??= []).push(value);
+    }
+    for (const [name, vals] of Object.entries(cbMulti2)) {
+      stepData[name] = vals.length === 1 ? vals[0] : vals;
+    }
+    const body2 = new URLSearchParams();
+    for (const [k, v] of Object.entries(stepData)) {
+      if (Array.isArray(v)) v.forEach((vv) => body2.append(k, vv));
+      else body2.append(k, v);
+    }
+    console.log(`[mpi] POST hop${hop + 1} ${candidate.action}`);
+    stepRes = await mpiFetch(jar, candidate.action, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": stepRes.res.url || bestForm.action,
+        "Origin": originOf(dceUrl),
+      },
+      body: body2.toString(),
+    });
+  }
+
+  const ct = stepRes.res.headers.get("content-type") ?? "";
+  const bytes = stepRes.bytes;
+  console.log(`[mpi] download final status=${stepRes.res.status} ct=${ct} bytes=${bytes.byteLength}`);
+  if (!stepRes.res.ok || bytes.byteLength < 1000 || /text\/html/i.test(ct)) {
+    throw new Error(`Download failed: status=${stepRes.res.status} ct=${ct} size=${bytes.byteLength}`);
   }
   return { bytes, contentType: ct, lotCount: bestLots };
 }
