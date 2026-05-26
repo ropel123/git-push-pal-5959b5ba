@@ -205,6 +205,30 @@ async function execTemplate(ctx: ExecutorContext, rule: PaginationRule): Promise
   };
 }
 
+/** Détecte si un lien ressemble à une URL de fiche détail (vs. listing). */
+function isDetailLink(l: string): boolean {
+  if (!l) return false;
+  if (/login|inscription|recherche|search|\.css|\.js$|\.png|\.jpg|\.svg/i.test(l)) return false;
+  // MPI : affPublication AVEC refPub/refConsult/refCons → détail. Sans → listing.
+  if (/fuseaction=pub\.affPublication/i.test(l)) {
+    return /[?&]ref(Pub|Cons|Consult)=/i.test(l);
+  }
+  if (/fuseaction=pub\.affResultats|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche/i.test(l)) {
+    return false;
+  }
+  return /detail|consultation|refConsult|refPub|refCons|idCons|annonce|dspAvisDetail|orgAcronyme|fuseaction=pub\.dsp|fuseaction=marchesP\.rechM/i.test(l);
+}
+
+/** Résout une URL potentiellement relative contre une base. */
+function resolveUrl(maybeUrl: string, base: string): string | null {
+  if (!maybeUrl) return null;
+  try {
+    return new URL(maybeUrl, base).toString();
+  } catch {
+    return null;
+  }
+}
+
 /** Stratégie HYBRID : page 1 liste → liens détail → scrape détails. */
 async function execHybrid(ctx: ExecutorContext): Promise<ExecutorResult> {
   let calls = 0;
@@ -222,31 +246,62 @@ async function execHybrid(ctx: ExecutorContext): Promise<ExecutorResult> {
     return finalizeSimple(ctx, res.tenders, calls, "hybrid", "fast_mode");
   }
 
-  // Sinon on récupère les liens détail pertinents (10-30 max)
-  const detailLinks = (res.links ?? [])
-    .filter((l: string) => /detail|consultation|refConsult|refPub|idCons|annonce|dspAvisDetail|orgAcronyme|fuseaction=pub\.dsp/i.test(l))
-    .filter((l: string) => !/login|inscription|recherche|search/i.test(l))
-    .slice(0, Math.min(30, MAX_CALLS_PER_URL - calls));
+  // Sources de liens détail :
+  // 1) res.links (anchors du DOM)
+  // 2) tenders[].dce_url extraits par l'IA (souvent plus fiables sur MPI)
+  const linkCandidates: string[] = [];
+  for (const l of res.links ?? []) {
+    const abs = resolveUrl(l, ctx.url);
+    if (abs) linkCandidates.push(abs);
+  }
+  for (const t of res.tenders ?? []) {
+    const raw = (t as Record<string, unknown>).dce_url;
+    if (typeof raw === "string" && raw.trim()) {
+      const abs = resolveUrl(raw, ctx.url);
+      if (abs) linkCandidates.push(abs);
+    }
+  }
 
-  // On garde déjà les items de la liste
+  // Dédup + filtre détail + même host (sécurité)
+  const baseHost = (() => { try { return new URL(ctx.url).hostname.toLowerCase(); } catch { return ""; } })();
+  const seenLinks = new Set<string>();
+  const detailLinks: string[] = [];
+  for (const l of linkCandidates) {
+    if (seenLinks.has(l)) continue;
+    seenLinks.add(l);
+    if (!isDetailLink(l)) continue;
+    try {
+      const h = new URL(l).hostname.toLowerCase();
+      if (baseHost && h !== baseHost && !h.endsWith(`.${baseHost}`) && !baseHost.endsWith(`.${h}`)) continue;
+    } catch { continue; }
+    detailLinks.push(l);
+    if (detailLinks.length >= Math.min(30, MAX_CALLS_PER_URL - calls)) break;
+  }
+
+  console.log(`[hybrid] ${ctx.platform} listing=${ctx.url} → ${detailLinks.length} detail links found`);
+
+  // On garde les items de la liste (utiles si la fiche détail n'extrait pas le titre).
   const items = [...res.tenders];
 
-  // Scraping détails (séquentiel pour budget contrôlé, concurrence=1)
+  // Scraping détails (séquentiel, budget contrôlé)
   for (const link of detailLinks) {
     if (calls >= MAX_CALLS_PER_URL) break;
     try {
       const dr = await firecrawlScrapeStructured(link, ctx.apiKey);
       calls++;
-      // Une page détail = en général 1 tender enrichi
       if (dr.tenders.length > 0) {
-        // Forcer dce_url = link si absent
         for (const t of dr.tenders) {
-          if (!t.dce_url) (t as Record<string, unknown>).dce_url = link;
+          // FORCER dce_url = URL détail réelle (override systématique sur page détail).
+          (t as Record<string, unknown>).dce_url = link;
         }
         items.push(...dr.tenders);
+      } else {
+        // Page détail sans extraction structurée : on injecte au moins un stub
+        // pour préserver le lien détail.
+        items.push({ title: "Avis (détail à charger)", dce_url: link });
       }
-    } catch {
-      // skip ce détail
+    } catch (e) {
+      console.log(`[hybrid] detail scrape failed ${link}: ${e instanceof Error ? e.message : e}`);
       calls++;
     }
   }
