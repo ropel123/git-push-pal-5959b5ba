@@ -8,6 +8,7 @@ import {
   downloadDce,
   isLoginRequired,
   loginMpi,
+  resolveDceUrl,
 } from "../_shared/mpiClient.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -52,6 +53,13 @@ Deno.serve(async (req) => {
     if (runErr) throw new Error(`agent_runs insert: ${runErr.message}`);
     runId = runRow.id;
 
+    let jar: CookieJar = {};
+
+    // 0. Resolve real DCE retrieval URL (publication page → dematEnt.login&type=DCE&IDM=...)
+    const resolved = await resolveDceUrl(jar, dce_url);
+    const dceUrl = resolved.url;
+    log("dce.resolve_url", "ok", `via=${resolved.via} url=${dceUrl}`);
+
     // 1. Load existing session
     const { data: session } = await supabase
       .from("platform_sessions")
@@ -59,7 +67,6 @@ Deno.serve(async (req) => {
       .eq("platform", "mpi")
       .maybeSingle();
 
-    let jar: CookieJar = {};
     let needsLogin = true;
     let landingHtml = "";
 
@@ -67,7 +74,7 @@ Deno.serve(async (req) => {
       jar = session.cookies as CookieJar;
       log("session.reuse", "ok", `cookies=${Object.keys(jar).length} expires=${session.expires_at}`);
       // Quick probe — fetch DCE page and check if login required
-      const probeRes = await fetch(dce_url, {
+      const probeRes = await fetch(dceUrl, {
         headers: {
           Cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join("; "),
           "User-Agent":
@@ -83,7 +90,7 @@ Deno.serve(async (req) => {
     // 2. Login if needed
     if (needsLogin) {
       jar = {};
-      const loginRes = await loginMpi(jar, dce_url);
+      const loginRes = await loginMpi(jar, dceUrl);
       if (loginRes.captchaSolved) captchasSolved = 1;
       landingHtml = loginRes.finalHtml;
       log("session.login", "ok", `captcha=${loginRes.captchaSolved} cookies=${Object.keys(jar).length}`);
@@ -115,7 +122,7 @@ Deno.serve(async (req) => {
     }
 
     // 3. Download DCE
-    const dl = await downloadDce(jar, dce_url, landingHtml);
+    const dl = await downloadDce(jar, dceUrl, landingHtml);
     log("dce.download", "ok", `lots=${dl.lotCount} bytes=${dl.bytes.byteLength} ct=${dl.contentType}`);
 
     // 4. Upload to bucket
