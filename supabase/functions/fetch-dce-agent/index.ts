@@ -1483,26 +1483,32 @@ Deno.serve(async (req) => {
   const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
   const reStrict = /^\\s*dce\\s*\\(\\s*ou\\s+pi[èe]ces?\\s+communes?\\s*\\)\\s*$/i;
   const reDceAlone = /^\\s*dce\\s*$/i;
+  const reDossierPrincipal = /^\\s*dossier\\s+principal\\s*$/i;
   const reBlack = /(conditions?\\s+d['’]?acc[èe]s|information\\s+sur\\s+les\\s+d[ée]p[ôo]ts|couverture|aapc|r[èe]glement\\s+de\\s+consultation|^\\s*pi[èe]ces?\\s+communes\\s*$|^\\s*pi[èe]ces?\\s+sp[ée]cifiques|^\\s*lot\\s*\\d+)/i;
 
-  const candidates = Array.from(document.querySelectorAll('td, th, div, span, label, p, a, b, strong'))
+  const priorityOf = (t) => reStrict.test(t) ? 3 : reDceAlone.test(t) ? 2 : reDossierPrincipal.test(t) ? 1 : 0;
+
+  let candidates = Array.from(document.querySelectorAll('td, th, div, span, label, p, a, b, strong'))
     .filter(isVisible)
     .map(el => ({ el, text: norm(el.innerText || el.textContent || '') }))
     .filter(x => x.text.length > 0 && x.text.length <= 120)
-    .filter(x => reStrict.test(x.text) || reDceAlone.test(x.text))
+    .filter(x => priorityOf(x.text) > 0)
     .filter(x => !reBlack.test(x.text));
 
   if (candidates.length === 0) {
     const sniff = Array.from(document.querySelectorAll('td, div, span, a, p'))
       .filter(isVisible)
       .map(el => norm(el.innerText || ''))
-      .filter(t => t && t.length < 80 && /dce/i.test(t))
+      .filter(t => t && t.length < 80 && /dce|dossier\\s+principal/i.test(t))
       .slice(0, 8);
     return { kind: 'no_label', sniff };
   }
 
-  // Privilégier le libellé exact "DCE (ou Pièces communes)" sur "DCE" seul.
-  candidates.sort((a, b) => (reStrict.test(b.text) ? 1 : 0) - (reStrict.test(a.text) ? 1 : 0));
+  // Garder uniquement la priorité maximale présente sur la page :
+  // DCE exact (3) > DCE seul (2) > Dossier principal (1).
+  const maxPrio = Math.max.apply(null, candidates.map(c => priorityOf(c.text)));
+  candidates = candidates.filter(c => priorityOf(c.text) === maxPrio);
+  const matched = maxPrio === 3 ? 'dce_exact' : maxPrio === 2 ? 'dce_alone' : 'dossier_principal';
 
   for (const { el: label, text } of candidates) {
     if (label.tagName === 'A' && (label.href || label.getAttribute('href'))) {
