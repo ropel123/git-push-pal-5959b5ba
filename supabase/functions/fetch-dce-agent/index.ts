@@ -1133,6 +1133,28 @@ Deno.serve(async (req) => {
             log(label, "ok", target, Date.now() - stepStart);
             break;
           }
+          case "extract_href_and_navigate": {
+            const matcher = (step.matcher ?? step.instruction ?? "").toString();
+            if (!matcher) {
+              log(label, "skipped", "no matcher", Date.now() - stepStart);
+              break;
+            }
+            const expr = `(() => {
+              const m = ${JSON.stringify(matcher.toLowerCase())};
+              const links = Array.from(document.querySelectorAll('a[href]'));
+              const hit = links.find(a => (a.textContent || '').toLowerCase().includes(m))
+                       || links.find(a => (a.getAttribute('title') || '').toLowerCase().includes(m));
+              return hit ? hit.href : null;
+            })()`;
+            const href = await cdp.eval(expr).catch(() => null);
+            if (!href || typeof href !== "string") {
+              log(label, "skipped", `aucun lien "${matcher}" trouvé`, Date.now() - stepStart);
+              break;
+            }
+            await cdp.navigate(href);
+            log(label, "ok", `→ ${href}`, Date.now() - stepStart);
+            break;
+          }
           case "act":
           case "act_if_present":
           case "click":

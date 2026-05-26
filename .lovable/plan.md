@@ -1,45 +1,47 @@
-Faire passer MPI par le flux Browserbase + LLM-pick (comme Atexo), avec authentification réelle via les secrets `MPI_LOGIN` / `MPI_PASSWORD`. Pas d'identité anonyme pour MPI.
+# Fix MPI — suivre la popup vers marches-publics.info
 
-## Changements code
+## Diagnostic
 
-**`supabase/functions/fetch-dce-agent/index.ts`** — déjà appliqué :
-- Suppression du fast-path HTTP MPI (plus d'appel à `fetch-dce-mpi`).
-- Dans le chargement du robot : si `platform === "mpi"` et qu'il n'y a aucune ligne dans `platform_robots`, on lit `MPI_LOGIN` / `MPI_PASSWORD` depuis l'environnement et on les utilise comme robot (login + password).
+Sur `marchespublics.grandest.fr/avis/index.cfm?...&serveur=MPI`, le lien **"Dossier de Consultation des Entreprises"** est un `<a target="_blank" href="https://www.marches-publics.info/mpiaws/index.cfm?fuseaction=dematEnt.choixDCE&IDM=...&XFAOK=dce.verifLotsDCE">` (ou équivalent `window.open`).
 
-## Changement base de données (migration à exécuter)
+Le log actuel le prouve :
+```
+[agent] OK click_if_present("...DCE...") — url=https://marchespublics.grandest.fr/avis/index.cfm?fuseaction=marchesP.affM2&IDM=
+```
+→ après le clic, l'URL **n'a pas changé** (toujours sur grandest.fr). La popup vers marches-publics.info s'est ouverte dans une nouvelle target CDP que l'agent **n'a jamais attachée**. Tous les steps suivants (login, captcha, download) s'exécutent sur la mauvaise page → ZIP de 22 octets.
 
-Mettre à jour le playbook `mpi` dans `agent_playbooks` pour refléter le tunnel réel MPI authentifié :
+## Stratégie
 
-```text
-1.  navigate                  → ouvre l'URL DCE (page acheteur Grand Est, etc.)
-2.  wait 2s
-3.  click_if_present          → "Dossier de Consultation des Entreprises"
-4.  wait 1.5s
-5.  wait_for_inputs (min=2)   → écran de login MPI
-6.  fill_login                → MPI_LOGIN / MPI_PASSWORD (via secrets, fallback déjà codé)
-7.  click_if_present          → "Se connecter / Valider"
-8.  wait 2s
-9.  act_if_present            → cocher tous les lots disponibles
-10. act_if_present            → cocher CGU / certifications si présentes
-11. click_if_present          → "Suivant / Valider / Continuer"
-12. wait 1.5s
-13. solve_image_captcha_if_present
-14. act_if_present            → bouton final "RETRAIT / TÉLÉCHARGER / Télécharger le DCE"
-15. wait_download (75s)
+Plutôt que d'ajouter une logique de "suivre la popup" (complexe : `Target.setDiscoverTargets`, `targetCreated`, ré-attacher, basculer `defaultSessionId`), on extrait directement le **href** du lien DCE et on `navigate()` dessus dans la même page. C'est plus simple, déterministe, et évite tout problème multi-target.
+
+## Changements
+
+### 1. `supabase/functions/fetch-dce-agent/index.ts`
+
+Ajouter un nouveau type de step `extract_href_and_navigate` :
+- Reçoit `matcher` (texte du lien à trouver, ex: "Dossier de Consultation des Entreprises")
+- Exécute un `Runtime.evaluate` qui parcourt tous les `<a>`, trouve celui dont le texte contient le matcher, retourne `a.href`
+- Appelle `cdp.navigate(href)` sur la même session
+- Log : `OK extract_href_and_navigate → <url>`
+
+### 2. Migration DB — playbook MPI
+
+Remplacer l'étape 2 actuelle (`click_if_present("Dossier de Consultation des Entreprises")`) par :
+```json
+{ "action": "extract_href_and_navigate", "matcher": "Dossier de Consultation des Entreprises", "description": "Suivre le lien DCE vers marches-publics.info" }
 ```
 
-**Pas** de `fill_anonymous_identity` dans ce playbook : MPI exige un vrai compte.
-
-## Edge function legacy
-
-`fetch-dce-mpi` reste en place (non appelée) — peut être supprimée plus tard une fois le nouveau flux validé en prod.
+Le reste du playbook (wait → fill_login → login → check lots → CGU → captcha → download → wait_download) reste inchangé : il s'exécute alors sur la bonne URL `marches-publics.info/mpiaws/...`.
 
 ## Validation
 
-- Re-cliquer "Récupérer le DCE automatiquement" sur le tender `20abaed5-...` (Grand Est, lien MPI).
-- Logs attendus :
-  - `router.detect_platform` → `mpi`
-  - `playbook.load` → `MPI / AWS achat (marches-publics.info)`
-  - `robot.load` → `ok ... (via env MPI_LOGIN)`
-  - étapes 1..15 jusqu'à `wait_download ok`
-- Le ZIP DCE doit apparaître dans `dce-documents`.
+Re-cliquer "Récupérer le DCE automatiquement" sur le tender Grand Est. Attendus dans les logs :
+- `OK extract_href_and_navigate → https://www.marches-publics.info/mpiaws/index.cfm?fuseaction=dematEnt.choixDCE&IDM=1817250...`
+- `OK fill_login` (le formulaire MPI a bien un password field)
+- `OK wait_download` avec ZIP > 1 Ko dans `dce-documents`
+
+## Détails techniques
+
+- Pas de changement au client CDP (toujours single-target).
+- `extract_href_and_navigate` est générique : réutilisable pour d'autres plateformes qui ouvrent en popup.
+- Si le lien est introuvable → step optionnel, on log SKIPPED et on continue (fail-soft existant).
