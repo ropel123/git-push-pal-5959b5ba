@@ -176,7 +176,9 @@ const TenderDetail = () => {
   // sans identifiant de consultation exploitable.
   const isGenericLink = (u?: string | null): boolean => {
     if (!u) return true;
-    return /(fuseaction=pub\.affResultats(?![^#]*[?&]ref(Pub|Cons|Consult)=)|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche)/i.test(u);
+    // affPublication SANS refPub/refConsult/refCons = listing MPI générique
+    if (/fuseaction=pub\.affPublication/i.test(u) && !/[?&]ref(Pub|Cons|Consult)=/i.test(u)) return true;
+    return /(fuseaction=pub\.affResultats|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche|fuseaction=marchesP\.rechM(?![^#]*[?&]IDS=\d))/i.test(u);
   };
   // BOAMP et TED ont été retirés de la stratégie data : on garde la garde par
   // sécurité au cas où d'anciennes données referaient surface, mais aucun nouveau
