@@ -257,13 +257,18 @@ export async function downloadDce(jar: CookieJar, dceUrl: string, currentHtml?: 
 }> {
   // 1. Ensure we're on DCE page
   let html = currentHtml ?? "";
+  let pageUrl = dceUrl;
   if (!html || !looksLikeDcePage(html)) {
     console.log(`[mpi] GET dce ${dceUrl}`);
     const r = await mpiFetch(jar, dceUrl);
     html = r.text;
+    pageUrl = r.res.url || dceUrl;
   }
   if (!looksLikeDcePage(html)) {
-    throw new Error("Not on DCE page after auth (lots/télécharger not found)");
+    const titleMatch = html.match(/<title[^>]*>([^<]{0,160})<\/title>/i);
+    const snippet = html.replace(/\s+/g, " ").slice(0, 300);
+    console.log(`[mpi] dce.not_recognized url=${pageUrl} title="${titleMatch?.[1] ?? ""}" snippet="${snippet}"`);
+    throw new Error(`Not on DCE page after auth (url=${pageUrl})`);
   }
 
   // 2. Find download form (contains lot checkboxes)
