@@ -561,6 +561,39 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_sessions: {
+        Row: {
+          cookies: Json
+          created_at: string
+          expires_at: string
+          id: string
+          last_used_at: string | null
+          login_count: number
+          platform: string
+          updated_at: string
+        }
+        Insert: {
+          cookies?: Json
+          created_at?: string
+          expires_at?: string
+          id?: string
+          last_used_at?: string | null
+          login_count?: number
+          platform: string
+          updated_at?: string
+        }
+        Update: {
+          cookies?: Json
+          created_at?: string
+          expires_at?: string
+          id?: string
+          last_used_at?: string | null
+          login_count?: number
+          platform?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           company_certifications: string[] | null
