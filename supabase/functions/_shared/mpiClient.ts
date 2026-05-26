@@ -326,3 +326,50 @@ export function isLoginRequired(html: string): boolean {
   return /type\s*=\s*["']?password/i.test(html) ||
     /fuseaction=dematEnt\.login/i.test(html) && /captcha|connecter|connexion/i.test(html);
 }
+
+// ---------- Resolve DCE retrieval URL ----------
+// From a publication page (pub.affPublication?IDS=...), find the "Retirer le DCE"
+// link that points to dematEnt.login&type=DCE&IDM=...
+export async function resolveDceUrl(jar: CookieJar, startUrl: string): Promise<{
+  url: string;
+  via: "direct" | "link" | "fallback";
+  html?: string;
+}> {
+  if (/fuseaction=dematEnt\.login/i.test(startUrl) && /type=DCE/i.test(startUrl)) {
+    return { url: startUrl, via: "direct" };
+  }
+  console.log(`[mpi] resolveDceUrl: GET ${startUrl}`);
+  const r = await mpiFetch(jar, startUrl);
+  const html = r.text;
+
+  // 1. Direct link extraction
+  const linkRe = /<a\b[^>]*href\s*=\s*["']([^"']*fuseaction=dematEnt\.login[^"']*)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(html)) !== null) {
+    const href = m[1].replace(/&amp;/g, "&");
+    if (/type=DCE/i.test(href)) {
+      const abs = new URL(href, startUrl).toString();
+      console.log(`[mpi] resolveDceUrl: link → ${abs}`);
+      return { url: abs, via: "link", html };
+    }
+  }
+
+  // 2. Fallback : extract IDM/refPub from page or from startUrl querystring
+  const u = new URL(startUrl);
+  const ids = u.searchParams.get("IDS") ?? u.searchParams.get("IDM");
+  const refPub = u.searchParams.get("refPub");
+  const idmMatch = html.match(/IDM=(\d+)/i);
+  const idm = idmMatch?.[1] ?? ids;
+  if (idm) {
+    const base = `${u.origin}${u.pathname}`;
+    const params = new URLSearchParams({ fuseaction: "dematEnt.login", type: "DCE", IDM: idm });
+    if (refPub) params.set("refPub", refPub);
+    const serveur = u.searchParams.get("serveur");
+    if (serveur) params.set("serveur", serveur);
+    const abs = `${base}?${params.toString()}`;
+    console.log(`[mpi] resolveDceUrl: fallback → ${abs}`);
+    return { url: abs, via: "fallback", html };
+  }
+
+  throw new Error("Cannot resolve DCE retrieval URL from publication page");
+}
