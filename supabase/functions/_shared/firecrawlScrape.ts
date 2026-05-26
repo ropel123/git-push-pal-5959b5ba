@@ -81,8 +81,8 @@ export async function firecrawlScrapeStructured(
   apiKey: string,
   opts: { wantHtml?: boolean; timeoutMs?: number; retries?: number } = {},
 ): Promise<ScrapeResult> {
-  const timeoutMs = opts.timeoutMs ?? 40_000;
-  const retries = opts.retries ?? 1;
+  const timeoutMs = opts.timeoutMs ?? 90_000;
+  const retries = opts.retries ?? 2;
 
   const formats: Array<string | Record<string, unknown>> = [
     { type: "json", schema: TENDER_SCHEMA, prompt: TENDER_PROMPT(url) },
