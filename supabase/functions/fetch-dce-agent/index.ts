@@ -994,8 +994,16 @@ Deno.serve(async (req) => {
     const { tender_id, dce_url, triggered_by } = body;
     if (!tender_id || !dce_url) throw new Error("tender_id and dce_url required");
 
-    const platform = await detectPlatform(supabase, dce_url);
-    log("router.detect_platform", "ok", platform);
+    // Load tender source to enrich platform detection (custom domains like profilacheteur.meuse.fr)
+    const { data: tenderRow } = await supabase
+      .from("tenders")
+      .select("source")
+      .eq("id", tender_id)
+      .maybeSingle();
+    const tenderSource = tenderRow?.source ?? null;
+
+    const { platform, via } = await detectPlatform(supabase, dce_url, tenderSource);
+    log("router.detect_platform", "ok", `${platform} (via=${via}, source=${tenderSource ?? "n/a"})`);
 
     const { data: runRow, error: runErr } = await supabase
       .from("agent_runs")
