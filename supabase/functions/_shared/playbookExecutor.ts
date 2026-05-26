@@ -285,6 +285,11 @@ async function execHybrid(ctx: ExecutorContext): Promise<ExecutorResult> {
       if (abs) linkCandidates.push(abs);
     }
   }
+  // MPI legacy : les liens détail sont dans des onclick `window.location.href='...IDS=NNN'`
+  // et n'apparaissent pas toujours dans res.links. On mine le markdown pour les récupérer.
+  if (ctx.platform === "mpi") {
+    for (const u of mineMpiDetailUrls(ctx.url, res.markdown)) linkCandidates.push(u);
+  }
 
   // Dédup + filtre détail + même host (sécurité)
   const baseHost = (() => { try { return new URL(ctx.url).hostname.toLowerCase(); } catch { return ""; } })();
