@@ -1,39 +1,20 @@
-## Problème
+Constat : le job actuel est bloqué à `14/15` depuis plusieurs minutes. La table `rescrape_jobs` est encore en `running`, mais `updated_at` ne bouge plus. Le problème vient du worker `rescrape-batch` : il lance deux appels `scrape-list` en parallèle et attend qu’ils finissent tous. Si le dernier appel reste pendu/tue par la limite Edge Runtime, le job ne passe jamais en `done` ou `failed`, donc l’UI continue d’afficher un spinner indéfiniment.
 
-Actuellement, le bouton "Relancer scraping" boucle côté navigateur (`rescrapeScope` dans `Sourcing.tsx` lignes 454-505) et appelle `scrape-list` URL par URL avec concurrence 2. Si l'utilisateur quitte la page, la boucle s'arrête et les URLs restantes ne sont jamais retraitées.
+Plan de correction :
 
-## Solution
+1. Sécuriser `rescrape-batch`
+   - Mettre un timeout dur autour de chaque appel `scrape-list` pour qu’une URL lente ne bloque jamais tout le batch.
+   - Remplacer l’attente globale fragile par un traitement plus défensif : chaque URL se termine en succès ou erreur, puis incrémente `done`.
+   - Marquer le job en `done` même s’il y a des erreurs partielles, et en `failed` seulement si le worker crash réellement.
 
-Déplacer l'orchestration côté serveur dans une nouvelle edge function `rescrape-batch` qui :
-1. Reçoit le scope (`all` ou `{ platform }`)
-2. Crée une ligne dans une nouvelle table `rescrape_jobs` (status, total, done, found, inserted, updated, errors, scope, started_at, finished_at)
-3. Retourne immédiatement `202` avec le `job_id`
-4. Lance le traitement en background via `EdgeRuntime.waitUntil(...)` — la boucle continue même si le client se déconnecte
+2. Ajouter une reprise des jobs bloqués
+   - Au démarrage d’un nouveau batch, nettoyer les anciens jobs `running` sans progression récente en `failed` avec un message du type `stale worker timeout`.
+   - Ainsi l’interface ne restera plus bloquée sur un ancien job mort.
 
-La page `Sourcing.tsx` poll le job toutes les 2s tant qu'il existe un job actif, et affiche la progression comme aujourd'hui. Au rechargement de la page, si un job est encore en `running`, la barre de progression réapparaît automatiquement.
+3. Améliorer l’UI de suivi dans `Sourcing.tsx`
+   - Lors du polling, détecter un job `running` dont `updated_at` est trop ancien.
+   - Afficher `bloqué / timeout probable` au lieu d’un spinner infini, avec un toast clair.
+   - Libérer le bouton pour pouvoir relancer.
 
-## Détails techniques
-
-**Nouvelle table `rescrape_jobs`** (migration) :
-- `id uuid pk`, `created_by uuid`, `scope jsonb`, `status text` (`running`/`done`/`failed`)
-- `total int`, `done int`, `found int`, `inserted int`, `updated int`, `errors int`
-- `started_at timestamptz`, `finished_at timestamptz`, `last_url text`
-- RLS : admin only (via `has_role`)
-
-**Nouvelle edge function `rescrape-batch`** (`supabase/functions/rescrape-batch/index.ts`) :
-- Vérifie auth + rôle admin
-- Charge `sourcing_urls` actives selon le scope
-- Insère le job, retourne `{ job_id }` en 202
-- `EdgeRuntime.waitUntil(runJob(job_id, urls))` qui boucle avec concurrence 2, appelle directement la logique `scrape-list` (ou l'invoque) et update le job après chaque URL
-
-**Client `Sourcing.tsx`** :
-- `rescrapeScope` n'appelle plus `scrape-list` en boucle, mais appelle `rescrape-batch` une seule fois
-- Un `useEffect` cherche au mount un job `running` de l'utilisateur et lance le polling
-- Polling toutes les 2s sur `rescrape_jobs` par `job_id`, met à jour `rescrapeProgress`, arrête quand `status !== 'running'`, toast final, `load()`
-
-## Fichiers touchés
-
-- nouveau : `supabase/migrations/<ts>_create_rescrape_jobs.sql`
-- nouveau : `supabase/functions/rescrape-batch/index.ts`
-- modifié : `supabase/config.toml` (déclaration de la fonction, `verify_jwt = true`)
-- modifié : `src/pages/Sourcing.tsx` (remplacer `rescrapeScope` + ajouter polling + reprise au mount)
+4. Optionnel mais recommandé après correction
+   - Marquer manuellement le job actuel `5684dfdb-1be9-42ca-8365-aede3505935f` comme terminé ou failed afin de débloquer immédiatement l’interface.
