@@ -1461,9 +1461,8 @@ Deno.serve(async (req) => {
             break;
           }
           case "download_all_pieces": {
-            // Étape 0 : page AW Solutions / MPI "Retrait DCE" — chercher la ligne
-            // "DCE (ou Pièces communes)" et cliquer SON bouton Télécharger précisément.
-            const dceLineResult = await cdp.eval(`
+            // Helper JS : cliquer la ligne "DCE (ou Pièces communes)" sur la page de retrait
+            const jsClickDceRow = `
 (() => {
   const isVisible = (el) => {
     const r = el.getBoundingClientRect();
@@ -1479,54 +1478,71 @@ Deno.serve(async (req) => {
     try { el.dispatchEvent(new MouseEvent('mouseup', opts)); } catch (_) {}
     try { el.click(); } catch (_) {}
   };
-  // Repérer toutes les cellules / lignes contenant le texte "DCE (ou Pièces communes)" ou variantes
   const re = /dce\\s*\\(?\\s*ou\\s*pi[èe]ces?\\s*communes?\\)?|^\\s*dce\\s*$|pi[èe]ces?\\s*communes/i;
-  const all = Array.from(document.querySelectorAll('td, th, tr, div, span, label, p'))
+  const all = Array.from(document.querySelectorAll('td, th, tr, div, span, label, p, a'))
     .filter(isVisible);
-  // On veut les éléments dont le PROPRE texte (pas hérité) matche le libellé court
   const labelEls = all.filter(el => {
     const own = (el.innerText || '').trim();
-    if (own.length > 80) return false;
+    if (own.length === 0 || own.length > 120) return false;
     return re.test(own);
   });
   if (labelEls.length === 0) return { kind: 'no_label' };
-
-  // Prendre en priorité "DCE (ou Pièces communes)" exact, sinon le premier
   labelEls.sort((a, b) => {
     const ta = (a.innerText || '').toLowerCase();
     const tb = (b.innerText || '').toLowerCase();
-    const sa = ta.includes('pi') && ta.includes('commun') ? 0 : 1;
-    const sb = tb.includes('pi') && tb.includes('commun') ? 0 : 1;
+    const sa = (ta.includes('pi') && ta.includes('commun')) ? 0 : 1;
+    const sb = (tb.includes('pi') && tb.includes('commun')) ? 0 : 1;
     return sa - sb;
   });
 
+  // 1) Le libellé lui-même est un <a> téléchargeable
+  for (const label of labelEls) {
+    if (label.tagName === 'A' && (label.href || label.getAttribute('href'))) {
+      fireClick(label);
+      return { kind: 'clicked_label_link', label: (label.innerText || '').slice(0, 80), href: (label.href || '').slice(0, 200) };
+    }
+  }
+
+  // 2) Bouton Télécharger dans la même ligne <tr> / conteneur
   for (const label of labelEls) {
     const row = label.closest('tr') || label.parentElement;
     if (!row) continue;
-    const btns = Array.from(row.querySelectorAll('a, button, input[type=submit], input[type=button]'))
+    const btns = Array.from(row.querySelectorAll('a, button, input[type=submit], input[type=button], img'))
       .filter(isVisible)
-      .filter(el => /t[ée]l[ée]charger|download/i.test((el.innerText || el.value || el.getAttribute('aria-label') || el.title || '') + ''));
+      .filter(el => /t[ée]l[ée]charger|download|retrait/i.test(((el.innerText || el.value || el.getAttribute('aria-label') || el.title || el.alt || '') + '')));
     if (btns.length === 0) continue;
     fireClick(btns[0]);
     return {
       kind: 'clicked_dce_row',
       label: (label.innerText || '').slice(0, 80),
-      btnText: (btns[0].innerText || btns[0].value || '').slice(0, 60),
+      btnText: (btns[0].innerText || btns[0].value || btns[0].title || btns[0].alt || '').slice(0, 80),
     };
+  }
+
+  // 3) Proximité visuelle : bouton Télécharger sur la même ligne Y que le libellé
+  const primary = labelEls[0];
+  const lr = primary.getBoundingClientRect();
+  const cy = lr.top + lr.height / 2;
+  const allBtns = Array.from(document.querySelectorAll('a, button, input[type=submit], input[type=button]'))
+    .filter(isVisible)
+    .filter(el => /t[ée]l[ée]charger|download|retrait/i.test(((el.innerText || el.value || el.getAttribute('aria-label') || el.title || '') + '')));
+  let best = null;
+  let bestDy = 1e9;
+  for (const b of allBtns) {
+    const br = b.getBoundingClientRect();
+    const by = br.top + br.height / 2;
+    const dy = Math.abs(by - cy);
+    if (dy < bestDy && dy < Math.max(40, lr.height * 1.5)) { best = b; bestDy = dy; }
+  }
+  if (best) {
+    fireClick(best);
+    return { kind: 'clicked_nearby', label: (primary.innerText || '').slice(0, 80), btnText: (best.innerText || best.value || '').slice(0, 80), dy: bestDy };
   }
   return { kind: 'label_without_button', candidates: labelEls.length };
 })()
-            `).catch((e: any) => ({ kind: 'error', error: String(e?.message ?? e) }));
+`;
 
-            if (dceLineResult?.kind === 'clicked_dce_row') {
-              log(label, "ok", `DCE pièces communes cliqué — "${dceLineResult.btnText}" (ligne: "${dceLineResult.label}")`, Date.now() - stepStart);
-              // Laisser amplement le temps au gros téléchargement de démarrer
-              await new Promise((r) => setTimeout(r, 10000));
-              break;
-            }
-
-            // Étape 1 : si on est sur une page de sélection de lots (MPI verifLotsDCE notamment),
-            // cocher toutes les cases puis soumettre le formulaire.
+            // Étape A : si on est sur une page de sélection de lots, cocher + soumettre.
             const lotResult = await cdp.eval(`
 (() => {
   const isVisible = (el) => {
@@ -1544,7 +1560,6 @@ Deno.serve(async (req) => {
   const checkboxes = Array.from(document.querySelectorAll('input[type=checkbox]')).filter(isVisible);
   if (checkboxes.length === 0) return { kind: 'no_checkboxes' };
 
-  // 1) Chercher la case "Sélectionner tous les lots" / "Tout sélectionner"
   let masterChecked = false;
   for (const cb of checkboxes) {
     const id = cb.id || '';
@@ -1559,7 +1574,6 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 2) Fallback : cocher toutes les cases non encore cochées
   let lotsChecked = 0;
   if (!masterChecked) {
     for (const cb of checkboxes) {
@@ -1571,7 +1585,6 @@ Deno.serve(async (req) => {
     lotsChecked = checkboxes.filter(c => c.checked).length;
   }
 
-  // 3) Soumettre : bouton "Télécharger les DCE sélectionnés" ou submit du formulaire
   const submitWords = /(t[ée]l[ée]charger.*(dce|s[ée]lectionn|lots)|valider|continuer|envoyer)/i;
   const candidates = Array.from(document.querySelectorAll('button, input[type=submit], input[type=button], a'))
     .filter(isVisible);
@@ -1580,7 +1593,6 @@ Deno.serve(async (req) => {
     return submitWords.test(t);
   });
   if (!submitBtn) {
-    // chercher le form englobant les checkboxes
     const form = checkboxes[0]?.closest('form');
     if (form) {
       submitBtn = form.querySelector('input[type=submit], button[type=submit]');
@@ -1598,17 +1610,39 @@ Deno.serve(async (req) => {
 })()
             `).catch((e: any) => ({ kind: 'error', error: String(e?.message ?? e) }));
 
-            if (lotResult && (lotResult.kind === 'submitted_button' || lotResult.kind === 'submitted_form')) {
+            const submittedLots = lotResult?.kind === 'submitted_button' || lotResult?.kind === 'submitted_form';
+            if (submittedLots) {
               log(label, "ok", `lots cochés=${lotResult.lotsChecked}${lotResult.masterChecked ? " (master)" : ""} → ${lotResult.kind}${lotResult.label ? ` "${lotResult.label}"` : ""}`, Date.now() - stepStart);
-              // Laisser le temps au téléchargement de démarrer
-              await new Promise((r) => setTimeout(r, 6000));
-              break;
+              await new Promise((r) => setTimeout(r, 7000));
+            } else {
+              log(label, "skipped", `pas de sélection de lots (${lotResult?.kind ?? 'n/a'})`, Date.now() - stepStart);
             }
 
-            // Étape 2 (fallback): comportement historique — chercher un bouton "Télécharger" direct
+            // Étape B : sur la page de retrait, cliquer "DCE (ou Pièces communes)".
+            // Plusieurs tentatives car la page peut mettre du temps à se rendre.
+            let dceClicked = false;
+            let lastDce: any = null;
+            for (let attempt = 0; attempt < 4; attempt++) {
+              const dceLineResult = await cdp.eval(jsClickDceRow).catch((e: any) => ({ kind: 'error', error: String(e?.message ?? e) }));
+              lastDce = dceLineResult;
+              if (dceLineResult?.kind === 'clicked_dce_row' || dceLineResult?.kind === 'clicked_label_link' || dceLineResult?.kind === 'clicked_nearby') {
+                log(`${label}.dce_row`, "ok", `${dceLineResult.kind} — "${dceLineResult.btnText ?? dceLineResult.href ?? ''}" (ligne: "${dceLineResult.label}")`, 0);
+                dceClicked = true;
+                // Laisser amplement le temps au gros téléchargement (Browserbase capture l'archive)
+                await new Promise((r) => setTimeout(r, 15000));
+                break;
+              }
+              await new Promise((r) => setTimeout(r, 2500));
+            }
+
+            if (dceClicked) break;
+
+            log(`${label}.dce_row`, "skipped", `aucune ligne DCE cliquée (${lastDce?.kind ?? 'n/a'}, candidats=${lastDce?.candidates ?? 0})`, 0);
+
+            // Étape C (fallback historique) : n'importe quel bouton "Télécharger".
             const snapshot = await cdp.eval(jsSnapshotClickables()) as Array<any> | null;
             if (!Array.isArray(snapshot) || snapshot.length === 0) {
-              log(label, "skipped", `pas de lots soumissibles (${lotResult?.kind ?? 'n/a'}) et aucun cliquable visible`, Date.now() - stepStart);
+              log(label, "skipped", `aucun cliquable visible`, Date.now() - stepStart);
               break;
             }
             const re = /(t[ée]l[ée]charger|download|retrait)/i;
@@ -1618,7 +1652,7 @@ Deno.serve(async (req) => {
               : snapshot.filter((c: any) => re.test(`${c.text} ${c.aria} ${c.title}`));
             if (targets.length === 0) {
               const top5 = snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag} "${String(c.text).slice(0, 30)}"`).join(" | ");
-              log(label, "skipped", `aucun bouton Télécharger (lot=${lotResult?.kind ?? 'n/a'}) — top5: ${top5}`, Date.now() - stepStart);
+              log(label, "skipped", `aucun bouton Télécharger — top5: ${top5}`, Date.now() - stepStart);
               break;
             }
             let clicked = 0;
