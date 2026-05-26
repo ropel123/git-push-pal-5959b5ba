@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
     // 2. Login if needed
     if (needsLogin) {
       jar = {};
-      const loginRes = await loginMpi(jar, dce_url);
+      const loginRes = await loginMpi(jar, dceUrl);
       if (loginRes.captchaSolved) captchasSolved = 1;
       landingHtml = loginRes.finalHtml;
       log("session.login", "ok", `captcha=${loginRes.captchaSolved} cookies=${Object.keys(jar).length}`);
