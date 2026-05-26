@@ -208,15 +208,39 @@ async function execTemplate(ctx: ExecutorContext, rule: PaginationRule): Promise
 /** Détecte si un lien ressemble à une URL de fiche détail (vs. listing). */
 function isDetailLink(l: string): boolean {
   if (!l) return false;
-  if (/login|inscription|recherche|search|\.css|\.js$|\.png|\.jpg|\.svg/i.test(l)) return false;
+  if (/login|inscription|\.css|\.js$|\.png|\.jpg|\.svg/i.test(l)) return false;
   // MPI : affPublication AVEC refPub/refConsult/refCons → détail. Sans → listing.
   if (/fuseaction=pub\.affPublication/i.test(l)) {
     return /[?&]ref(Pub|Cons|Consult)=/i.test(l);
   }
-  if (/fuseaction=pub\.affResultats|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche/i.test(l)) {
+  // MPI legacy : marchesP.rechM SEUL = listing ; marchesP.rechM + IDS = détail.
+  if (/fuseaction=marchesP\.rechM/i.test(l)) {
+    return /[?&]IDS=\d+/i.test(l);
+  }
+  // MPI legacy : pub.affRech avec IDS = fiche détail (popup JS window.location.href).
+  if (/fuseaction=pub\.affRech\b/i.test(l)) {
+    return /[?&]IDS=\d+/i.test(l);
+  }
+  if (/fuseaction=pub\.affResultats|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche|fuseaction=mpAW\.rechM/i.test(l)) {
     return false;
   }
-  return /detail|consultation|refConsult|refPub|refCons|idCons|annonce|dspAvisDetail|orgAcronyme|fuseaction=pub\.dsp|fuseaction=marchesP\.rechM/i.test(l);
+  return /detail|consultation|refConsult|refPub|refCons|idCons|annonce|dspAvisDetail|orgAcronyme|fuseaction=pub\.dsp/i.test(l);
+}
+
+/** Mine les IDs MPI (`IDS=\d+`) depuis le markdown/HTML et construit des URLs détail. */
+function mineMpiDetailUrls(baseUrl: string, text: string | null | undefined): string[] {
+  if (!text) return [];
+  let base: URL;
+  try { base = new URL(baseUrl); } catch { return []; }
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const m of text.matchAll(/IDS=(\d+)/gi)) {
+    const id = m[1];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    urls.push(`${base.origin}${base.pathname}?fuseaction=pub.affRech&IDS=${id}`);
+  }
+  return urls;
 }
 
 /** Résout une URL potentiellement relative contre une base. */
@@ -260,6 +284,11 @@ async function execHybrid(ctx: ExecutorContext): Promise<ExecutorResult> {
       const abs = resolveUrl(raw, ctx.url);
       if (abs) linkCandidates.push(abs);
     }
+  }
+  // MPI legacy : les liens détail sont dans des onclick `window.location.href='...IDS=NNN'`
+  // et n'apparaissent pas toujours dans res.links. On mine le markdown pour les récupérer.
+  if (ctx.platform === "mpi") {
+    for (const u of mineMpiDetailUrls(ctx.url, res.markdown)) linkCandidates.push(u);
   }
 
   // Dédup + filtre détail + même host (sécurité)
@@ -434,6 +463,17 @@ function classifyMessage(msg: string): ErrorType {
 export async function execute(ctx: ExecutorContext): Promise<ExecutorResult> {
   const pb = ctx.playbook;
   const platform = ctx.platform;
+
+  // 0. MPI legacy (marchesP.rechM / pub.affResultats) : les fiches détail sont
+  //    derrière des popups JS `window.location.href='...IDS=N'`. La stratégie
+  //    template ne peut pas remonter source_url/dce_url. On force HYBRID pour
+  //    miner les IDS depuis le markdown et scraper chaque fiche.
+  if (
+    platform === "mpi" &&
+    /fuseaction=(marchesP\.rechM|pub\.affResultats)/i.test(ctx.url)
+  ) {
+    return execHybrid(ctx);
+  }
 
   // 1. Si playbook avec confidence >= 0.7 → on suit son list_strategy
   if (pb && pb.confidence >= 0.7 && pb.list_strategy) {
