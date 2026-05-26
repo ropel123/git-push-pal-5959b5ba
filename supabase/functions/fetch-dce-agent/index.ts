@@ -395,6 +395,34 @@ function jsClickByIndex(idx: number): string {
 `;
 }
 
+function jsClickLastByText(instruction: string): string {
+  const safe = JSON.stringify(instruction.toLowerCase());
+  const sel = JSON.stringify(CLICKABLE_SELECTOR);
+  return `
+(() => {
+  const phrase = ${safe};
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== "hidden" && st.display !== "none" && st.opacity !== "0";
+  };
+  const candidates = Array.from(document.querySelectorAll(${sel})).filter(el => {
+    if (!isVisible(el)) return false;
+    const t = (el.innerText || el.value || el.getAttribute('aria-label') || el.title || '').toLowerCase().trim();
+    return t.includes(phrase);
+  });
+  if (candidates.length === 0) return { clicked: false, reason: "no match", count: 0 };
+  const el = candidates[candidates.length - 1];
+  el.scrollIntoView({ block: "center" });
+  el.click();
+  return { clicked: true, count: candidates.length, text: (el.innerText || el.value || '').slice(0, 80) };
+})()
+`;
+}
+
+
+
 function jsCountVisibleInputs(): string {
   const sel = JSON.stringify(INPUT_SELECTOR);
   return `
@@ -893,20 +921,21 @@ async function solveRecaptchaV2(siteKey: string, pageUrl: string): Promise<strin
 const HOSTNAME_PLATFORM_MAP: Array<[RegExp, string]> = [
   [/place\.marches-publics\.gouv\.fr/i, "place"],
   [/marches-publics\.info/i, "mpi"],
-  [/achatpublic\.com/i, "atexo_achatpublic"],
+  [/(^|\/\/)(www\.)?achatpublic\.com/i, "achatpublic"],
   [/local-trust\.com/i, "atexo_localtrust"],
   [/marches-securises\.fr/i, "marches_securises"],
   [/maximilien\.fr/i, "maximilien"],
   [/megalis\.bretagne\.bzh/i, "megalis"],
   [/megalisbretagne\.org/i, "megalis"],
   [/e-marchespublics\.com/i, "emarchespublics"],
-  [/profilacheteur\./i, "atexo_achatpublic"],
-  [/atexo/i, "atexo_achatpublic"],
+  [/profilacheteur\./i, "atexo_spl"],
+  [/atexo/i, "atexo_spl"],
 ];
 
 // Map tender.source ("scrape:atexo", "scrape:maximilien"…) → playbook platform
 const SOURCE_PLATFORM_MAP: Record<string, string> = {
-  atexo: "atexo_achatpublic",
+  achatpublic: "achatpublic",
+  atexo: "atexo_spl",
   maximilien: "maximilien",
   place: "place",
   mpi: "mpi",
@@ -914,6 +943,7 @@ const SOURCE_PLATFORM_MAP: Record<string, string> = {
   marches_securises: "marches_securises",
   emarchespublics: "emarchespublics",
 };
+
 
 function detectPlatformHeuristic(url: string): string {
   for (const [re, platform] of HOSTNAME_PLATFORM_MAP) {
@@ -1276,6 +1306,16 @@ Deno.serve(async (req) => {
             log(label, "ok", `sitekey=${String(siteKey).slice(0, 12)}…`, Date.now() - stepStart);
             break;
           }
+          case "click_last": {
+            const instruction = step.instruction ?? step.natural ?? "";
+            const r = await cdp.eval(jsClickLastByText(instruction));
+            if (r?.clicked) {
+              log(label, "ok", `(last of ${r.count}) ${r.text ?? ""}`, Date.now() - stepStart);
+            } else {
+              log(label, "skipped", `no match for "${instruction.slice(0, 60)}"`, Date.now() - stepStart);
+            }
+            break;
+          }
           case "wait": {
             await new Promise((r) => setTimeout(r, step.timeout_ms ?? 3000));
             log(label, "ok", undefined, Date.now() - stepStart);
@@ -1287,6 +1327,7 @@ Deno.serve(async (req) => {
             log(label, "ok", undefined, Date.now() - stepStart);
             break;
           }
+
           default:
             log(label, "skipped", "action inconnue", Date.now() - stepStart);
         }
