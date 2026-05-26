@@ -1084,8 +1084,23 @@ Deno.serve(async (req) => {
         .eq("is_active", true)
         .maybeSingle();
       if (r) { robot = r; log("robot.load", "ok", r.login); }
-      else log("robot.load", "skipped", "aucun compte — fallback identité anonyme");
+      else {
+        // Fallback : pour MPI, on lit les identifiants depuis les secrets d'environnement.
+        if (platform === "mpi") {
+          const mpiLogin = Deno.env.get("MPI_LOGIN");
+          const mpiPwd = Deno.env.get("MPI_PASSWORD");
+          if (mpiLogin && mpiPwd) {
+            robot = { login: mpiLogin, password_encrypted: mpiPwd };
+            log("robot.load", "ok", `${mpiLogin} (via env MPI_LOGIN)`);
+          } else {
+            log("robot.load", "skipped", "MPI_LOGIN/MPI_PASSWORD manquants");
+          }
+        } else {
+          log("robot.load", "skipped", "aucun compte — fallback identité anonyme");
+        }
+      }
     }
+
 
     const { data: anonId } = await supabase
       .from("agent_anonymous_identity")
