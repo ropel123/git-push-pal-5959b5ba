@@ -65,7 +65,13 @@ function normalize(item: any) {
         if (BLOCKED_PUBLISHERS.some((d) => itemHost.endsWith(d))) {
           item_link_rejected_reason = `blocked publisher (${itemHost})`;
         } else {
-          const FEDERATED = ["marches-publics.gouv.fr"];
+          // Famille MPI : `marches-publics.info` (portail fédéré) et tous ses
+          // sous-domaines partagent le même backend. On considère donc les
+          // liens cross-domain dans cette famille comme légitimes.
+          const FEDERATED = ["marches-publics.gouv.fr", "marches-publics.info"];
+          const MPI_FAMILY_HOSTS = /(^|\.)marches-publics\.info$|^marchespublics\./i;
+          const bothInMpiFamily =
+            MPI_FAMILY_HOSTS.test(itemHost) && MPI_FAMILY_HOSTS.test(listingHost);
           const isFederated = FEDERATED.some((d) => itemHost.endsWith(d));
           const sameHost =
             listingHost &&
