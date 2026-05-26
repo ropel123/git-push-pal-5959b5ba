@@ -1,56 +1,65 @@
-# Playbook `achatpublic` (≠ Atexo)
+# Tender MPI/SIAAP vide : 2 problèmes à corriger
 
 ## Constat
 
-`www.achatpublic.com` est un **éditeur indépendant**, pas Atexo. Le flow est beaucoup plus court :
+Le tender `c749e60e-…` (SIAAP, source `scrape:mpi`) en base contient :
+- ✅ titre, buyer_name, reference
+- ❌ `dce_url`, `source_url`, `description`, `deadline`, `publication_date`, `procedure_type`, `estimated_amount`, `cpv_codes`, `lots` → tous null/vides
+- `enriched_data.raw._source_url` = `https://marchespublics.siaap.fr/avis/index.cfm?fuseaction=pub.affResultats` (= la **page liste**, pas la fiche détail)
+- `enriched_data.item_link_rejected_reason` est présent → le scraper a tenté de suivre un lien détail mais l'a rejeté.
 
-1. Page consultation `…/ficheCsl.action?PCSLID=…` → onglet **Pièces de marché** (`&ongletActif=2`, déjà dans l'URL)
-2. Section "Dossier de consultation des entreprises - DCE" → liste de ZIP versionnés (`dce-v1.zip`, `dce-v2.zip`, …) → **prendre le plus récent** (le dernier de la liste = version la plus haute = date la plus récente)
-3. Clic `Télécharger` → modale **Connexion / Inscription** "Souhaitez-vous vous identifier ?" → cliquer **Non** (téléchargement anonyme direct)
-4. Le ZIP arrive (pas de CGU, pas de formulaire identité, pas de captcha)
+### Cause racine n°1 — Le scraper ne va jamais sur la fiche détail
 
-Aujourd'hui en base on a un seul playbook `atexo_achatpublic` (15 étapes Atexo) qui sert à la fois pour `achatpublic.com` ET pour les sous-domaines Atexo SPL (Meuse). À séparer.
+- Le playbook DB `mpi` a `url_pattern = marches-publics\.info` → **il ne matche pas** `marchespublics.siaap.fr` (sous-domaine acheteur custom du même éditeur).
+- Sans playbook reconnu, `scrape-list` retombe sur la stratégie "template" qui se limite à la page liste, ou la stratégie hybride filtre les liens détail avec un regex (`/detail|consultation|refConsult|…/i`) qui ne matche pas le pattern SIAAP (`fuseaction=pub.dspAvisDetail&refConsult=…` devrait pourtant matcher → à vérifier dans les logs).
+- Conséquence : titre récupéré sur la liste, mais aucun fetch de la fiche → aucune des données riches.
+
+### Cause racine n°2 — L'UI n'a aucun fallback
+
+`TenderDetail.tsx` ligne 193 :
+```ts
+const officialUrl = (source_url ok ? source_url : null) || (dce_url ok ? dce_url : null);
+```
+Quand les deux sont null, le bouton "Voir l'avis original" disparaît, même si on a `enriched_data.listing_url` ou `enriched_data.raw._source_url` exploitables.
 
 ## Plan
 
-### 1. Migration SQL
+### 1. Fix UI — fallback immédiat (visible aujourd'hui)
 
-**a)** Renommer le playbook actuel `atexo_achatpublic` → `atexo_spl` (pour qu'il reste le playbook Atexo SPL générique, utilisé pour Meuse et autres sous-domaines), et changer son `url_pattern` pour qu'il ne matche **plus** `achatpublic.com`.
+`src/pages/TenderDetail.tsx`
+- Étendre la cascade `officialUrl` pour inclure `enriched_data.listing_url`, `enriched_data.raw._source_url` en dernier recours.
+- Quand on tombe sur un `listing_url` (page de résultats), libeller le bouton **"Voir sur la plateforme acheteur"** (au lieu de "Voir l'avis original") pour ne pas mentir.
+- Quand aucune `description` n'est disponible, afficher un encart neutre "Données non récupérées — voir la fiche sur la plateforme" pointant vers le même URL, plutôt qu'un bloc vide.
 
-**b)** Insérer un nouveau playbook `achatpublic` :
-- `platform = 'achatpublic'`
-- `display_name = 'AchatPublic.com'`
-- `url_pattern = 'achatpublic\.com'`
-- `requires_auth = false`, `requires_captcha = false`
-- Steps (~7) :
-  1. `goto` URL DCE
-  2. `ensure_tab` onglet "Pièces de marché" (si pas déjà actif via `ongletActif=2`)
-  3. `wait_selector` section "Dossier de consultation des entreprises"
-  4. `pick_latest_dce` — sélectionner le dernier `dce-vN.zip` (plus grand N) ou trier par date
-  5. `click` bouton "Télécharger" de cette ligne
-  6. `wait_modal` "Connexion / Inscription" → `click` bouton **Non**
-  7. `wait_download` (ZIP)
+Pas de changement business logic. Juste un fallback de présentation.
 
-### 2. Routing — `fetch-dce-agent/index.ts`
+### 2. Fix scraper — couvrir les sous-domaines MPI custom
 
-- `SOURCE_PLATFORM_MAP` : `scrape:achatpublic` → `achatpublic` (au lieu de `atexo_achatpublic`)
-- `SOURCE_PLATFORM_MAP` : `scrape:atexo` → `atexo_spl` (suit le renommage)
-- `HOSTNAME_PLATFORM_MAP` :
-  - `/^(www\.)?achatpublic\.com$/i` → `achatpublic` (avant `/atexo/i` dans la cascade)
-  - `/profilacheteur\./i` → `atexo_spl` (Meuse etc.)
+`agent_playbooks` (migration)
+- Élargir `url_pattern` du playbook `mpi` de `marches-publics\.info` à `marches-publics\.info|marchespublics\.[a-z0-9-]+\.(fr|com)` (couvre `marchespublics.siaap.fr`, `marchespublics.cdc.fr`, etc., tous propulsés par AWS Achat / MPI).
+- Vérifier que `list_strategy = 'hybrid'` (pour forcer le fetch des fiches détail) — sinon le mettre à `hybrid`.
 
-### 3. Executor
+`supabase/functions/_shared/playbookExecutor.ts`
+- Élargir le regex de sélection des liens détail à `/detail|consultation|refConsult|refPub|idCons|annonce|dspAvisDetail|orgAcronyme/i` (le pattern SIAAP utilise `dspAvisDetail`).
+- Logger explicitement les `item_link_rejected_reason` pour diagnostiquer les futurs cas.
 
-Le `playbookExecutor` doit gérer 2 nouvelles primitives propres à achatpublic :
-- `pick_latest_dce` — parser le DOM, extraire toutes les lignes `dce-v(\d+)\.zip`, garder le `data-row` du N max
-- `wait_modal` + `click "Non"` — déjà couvrable avec les primitives `wait_selector` + `click` existantes si la modale a un sélecteur stable
+### 3. Backfill du tender existant
 
-À vérifier en lisant `supabase/functions/_shared/playbookExecutor.ts` avant migration : si `pick_latest_dce` n'existe pas, soit on l'ajoute, soit on utilise une combinaison `query_all` + `click_index:last`.
+Edge function one-shot `enrich-tender-mpi` (ou simple appel à `scrape-list` en mode détail sur l'URL de fiche) qui :
+1. Prend `tender_id` en input
+2. Lit `enriched_data.listing_url`
+3. Fait un Firecrawl scrape ciblé pour retrouver le lien fiche correspondant au `reference = 20260101`
+4. Extrait `dce_url`, `description`, `deadline`, `publication_date`, `procedure_type` via le parseur MPI existant
+5. UPDATE la ligne `tenders`
 
-### 4. Test
+Alternative plus simple : si on connaît l'URL de fiche manuellement, on peut faire un UPDATE direct via migration (l'utilisateur peut la coller en chat).
 
-Re-tester sur le tender courant (`9e52e006-…`, source `scrape:achatpublic`) → `agent_runs.platform` doit valoir `achatpublic`, et le ZIP `dce-vN.zip` le plus récent doit atterrir dans `dce-documents/`.
+## Ordre d'exécution proposé
 
-## Aucun secret à ajouter
+1. **(rapide)** Fix UI fallback → l'utilisateur voit immédiatement un lien utile sur ce tender et tous les autres "vides".
+2. **(structurel)** Migration playbook MPI + regex executor → les futurs scrapes SIAAP seront enrichis.
+3. **(optionnel)** Backfill du tender courant via re-scrape ciblé.
 
-Tout passe par les secrets Browserbase / Anthropic déjà configurés.
+## Question pour décider
+
+Veux-tu que je fasse les 3 d'un coup, ou commencer juste par le fix UI (1) pour débloquer la vue tout de suite, puis enchaîner sur le scraper après validation ?

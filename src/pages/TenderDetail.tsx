@@ -46,7 +46,9 @@ interface Tender {
   additional_info: string | null;
   dce_url: string | null;
   submission_url: string | null;
+  enriched_data?: any;
 }
+
 
 interface AwardNotice {
   id: string;
@@ -190,10 +192,21 @@ const TenderDetail = () => {
     : null;
 
   // Bouton "Voir l'avis original" : tolérant — on prend la 1ʳᵉ URL utile disponible.
-  const officialUrl = (!isGenericLink(tender.source_url) && !isPublisherUrl(tender.source_url) ? tender.source_url : null)
-    || (!isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url) ? tender.dce_url : null);
+  // Cascade : source_url → dce_url → enriched_data.listing_url → enriched_data.raw._source_url
+  const enriched = (tender as any).enriched_data ?? {};
+  const fallbackListing: string | null =
+    (typeof enriched.listing_url === "string" && enriched.listing_url) ||
+    (enriched.raw && typeof enriched.raw._source_url === "string" && enriched.raw._source_url) ||
+    null;
 
-  const officialLabel = "Voir l'avis original";
+  const primaryUrl =
+    (!isGenericLink(tender.source_url) && !isPublisherUrl(tender.source_url) ? tender.source_url : null) ||
+    (!isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url) ? tender.dce_url : null);
+
+  const officialUrl = primaryUrl || (fallbackListing && !isPublisherUrl(fallbackListing) ? fallbackListing : null);
+  const officialLabel = primaryUrl ? "Voir l'avis original" : "Voir sur la plateforme acheteur";
+  const isFallbackOnly = !primaryUrl && !!officialUrl;
+
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -260,7 +273,7 @@ const TenderDetail = () => {
       </div>
 
       {/* Description */}
-      {tender.description && (
+      {tender.description ? (
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-muted-foreground">Description du marché</CardTitle>
@@ -269,7 +282,20 @@ const TenderDetail = () => {
             <p className="text-sm text-foreground whitespace-pre-line">{tender.description}</p>
           </CardContent>
         </Card>
-      )}
+      ) : isFallbackOnly && officialUrl ? (
+        <Card className="bg-card border-border border-dashed">
+          <CardContent className="py-4 text-sm text-muted-foreground flex items-start gap-2">
+            <ExternalLink className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            <span>
+              Détails non récupérés automatiquement pour cet avis.{" "}
+              <a href={officialUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                Consulter la fiche sur la plateforme acheteur
+              </a>.
+            </span>
+          </CardContent>
+        </Card>
+      ) : null}
+
 
       {/* Details grid */}
       <div className="grid gap-4 md:grid-cols-2">
