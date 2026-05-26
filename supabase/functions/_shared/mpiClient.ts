@@ -305,7 +305,7 @@ export async function downloadDce(jar: CookieJar, dceUrl: string, currentHtml?: 
     "Content-Type": "application/x-www-form-urlencoded",
     "Cookie": jarToHeader(jar),
     "Referer": dceUrl,
-    "Origin": BASE,
+    "Origin": originOf(dceUrl),
     "Accept": "*/*",
   });
   const res = await fetch(bestForm.action, { method: "POST", headers, body: body.toString() });
