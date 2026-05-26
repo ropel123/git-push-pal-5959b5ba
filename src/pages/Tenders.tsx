@@ -352,12 +352,28 @@ const Tenders = () => {
                 </Label>
               </div>
             </div>
+            {listingHosts.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Label className="text-sm text-muted-foreground flex items-center gap-1.5">
+                  <Globe className="h-4 w-4" /> Sous-domaine ({listingHosts.length})
+                </Label>
+                <Select value={listingHostFilter} onValueChange={(v) => { setListingHostFilter(v); setPage(0); }}>
+                  <SelectTrigger className="max-w-md"><SelectValue placeholder="Tous les sous-domaines" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les sous-domaines</SelectItem>
+                    {listingHosts.map((h) => (
+                      <SelectItem key={h.host} value={h.host}>{h.host} ({h.count})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="flex gap-2 items-center flex-wrap">
               <Input placeholder="Nom de la recherche" value={searchName} onChange={(e) => setSearchName(e.target.value)} className="max-w-xs" />
               <Button variant="secondary" size="sm" onClick={saveSearch} disabled={savingSearch || !searchName.trim()}>
                 <Save className="h-4 w-4 mr-1" /> Sauvegarder
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setPlatformFilter(""); setDceFilter(false); setSearch(""); setPage(0); }}>
+              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setPlatformFilter(""); setListingHostFilter(""); setDceFilter(false); setSearch(""); setPage(0); }}>
                 Réinitialiser
               </Button>
             </div>
