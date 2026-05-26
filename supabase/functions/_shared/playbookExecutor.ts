@@ -464,6 +464,17 @@ export async function execute(ctx: ExecutorContext): Promise<ExecutorResult> {
   const pb = ctx.playbook;
   const platform = ctx.platform;
 
+  // 0. MPI legacy (marchesP.rechM / pub.affResultats) : les fiches détail sont
+  //    derrière des popups JS `window.location.href='...IDS=N'`. La stratégie
+  //    template ne peut pas remonter source_url/dce_url. On force HYBRID pour
+  //    miner les IDS depuis le markdown et scraper chaque fiche.
+  if (
+    platform === "mpi" &&
+    /fuseaction=(marchesP\.rechM|pub\.affResultats)/i.test(ctx.url)
+  ) {
+    return execHybrid(ctx);
+  }
+
   // 1. Si playbook avec confidence >= 0.7 → on suit son list_strategy
   if (pb && pb.confidence >= 0.7 && pb.list_strategy) {
     if (pb.list_strategy === "hybrid") return execHybrid(ctx);
