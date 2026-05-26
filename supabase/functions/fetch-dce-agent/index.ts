@@ -1130,6 +1130,13 @@ Deno.serve(async (req) => {
     await cdp.attachToFirstPage();
     log("cdp.connect", "ok", `session=${sessionId}`, Date.now() - tInit);
 
+    // Live view URL pour visualisation temps réel
+    const liveViewUrl = await getBrowserbaseLiveViewUrl(sessionId);
+    if (liveViewUrl) {
+      await supabase.from("agent_runs").update({ live_view_url: liveViewUrl, browserbase_session_id: sessionId }).eq("id", runId);
+      log("live_view.ready", "ok", liveViewUrl);
+    }
+
     const steps = (playbook.steps as PlaybookStep[]) ?? [];
     const playbookConfig = ((playbook as any).config ?? {}) as { continue_on_error?: boolean };
     const continueOnError = playbookConfig.continue_on_error === true;
