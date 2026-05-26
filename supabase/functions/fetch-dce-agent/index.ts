@@ -900,8 +900,20 @@ const HOSTNAME_PLATFORM_MAP: Array<[RegExp, string]> = [
   [/megalis\.bretagne\.bzh/i, "megalis"],
   [/megalisbretagne\.org/i, "megalis"],
   [/e-marchespublics\.com/i, "emarchespublics"],
+  [/profilacheteur\./i, "atexo_achatpublic"],
   [/atexo/i, "atexo_achatpublic"],
 ];
+
+// Map tender.source ("scrape:atexo", "scrape:maximilien"…) → playbook platform
+const SOURCE_PLATFORM_MAP: Record<string, string> = {
+  atexo: "atexo_achatpublic",
+  maximilien: "maximilien",
+  place: "place",
+  mpi: "mpi",
+  megalis: "megalis",
+  marches_securises: "marches_securises",
+  emarchespublics: "emarchespublics",
+};
 
 function detectPlatformHeuristic(url: string): string {
   for (const [re, platform] of HOSTNAME_PLATFORM_MAP) {
@@ -911,15 +923,17 @@ function detectPlatformHeuristic(url: string): string {
 }
 
 /**
- * Three-level cascade:
+ * Four-level cascade:
  * 1. Match against active playbooks' url_pattern (regex) loaded from DB
  * 2. Hostname heuristic mapping
- * 3. "generic" fallback (LLM-first playbook that should always exist in DB)
+ * 3. Tender source mapping (e.g. "scrape:atexo" → "atexo_achatpublic")
+ * 4. "generic" fallback (LLM-first playbook that should always exist in DB)
  */
 async function detectPlatform(
   supabase: ReturnType<typeof createClient>,
   url: string,
-): Promise<string> {
+  tenderSource?: string | null,
+): Promise<{ platform: string; via: string }> {
   // 1. DB-driven regex match
   try {
     const { data: playbooks } = await supabase
@@ -930,7 +944,7 @@ async function detectPlatform(
       for (const pb of playbooks as Array<{ platform: string; url_pattern: string }>) {
         if (pb.platform === "generic" || !pb.url_pattern || pb.url_pattern === ".*") continue;
         try {
-          if (new RegExp(pb.url_pattern, "i").test(url)) return pb.platform;
+          if (new RegExp(pb.url_pattern, "i").test(url)) return { platform: pb.platform, via: "regex" };
         } catch (_) { /* invalid regex, skip */ }
       }
     }
@@ -938,11 +952,19 @@ async function detectPlatform(
 
   // 2. Hardcoded hostname heuristic
   const heuristic = detectPlatformHeuristic(url);
-  if (heuristic !== "unknown") return heuristic;
+  if (heuristic !== "unknown") return { platform: heuristic, via: "hostname" };
 
-  // 3. Generic LLM-first fallback
-  return "generic";
+  // 3. Tender source mapping
+  if (tenderSource && tenderSource.toLowerCase().startsWith("scrape:")) {
+    const suffix = tenderSource.toLowerCase().slice("scrape:".length).trim();
+    const mapped = SOURCE_PLATFORM_MAP[suffix];
+    if (mapped) return { platform: mapped, via: `source:${suffix}` };
+  }
+
+  // 4. Generic LLM-first fallback
+  return { platform: "generic", via: "fallback" };
 }
+
 
 // ---------- Main handler ----------
 
