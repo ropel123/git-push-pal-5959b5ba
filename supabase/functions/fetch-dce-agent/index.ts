@@ -1304,6 +1304,16 @@ Deno.serve(async (req) => {
             log(label, "ok", `sitekey=${String(siteKey).slice(0, 12)}…`, Date.now() - stepStart);
             break;
           }
+          case "click_last": {
+            const instruction = step.instruction ?? step.natural ?? "";
+            const r = await cdp.eval(jsClickLastByText(instruction));
+            if (r?.clicked) {
+              log(label, "ok", `(last of ${r.count}) ${r.text ?? ""}`, Date.now() - stepStart);
+            } else {
+              log(label, "skipped", `no match for "${instruction.slice(0, 60)}"`, Date.now() - stepStart);
+            }
+            break;
+          }
           case "wait": {
             await new Promise((r) => setTimeout(r, step.timeout_ms ?? 3000));
             log(label, "ok", undefined, Date.now() - stepStart);
@@ -1315,6 +1325,7 @@ Deno.serve(async (req) => {
             log(label, "ok", undefined, Date.now() - stepStart);
             break;
           }
+
           default:
             log(label, "skipped", "action inconnue", Date.now() - stepStart);
         }
