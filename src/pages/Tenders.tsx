@@ -459,7 +459,6 @@ const Tenders = () => {
                           );
                         })()}
                       </div>
-                      </div>
                     </div>
                     <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }} className="shrink-0 self-start">
                       <Plus className="h-4 w-4 mr-1" /> Pipeline
