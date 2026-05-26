@@ -1,29 +1,22 @@
-## Objectif
-Corriger l’agent DCE MPI : il coche bien tous les lots, mais le clic sur “Télécharger les DCE sélectionnés” ne déclenche pas l’archive Browserbase. Il faut ensuite cibler et cliquer le lien/fichier **“DCE (ou Pièces communes)”** sur la page suivante.
+Le blocage vient probablement de la détection trop large : le code peut détecter l’en-tête “Pièces communes” comme libellé prioritaire, puis cliquer le premier bouton Télécharger de cette section (“Conditions d’accès…”) au lieu de la ligne exacte “DCE (ou Pièces communes)”.
 
-## Plan d’implémentation
-1. **Modifier `download_all_pieces` dans `supabase/functions/fetch-dce-agent/index.ts`**
-   - Après soumission de la sélection des lots, ne pas arrêter l’étape immédiatement.
-   - Attendre la navigation / mise à jour de page, puis lancer une deuxième passe dédiée au téléchargement réel.
+Plan d’implémentation :
 
-2. **Ajouter une détection robuste de la ligne “DCE (ou Pièces communes)”**
-   - Chercher les libellés visibles : `DCE (ou Pièces communes)`, `Pièces communes`, `DCE`.
-   - Identifier le bouton/lien `Télécharger` dans la même ligne ou à proximité visuelle.
-   - Cliquer ce lien en priorité.
+1. Rendre la cible stricte
+   - Prioriser uniquement le texte exact ou quasi exact “DCE (ou Pièces communes)”.
+   - Ne plus considérer “Pièces communes” seul comme cible cliquable, car c’est un en-tête de section.
 
-3. **Améliorer le fallback si le bouton est hors ligne DOM**
-   - Si aucun bouton n’est trouvé dans le même `<tr>`, chercher les boutons `Télécharger` alignés verticalement avec le libellé.
-   - Cliquer le meilleur candidat proche de la ligne “DCE”.
+2. Cliquer le bouton aligné avec la ligne DCE
+   - Identifier la ligne dont le texte contient “DCE (ou Pièces communes)”.
+   - Trouver le bouton “Télécharger” dans le même `<tr>`.
+   - Si la page n’a pas de vrais `<tr>`, utiliser l’alignement vertical : bouton Télécharger dont le centre Y est le plus proche du libellé DCE, avec tolérance courte.
 
-4. **Attendre davantage le démarrage du téléchargement**
-   - Après le clic final, attendre suffisamment pour que Browserbase capture le fichier volumineux.
-   - Garder les anciens fallbacks génériques uniquement si la cible “DCE / Pièces communes” n’est pas trouvée.
+3. Éviter les mauvais téléchargements
+   - Exclure explicitement les lignes comme “Conditions d’accès”, “Information sur les dépôts”, “AAPC”, “Règlement de consultation”, et les lots spécifiques.
+   - Désactiver le fallback générique “clique tous les Télécharger” sur cette page quand une ligne DCE existe mais que le bouton n’est pas trouvé, pour éviter de partir sur le mauvais fichier.
 
-5. **Ajouter des logs de diagnostic**
-   - Logguer si l’agent a soumis les lots puis cliqué “DCE (ou Pièces communes)”.
-   - Logguer les cas `label_without_button`, `no_label`, et le nombre de candidats visibles pour faciliter le prochain debug.
+4. Ajouter un log de diagnostic utile
+   - Journaliser les candidats visibles avec leur texte, leur position Y et le bouton choisi.
+   - Le prochain run indiquera clairement si la ligne DCE a été trouvée et quel bouton exact a été cliqué.
 
-## Validation prévue
-- Déployer / relancer la fonction `fetch-dce-agent`.
-- Relancer l’agent sur l’appel d’offres concerné.
-- Succès attendu : `files_downloaded > 0`, archive Browserbase récupérée, fichier uploadé dans `dce-documents`, entrée créée dans `dce_uploads`.
+Validation attendue : au relancement, l’agent doit cliquer le bouton Télécharger situé sur la ligne “DCE (ou Pièces communes)” avec la taille ~209489 Ko, et non le premier bouton de la section.
