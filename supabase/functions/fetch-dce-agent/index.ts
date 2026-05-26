@@ -1513,7 +1513,7 @@ Deno.serve(async (req) => {
   for (const { el: label, text } of candidates) {
     if (label.tagName === 'A' && (label.href || label.getAttribute('href'))) {
       fireClick(label);
-      return { kind: 'clicked_label_link', label: text, href: (label.href || '').slice(0, 200) };
+      return { kind: 'clicked_label_link', matched, label: text, href: (label.href || '').slice(0, 200) };
     }
     const row = label.closest('tr');
     if (row) {
@@ -1524,6 +1524,7 @@ Deno.serve(async (req) => {
         fireClick(btns[0]);
         return {
           kind: 'clicked_dce_row',
+          matched,
           label: text,
           btnText: norm(btns[0].innerText || btns[0].value || btns[0].title || ''),
         };
@@ -1531,8 +1532,8 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Fallback proximité STRICTE : bouton "Télécharger" à droite du libellé DCE,
-  // tolérance Y serrée pour ne pas remonter sur la ligne "Règlement de consultation".
+  // Fallback proximité STRICTE : bouton "Télécharger" à droite du libellé,
+  // tolérance Y serrée pour ne pas remonter sur une ligne voisine.
   const primary = candidates[0].el;
   const lr = primary.getBoundingClientRect();
   const cy = lr.top + lr.height / 2;
@@ -1550,9 +1551,9 @@ Deno.serve(async (req) => {
   }
   if (best) {
     fireClick(best);
-    return { kind: 'clicked_nearby', label: norm(primary.innerText || ''), btnText: norm(best.innerText || best.value || ''), dy: bestDy };
+    return { kind: 'clicked_nearby', matched, label: norm(primary.innerText || ''), btnText: norm(best.innerText || best.value || ''), dy: bestDy };
   }
-  return { kind: 'label_without_button', candidates: candidates.length, label: norm(primary.innerText || '') };
+  return { kind: 'label_without_button', matched, candidates: candidates.length, label: norm(primary.innerText || '') };
 })()
 `;
 
