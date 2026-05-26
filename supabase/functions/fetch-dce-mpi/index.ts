@@ -70,10 +70,13 @@ Deno.serve(async (req) => {
     let needsLogin = true;
     let landingHtml = "";
 
-    if (session?.cookies && session?.expires_at && new Date(session.expires_at) > new Date()) {
-      jar = session.cookies as CookieJar;
+    const cachedCookies = (session?.cookies ?? {}) as CookieJar;
+    if (
+      Object.keys(cachedCookies).length > 0 &&
+      session?.expires_at && new Date(session.expires_at) > new Date()
+    ) {
+      jar = cachedCookies;
       log("session.reuse", "ok", `cookies=${Object.keys(jar).length} expires=${session.expires_at}`);
-      // Quick probe — fetch DCE page and check if login required
       const probeRes = await fetch(dceUrl, {
         headers: {
           Cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join("; "),
@@ -85,6 +88,8 @@ Deno.serve(async (req) => {
       landingHtml = await probeRes.text();
       needsLogin = isLoginRequired(landingHtml);
       log("session.probe", needsLogin ? "skipped" : "ok", `login_required=${needsLogin}`);
+    } else {
+      log("session.reuse", "skipped", "no valid cached session");
     }
 
     // 2. Login if needed
