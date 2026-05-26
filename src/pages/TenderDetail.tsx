@@ -192,10 +192,21 @@ const TenderDetail = () => {
     : null;
 
   // Bouton "Voir l'avis original" : tolérant — on prend la 1ʳᵉ URL utile disponible.
-  const officialUrl = (!isGenericLink(tender.source_url) && !isPublisherUrl(tender.source_url) ? tender.source_url : null)
-    || (!isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url) ? tender.dce_url : null);
+  // Cascade : source_url → dce_url → enriched_data.listing_url → enriched_data.raw._source_url
+  const enriched = (tender as any).enriched_data ?? {};
+  const fallbackListing: string | null =
+    (typeof enriched.listing_url === "string" && enriched.listing_url) ||
+    (enriched.raw && typeof enriched.raw._source_url === "string" && enriched.raw._source_url) ||
+    null;
 
-  const officialLabel = "Voir l'avis original";
+  const primaryUrl =
+    (!isGenericLink(tender.source_url) && !isPublisherUrl(tender.source_url) ? tender.source_url : null) ||
+    (!isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url) ? tender.dce_url : null);
+
+  const officialUrl = primaryUrl || (fallbackListing && !isPublisherUrl(fallbackListing) ? fallbackListing : null);
+  const officialLabel = primaryUrl ? "Voir l'avis original" : "Voir sur la plateforme acheteur";
+  const isFallbackOnly = !primaryUrl && !!officialUrl;
+
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
