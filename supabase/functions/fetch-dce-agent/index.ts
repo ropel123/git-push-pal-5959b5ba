@@ -61,6 +61,19 @@ async function createBrowserbaseSession(): Promise<{ id: string; connectUrl: str
   return { id: data.id, connectUrl: data.connectUrl };
 }
 
+async function getBrowserbaseLiveViewUrl(sessionId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}/debug`, {
+      headers: { "X-BB-API-Key": BROWSERBASE_API_KEY },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.debuggerFullscreenUrl ?? data.debuggerUrl ?? null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 async function downloadSessionArchive(sessionId: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   const res = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}/downloads`, {
     headers: { "X-BB-API-Key": BROWSERBASE_API_KEY, Accept: "application/zip" },
