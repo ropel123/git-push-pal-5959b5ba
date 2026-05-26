@@ -395,6 +395,34 @@ function jsClickByIndex(idx: number): string {
 `;
 }
 
+function jsClickLastByText(instruction: string): string {
+  const safe = JSON.stringify(instruction.toLowerCase());
+  const sel = JSON.stringify(CLICKABLE_SELECTOR);
+  return `
+(() => {
+  const phrase = ${safe};
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== "hidden" && st.display !== "none" && st.opacity !== "0";
+  };
+  const candidates = Array.from(document.querySelectorAll(${sel})).filter(el => {
+    if (!isVisible(el)) return false;
+    const t = (el.innerText || el.value || el.getAttribute('aria-label') || el.title || '').toLowerCase().trim();
+    return t.includes(phrase);
+  });
+  if (candidates.length === 0) return { clicked: false, reason: "no match", count: 0 };
+  const el = candidates[candidates.length - 1];
+  el.scrollIntoView({ block: "center" });
+  el.click();
+  return { clicked: true, count: candidates.length, text: (el.innerText || el.value || '').slice(0, 80) };
+})()
+`;
+}
+
+
+
 function jsCountVisibleInputs(): string {
   const sel = JSON.stringify(INPUT_SELECTOR);
   return `
