@@ -1461,9 +1461,90 @@ Deno.serve(async (req) => {
             break;
           }
           case "download_all_pieces": {
+            // Étape 1 : si on est sur une page de sélection de lots (MPI verifLotsDCE notamment),
+            // cocher toutes les cases puis soumettre le formulaire.
+            const lotResult = await cdp.eval(`
+(() => {
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none' && st.opacity !== '0';
+  };
+  const fireClick = (el) => {
+    try { el.scrollIntoView({ block: 'center' }); } catch (_) {}
+    try { el.click(); } catch (_) {}
+    try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+    try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+  };
+  const checkboxes = Array.from(document.querySelectorAll('input[type=checkbox]')).filter(isVisible);
+  if (checkboxes.length === 0) return { kind: 'no_checkboxes' };
+
+  // 1) Chercher la case "Sélectionner tous les lots" / "Tout sélectionner"
+  let masterChecked = false;
+  for (const cb of checkboxes) {
+    const id = cb.id || '';
+    const name = cb.name || '';
+    const lbl = (id ? document.querySelector('label[for="' + id + '"]') : null);
+    const parentLabel = cb.closest('label');
+    const txt = ((lbl?.innerText || '') + ' ' + (parentLabel?.innerText || '') + ' ' + name + ' ' + id).toLowerCase();
+    if (/(s[ée]lectionn(er|ez).*tous|tout.*s[ée]lectionn|select.*all|toutCocher|cocherTout|allLots)/i.test(txt)) {
+      if (!cb.checked) fireClick(cb);
+      masterChecked = cb.checked;
+      break;
+    }
+  }
+
+  // 2) Fallback : cocher toutes les cases non encore cochées
+  let lotsChecked = 0;
+  if (!masterChecked) {
+    for (const cb of checkboxes) {
+      if (cb.disabled) continue;
+      if (!cb.checked) fireClick(cb);
+      if (cb.checked) lotsChecked++;
+    }
+  } else {
+    lotsChecked = checkboxes.filter(c => c.checked).length;
+  }
+
+  // 3) Soumettre : bouton "Télécharger les DCE sélectionnés" ou submit du formulaire
+  const submitWords = /(t[ée]l[ée]charger.*(dce|s[ée]lectionn|lots)|valider|continuer|envoyer)/i;
+  const candidates = Array.from(document.querySelectorAll('button, input[type=submit], input[type=button], a'))
+    .filter(isVisible);
+  let submitBtn = candidates.find(el => {
+    const t = ((el.innerText || el.value || el.getAttribute('aria-label') || el.title || '') + '').toLowerCase();
+    return submitWords.test(t);
+  });
+  if (!submitBtn) {
+    // chercher le form englobant les checkboxes
+    const form = checkboxes[0]?.closest('form');
+    if (form) {
+      submitBtn = form.querySelector('input[type=submit], button[type=submit]');
+      if (!submitBtn) {
+        try { form.requestSubmit ? form.requestSubmit() : form.submit(); return { kind: 'submitted_form', lotsChecked, masterChecked }; }
+        catch (_) { /* ignore */ }
+      }
+    }
+  }
+  if (submitBtn) {
+    fireClick(submitBtn);
+    return { kind: 'submitted_button', lotsChecked, masterChecked, label: (submitBtn.innerText || submitBtn.value || '').slice(0, 60) };
+  }
+  return { kind: 'checked_only', lotsChecked, masterChecked };
+})()
+            `).catch((e: any) => ({ kind: 'error', error: String(e?.message ?? e) }));
+
+            if (lotResult && (lotResult.kind === 'submitted_button' || lotResult.kind === 'submitted_form')) {
+              log(label, "ok", `lots cochés=${lotResult.lotsChecked}${lotResult.masterChecked ? " (master)" : ""} → ${lotResult.kind}${lotResult.label ? ` "${lotResult.label}"` : ""}`, Date.now() - stepStart);
+              // Laisser le temps au téléchargement de démarrer
+              await new Promise((r) => setTimeout(r, 6000));
+              break;
+            }
+
+            // Étape 2 (fallback): comportement historique — chercher un bouton "Télécharger" direct
             const snapshot = await cdp.eval(jsSnapshotClickables()) as Array<any> | null;
             if (!Array.isArray(snapshot) || snapshot.length === 0) {
-              log(label, "skipped", "aucun cliquable visible", Date.now() - stepStart);
+              log(label, "skipped", `pas de lots soumissibles (${lotResult?.kind ?? 'n/a'}) et aucun cliquable visible`, Date.now() - stepStart);
               break;
             }
             const re = /(t[ée]l[ée]charger|download|retrait)/i;
@@ -1473,7 +1554,7 @@ Deno.serve(async (req) => {
               : snapshot.filter((c: any) => re.test(`${c.text} ${c.aria} ${c.title}`));
             if (targets.length === 0) {
               const top5 = snapshot.slice(0, 5).map((c: any) => `[${c.i}] ${c.tag} "${String(c.text).slice(0, 30)}"`).join(" | ");
-              log(label, "skipped", `aucun bouton Télécharger — top5: ${top5}`, Date.now() - stepStart);
+              log(label, "skipped", `aucun bouton Télécharger (lot=${lotResult?.kind ?? 'n/a'}) — top5: ${top5}`, Date.now() - stepStart);
               break;
             }
             let clicked = 0;

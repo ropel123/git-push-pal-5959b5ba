@@ -1,46 +1,31 @@
-## Problème
+## Plan
 
-Sur la page DCE AW Solutions / marches-publics.info, il y a deux chemins distincts :
+Le blocage est maintenant plus loin que le login : l’agent arrive bien en **mode retrait anonyme** sur la page `dce.verifLotsDCE`, mais l’action actuelle `download_all_pieces` cherche seulement des boutons/liens de téléchargement. Elle ne coche pas les lots avant de cliquer sur `Télécharger les DCE sélectionnés`, donc aucun fichier n’est téléchargé.
 
-1. **Identifié** (bloc du haut) : captcha + bouton `RETRAIT` → exige un compte → redirige vers `awsolutions.fr/auth/...` (écran "Connexion" visible photo 1).
-2. **Anonyme** (lien en bas) : `retirer le DCE en mode anonyme` → mène à une page captcha seule, puis téléchargement direct sans login.
+## Correction proposée
 
-Le playbook actuel résout le captcha du bloc identifié et clique `RETRAIT` → l'agent tombe sur le login Keycloak et s'arrête en timeout.
+1. **Renforcer l’action `download_all_pieces` dans `fetch-dce-agent`**
+   - Détecter la page MPI de sélection des lots (`verifLotsDCE`, texte “Sélectionner tous les lots”, cases à cocher de lots).
+   - Cocher d’abord la case **“Sélectionner tous les lots”** si elle existe.
+   - Si cette case ne déclenche pas correctement la sélection, fallback : cocher toutes les cases visibles/activables de lots.
+   - Déclencher les événements navigateur attendus (`click`, `input`, `change`) pour que le JavaScript MPI valide bien la sélection.
 
-## Correction
+2. **Soumettre le formulaire MPI proprement**
+   - Cliquer sur le bouton `Télécharger les DCE sélectionnés`.
+   - Si le clic ne suffit pas, utiliser `form.requestSubmit()` / soumission native du formulaire comme fallback.
+   - Attendre le démarrage du téléchargement avant de passer à l’étape `wait_download`.
 
-Modifier le playbook MPI (`agent_playbooks where platform='mpi'`) pour cliquer le lien anonyme **en premier**, puis traiter captcha + RETRAIT sur la page suivante.
+3. **Mettre à jour le playbook MPI uniquement si nécessaire**
+   - Garder la séquence actuelle qui force le `mode anonyme`.
+   - Optionnellement remplacer l’étape finale par une instruction plus explicite si on ajoute une action dédiée, mais le plus simple est d’améliorer `download_all_pieces` sans migration supplémentaire.
 
-Nouvelle séquence `steps` :
+4. **Vérification**
+   - Relancer l’agent sur le même DCE.
+   - Attendu dans la trace : lots cochés, bouton `Télécharger les DCE sélectionnés` soumis, puis `files_downloaded > 0` et création d’une entrée `dce_uploads`.
 
-```
-1. navigate(dce_url)
-2. wait 1500ms
-3. extract_href_and_navigate matcher="Dossier de Consultation"   (page DCE choixDCE)
-4. wait 2000ms
-5. extract_href_and_navigate matcher="mode anonyme"              (← NOUVEAU, force le chemin anonyme)
-6. wait 2000ms
-7. solve_image_captcha_if_present                                (captcha de la page anonyme)
-8. click_if_present "RETRAIT"                                    (bouton final)
-9. wait 3000ms
-10. branch_login_if_required                                     (safety net — devrait être skipped)
-11. wait 1500ms
-12. download_all_pieces
-13. wait_download 8000ms
-```
+## Détails techniques
 
-Le matcher `extract_href_and_navigate` cherche déjà `textContent` / `title` en insensible à la casse → "mode anonyme" matchera le lien "retirer le DCE en mode anonyme".
-
-## Changements
-
-- **Migration SQL** : `UPDATE agent_playbooks SET steps = '...' WHERE platform='mpi'` avec la séquence ci-dessus. Pas de changement de `config`.
-- **Aucun changement code** dans `fetch-dce-agent/index.ts` ni front — toutes les actions existent déjà.
-
-## Vérification
-
-Relancer l'agent sur le même DCE :
-- trace doit contenir `extract_href_and_navigate ok — → ...mode_anonyme...`
-- pas d'URL `awsolutions.fr/auth`
-- `branch_login_if_required skipped`
-- `download_all_pieces ok — N pièces`
-- `files_downloaded > 0` dans `agent_runs` + entrées `dce_uploads`.
+- Fichier principal : `supabase/functions/fetch-dce-agent/index.ts`.
+- Aucun changement UI requis.
+- Aucun changement de schéma Supabase requis.
+- Déploiement automatique de l’Edge Function après modification.
