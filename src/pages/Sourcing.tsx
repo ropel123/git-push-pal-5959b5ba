@@ -369,13 +369,15 @@ const Sourcing = () => {
 
   const [reclassifyProgress, setReclassifyProgress] = useState<{ done: number; total: number; bySource: Record<string, number>; byPlatform: Record<string, number> } | null>(null);
 
-  const reclassifyAll = async (scope: "all" | "custom" = "all") => {
+  const reclassifyAll = async (scope: "all" | "custom" | { platform: string } = "all") => {
     let query = supabase
       .from("sourcing_urls")
       .select("id, platform")
       .order("created_at", { ascending: false });
     if (scope === "custom") {
       query = query.in("platform", ["custom", "safetender"]);
+    } else if (typeof scope === "object" && scope.platform) {
+      query = query.eq("platform", scope.platform);
     }
     const { data: rows, error: fetchErr } = await query;
     if (fetchErr || !rows) {
@@ -384,13 +386,18 @@ const Sourcing = () => {
     }
     const ids = rows.map((r: any) => r.id as string);
     if (ids.length === 0) {
-      toast({ title: scope === "custom" ? "Aucune URL en custom" : "Aucune URL à traiter" });
+      toast({ title: "Aucune URL à traiter" });
       return;
     }
     const providerLabel = aiProvider === "anthropic" ? "Anthropic Haiku 4.5 + web_fetch" : "OpenRouter Opus 4.7";
     const costPerUrl = aiProvider === "anthropic" ? 0.003 : 0.024;
     const secPerUrl = aiProvider === "anthropic" ? 3 : 6;
-    const scopeLabel = scope === "custom" ? `${ids.length} URLs en custom/safetender` : `les ${ids.length} URLs`;
+    const scopeLabel =
+      scope === "custom"
+        ? `${ids.length} URLs en custom/safetender`
+        : typeof scope === "object"
+        ? `${ids.length} URLs en ${scope.platform}`
+        : `les ${ids.length} URLs`;
     if (!confirm(`Re-classifier ${scopeLabel} via ${providerLabel} ? Durée estimée : ~${Math.ceil(ids.length * secPerUrl / 60)} min, coût ~$${(ids.length * costPerUrl).toFixed(2)}.`)) return;
 
     setRunning("__all__");
