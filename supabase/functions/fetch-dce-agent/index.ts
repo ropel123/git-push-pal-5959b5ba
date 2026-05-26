@@ -61,6 +61,19 @@ async function createBrowserbaseSession(): Promise<{ id: string; connectUrl: str
   return { id: data.id, connectUrl: data.connectUrl };
 }
 
+async function getBrowserbaseLiveViewUrl(sessionId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}/debug`, {
+      headers: { "X-BB-API-Key": BROWSERBASE_API_KEY },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.debuggerFullscreenUrl ?? data.debuggerUrl ?? null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 async function downloadSessionArchive(sessionId: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   const res = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}/downloads`, {
     headers: { "X-BB-API-Key": BROWSERBASE_API_KEY, Accept: "application/zip" },
@@ -1116,6 +1129,13 @@ Deno.serve(async (req) => {
     cdp = await CDP.connect(session.connectUrl);
     await cdp.attachToFirstPage();
     log("cdp.connect", "ok", `session=${sessionId}`, Date.now() - tInit);
+
+    // Live view URL pour visualisation temps réel
+    const liveViewUrl = await getBrowserbaseLiveViewUrl(sessionId);
+    if (liveViewUrl) {
+      await supabase.from("agent_runs").update({ live_view_url: liveViewUrl, browserbase_session_id: sessionId }).eq("id", runId);
+      log("live_view.ready", "ok", liveViewUrl);
+    }
 
     const steps = (playbook.steps as PlaybookStep[]) ?? [];
     const playbookConfig = ((playbook as any).config ?? {}) as { continue_on_error?: boolean };

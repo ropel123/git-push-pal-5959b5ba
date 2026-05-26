@@ -151,6 +151,7 @@ export type Database = {
           files_downloaded: number | null
           finished_at: string | null
           id: string
+          live_view_url: string | null
           platform: string
           started_at: string | null
           status: string
@@ -169,6 +170,7 @@ export type Database = {
           files_downloaded?: number | null
           finished_at?: string | null
           id?: string
+          live_view_url?: string | null
           platform: string
           started_at?: string | null
           status?: string
@@ -187,6 +189,7 @@ export type Database = {
           files_downloaded?: number | null
           finished_at?: string | null
           id?: string
+          live_view_url?: string | null
           platform?: string
           started_at?: string | null
           status?: string

@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { Sparkles, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Sparkles, Loader2, CheckCircle2, AlertTriangle, ExternalLink, Eye } from "lucide-react";
 
 interface Props {
   tenderId: string;
@@ -20,11 +20,37 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
   const [status, setStatus] = useState<Status>("idle");
   const [detail, setDetail] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  const [liveViewUrl, setLiveViewUrl] = useState<string | null>(null);
+
+  // Poll agent_runs row to grab live_view_url as soon as Browserbase session opens
+  useEffect(() => {
+    if (!runId || status !== "running") return;
+    let cancelled = false;
+    const tick = async () => {
+      const { data } = await supabase
+        .from("agent_runs")
+        .select("live_view_url")
+        .eq("id", runId)
+        .maybeSingle();
+      if (!cancelled && data?.live_view_url) {
+        setLiveViewUrl(data.live_view_url);
+      }
+    };
+    tick();
+    const iv = setInterval(() => {
+      if (!liveViewUrl) tick();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [runId, status, liveViewUrl]);
 
   const launch = async () => {
     setStatus("running");
     setDetail("Lancement de l'agent IA navigateur…");
     setRunId(null);
+    setLiveViewUrl(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -57,6 +83,8 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
 
   if (!isAdmin) return null;
 
+  const showLive = liveViewUrl && (status === "running" || status === "success" || status === "no_files");
+
   return (
     <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-4">
       <div className="flex items-start gap-3">
@@ -82,6 +110,34 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
         {status === "no_files" && <><AlertTriangle className="h-4 w-4" /> Relancer</>}
         {status === "failed" && <><AlertTriangle className="h-4 w-4" /> Réessayer</>}
       </Button>
+
+      {showLive && (
+        <div className="space-y-2 rounded-md border border-primary/30 bg-background/50 p-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <Eye className="h-3.5 w-3.5 text-primary" />
+              Vue en direct du navigateur de l'agent
+            </div>
+            <a
+              href={liveViewUrl!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+            >
+              Ouvrir en grand <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+          <div className="relative w-full overflow-hidden rounded border border-border bg-black" style={{ aspectRatio: "16 / 10" }}>
+            <iframe
+              src={liveViewUrl!}
+              title="Browserbase Live View"
+              className="absolute inset-0 h-full w-full"
+              sandbox="allow-scripts allow-same-origin"
+              allow="clipboard-read; clipboard-write"
+            />
+          </div>
+        </div>
+      )}
 
       {detail && (
         <div className="flex items-start gap-2 text-xs">
