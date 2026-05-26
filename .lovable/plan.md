@@ -1,39 +1,56 @@
-# Pourquoi le DCE Meuse passe en "generic"
+# Playbook `achatpublic` (≠ Atexo)
 
-L'URL `profilacheteur.meuse.fr/...` est une instance Atexo SPL mais sur un domaine custom. La cascade actuelle (`detectPlatform`) ne regarde que `dce_url` :
+## Constat
 
-1. Regex playbooks → aucun match (`achatpublic.com` / `local-trust.com` ne matchent pas `meuse.fr`)
-2. `HOSTNAME_PLATFORM_MAP` → aucun match
-3. Fallback → `generic` ❌
+`www.achatpublic.com` est un **éditeur indépendant**, pas Atexo. Le flow est beaucoup plus court :
 
-Pourtant le tender a `source = "scrape:atexo"` en BDD : on a déjà l'info, on ne s'en sert pas.
+1. Page consultation `…/ficheCsl.action?PCSLID=…` → onglet **Pièces de marché** (`&ongletActif=2`, déjà dans l'URL)
+2. Section "Dossier de consultation des entreprises - DCE" → liste de ZIP versionnés (`dce-v1.zip`, `dce-v2.zip`, …) → **prendre le plus récent** (le dernier de la liste = version la plus haute = date la plus récente)
+3. Clic `Télécharger` → modale **Connexion / Inscription** "Souhaitez-vous vous identifier ?" → cliquer **Non** (téléchargement anonyme direct)
+4. Le ZIP arrive (pas de CGU, pas de formulaire identité, pas de captcha)
 
-# Fix
+Aujourd'hui en base on a un seul playbook `atexo_achatpublic` (15 étapes Atexo) qui sert à la fois pour `achatpublic.com` ET pour les sous-domaines Atexo SPL (Meuse). À séparer.
 
-## 1. `supabase/functions/fetch-dce-agent/index.ts`
+## Plan
 
-**a)** Étendre `detectPlatform()` pour accepter un `tenderSource` optionnel. Nouvelle cascade :
-1. Regex `url_pattern` des playbooks (inchangé)
-2. `HOSTNAME_PLATFORM_MAP` (inchangé)
-3. **NOUVEAU** : si `tenderSource` commence par `scrape:`, mapper le suffixe vers un playbook :
-   - `scrape:atexo` → `atexo_achatpublic` (playbook SPL générique)
-   - `scrape:maximilien` → `maximilien`
-   - `scrape:place` → `place`
-   - etc.
-4. Fallback `generic`
+### 1. Migration SQL
 
-**b)** Dans le handler principal, charger `source` du tender en même temps que `dce_url`, et le passer à `detectPlatform(supabase, dce_url, tenderSource)`.
+**a)** Renommer le playbook actuel `atexo_achatpublic` → `atexo_spl` (pour qu'il reste le playbook Atexo SPL générique, utilisé pour Meuse et autres sous-domaines), et changer son `url_pattern` pour qu'il ne matche **plus** `achatpublic.com`.
 
-**c)** Ajouter `profilacheteur.` au `HOSTNAME_PLATFORM_MAP` (ceinture+bretelles) pointant vers `atexo_achatpublic`.
+**b)** Insérer un nouveau playbook `achatpublic` :
+- `platform = 'achatpublic'`
+- `display_name = 'AchatPublic.com'`
+- `url_pattern = 'achatpublic\.com'`
+- `requires_auth = false`, `requires_captcha = false`
+- Steps (~7) :
+  1. `goto` URL DCE
+  2. `ensure_tab` onglet "Pièces de marché" (si pas déjà actif via `ongletActif=2`)
+  3. `wait_selector` section "Dossier de consultation des entreprises"
+  4. `pick_latest_dce` — sélectionner le dernier `dce-vN.zip` (plus grand N) ou trier par date
+  5. `click` bouton "Télécharger" de cette ligne
+  6. `wait_modal` "Connexion / Inscription" → `click` bouton **Non**
+  7. `wait_download` (ZIP)
 
-## 2. Logs
+### 2. Routing — `fetch-dce-agent/index.ts`
 
-Logger explicitement la voie de détection retenue (`router.detect_platform` → `regex` | `hostname` | `source` | `fallback`) pour qu'on voie au prochain run que c'est bien `source:atexo → atexo_achatpublic`.
+- `SOURCE_PLATFORM_MAP` : `scrape:achatpublic` → `achatpublic` (au lieu de `atexo_achatpublic`)
+- `SOURCE_PLATFORM_MAP` : `scrape:atexo` → `atexo_spl` (suit le renommage)
+- `HOSTNAME_PLATFORM_MAP` :
+  - `/^(www\.)?achatpublic\.com$/i` → `achatpublic` (avant `/atexo/i` dans la cascade)
+  - `/profilacheteur\./i` → `atexo_spl` (Meuse etc.)
 
-# Aucune migration nécessaire
+### 3. Executor
 
-Le playbook `atexo_achatpublic` existe déjà avec le flow Maximilien-style (15 étapes anonyme + CGU + wait_download). On change juste le routeur.
+Le `playbookExecutor` doit gérer 2 nouvelles primitives propres à achatpublic :
+- `pick_latest_dce` — parser le DOM, extraire toutes les lignes `dce-v(\d+)\.zip`, garder le `data-row` du N max
+- `wait_modal` + `click "Non"` — déjà couvrable avec les primitives `wait_selector` + `click` existantes si la modale a un sélecteur stable
 
-# Test
+À vérifier en lisant `supabase/functions/_shared/playbookExecutor.ts` avant migration : si `pick_latest_dce` n'existe pas, soit on l'ajoute, soit on utilise une combinaison `query_all` + `click_index:last`.
 
-Relancer le DCE Meuse → `agent_runs.platform` doit passer à `atexo_achatpublic`, et le flow anonyme doit s'exécuter.
+### 4. Test
+
+Re-tester sur le tender courant (`9e52e006-…`, source `scrape:achatpublic`) → `agent_runs.platform` doit valoir `achatpublic`, et le ZIP `dce-vN.zip` le plus récent doit atterrir dans `dce-documents/`.
+
+## Aucun secret à ajouter
+
+Tout passe par les secrets Browserbase / Anthropic déjà configurés.
