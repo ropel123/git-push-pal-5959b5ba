@@ -1,22 +1,25 @@
-Le blocage vient probablement de la détection trop large : le code peut détecter l’en-tête “Pièces communes” comme libellé prioritaire, puis cliquer le premier bouton Télécharger de cette section (“Conditions d’accès…”) au lieu de la ligne exacte “DCE (ou Pièces communes)”.
+## Contexte
 
-Plan d’implémentation :
+Sur certaines plateformes AWS Solutions, il n'y a pas de ligne "DCE (ou Pièces communes)". À la place, le vrai dossier à récupérer est "Dossier principal" (souvent le plus volumineux, ici 18800 Ko). Aujourd'hui l'agent ne le détecte pas et abandonne.
 
-1. Rendre la cible stricte
-   - Prioriser uniquement le texte exact ou quasi exact “DCE (ou Pièces communes)”.
-   - Ne plus considérer “Pièces communes” seul comme cible cliquable, car c’est un en-tête de section.
+## Plan
 
-2. Cliquer le bouton aligné avec la ligne DCE
-   - Identifier la ligne dont le texte contient “DCE (ou Pièces communes)”.
-   - Trouver le bouton “Télécharger” dans le même `<tr>`.
-   - Si la page n’a pas de vrais `<tr>`, utiliser l’alignement vertical : bouton Télécharger dont le centre Y est le plus proche du libellé DCE, avec tolérance courte.
+Modifier `jsClickDceRow` dans `supabase/functions/fetch-dce-agent/index.ts` (sans toucher au frontend) :
 
-3. Éviter les mauvais téléchargements
-   - Exclure explicitement les lignes comme “Conditions d’accès”, “Information sur les dépôts”, “AAPC”, “Règlement de consultation”, et les lots spécifiques.
-   - Désactiver le fallback générique “clique tous les Télécharger” sur cette page quand une ligne DCE existe mais que le bouton n’est pas trouvé, pour éviter de partir sur le mauvais fichier.
+1. **Élargir les cibles acceptées**, par ordre de priorité strict :
+   - Priorité 1 : `DCE (ou Pièces communes)` (regex actuelle).
+   - Priorité 2 : `DCE` seul.
+   - Priorité 3 : `Dossier principal` (nouvelle cible).
+   - On garde la liste noire (Conditions d'accès, Information sur les dépôts, AAPC, Règlement de consultation, Pièces communes seul, lots).
 
-4. Ajouter un log de diagnostic utile
-   - Journaliser les candidats visibles avec leur texte, leur position Y et le bouton choisi.
-   - Le prochain run indiquera clairement si la ligne DCE a été trouvée et quel bouton exact a été cliqué.
+2. **Sélection**: on prend le premier candidat de la priorité la plus haute présente sur la page. Si plusieurs lignes "Dossier principal" existent (rare), prendre celle dont le bouton Télécharger affiche la taille la plus grande, sinon la première.
 
-Validation attendue : au relancement, l’agent doit cliquer le bouton Télécharger situé sur la ligne “DCE (ou Pièces communes)” avec la taille ~209489 Ko, et non le premier bouton de la section.
+3. **Clic**: réutiliser la logique existante (bouton dans le même `<tr>`, sinon bouton aligné verticalement à droite du libellé).
+
+4. **Logs**: indiquer quelle priorité a été retenue (`matched: 'dce_exact' | 'dce_alone' | 'dossier_principal'`) pour debug.
+
+5. **Fallback**: garder désactivé le "clique tout Télécharger" générique — inchangé.
+
+## Validation attendue
+
+Sur la page jointe (pas de ligne DCE), l'agent doit cliquer le bouton Télécharger de la ligne "Dossier principal" (~18800 Ko). Sur les pages avec DCE, le comportement reste identique (priorité 1).
