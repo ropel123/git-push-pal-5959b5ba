@@ -74,6 +74,7 @@ const Tenders = () => {
   const [statusFilter, setStatusFilter] = useState("");
   const [procedureFilter, setProcedureFilter] = useState("");
   const [platformFilter, setPlatformFilter] = useState("");
+  const [listingHostFilter, setListingHostFilter] = useState("");
   const [dceFilter, setDceFilter] = useState(false);
   const [smartFilter, setSmartFilter] = useState(true);
   const [profile, setProfile] = useState<any>(null);
@@ -83,6 +84,7 @@ const Tenders = () => {
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [procedures, setProcedures] = useState<string[]>([]);
   const [platforms, setPlatforms] = useState<string[]>([]);
+  const [listingHosts, setListingHosts] = useState<{ host: string; count: number }[]>([]);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
