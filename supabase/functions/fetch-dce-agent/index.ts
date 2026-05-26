@@ -1707,106 +1707,146 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Récupérer fichiers téléchargés (archive ZIP Browserbase)
-    let filesUploaded = 0;
-    let archiveSize = 0;
-    if (sessionId) {
-      const archive = await downloadSessionArchive(sessionId);
-      if (archive) {
-        const { bytes, contentType } = archive;
-        archiveSize = bytes.byteLength;
-        const head = toHex(bytes.slice(0, 16));
-        const tail = toHex(bytes.slice(Math.max(0, bytes.byteLength - 16)));
-        const check = isValidZip(bytes);
-        if (!check.ok) {
-          log(
-            "archive.invalid",
-            "failed",
-            `reason=${check.reason} size=${archiveSize} ct=${contentType} head=${head} tail=${tail}`,
-          );
-        } else {
-          // Browserbase wraps everything in an outer zip with UUID-named entries.
-          // Repack so the user gets a clean .zip whose contents have proper extensions.
-          const repacked = repackDceArchive(bytes, platform);
-          const finalBytes = repacked?.bytes ?? bytes;
-          const finalExt = repacked?.suggestedExt ?? "zip";
-          const finalSize = finalBytes.byteLength;
-          if (repacked) {
-            log("archive.repack", "ok", `entries=${repacked.entries} in=${archiveSize}B out=${finalSize}B ext=${finalExt}`);
+    // ────────────────────────────────────────────────────────────────────
+    // Phase « archive + upload Storage + bookkeeping » exécutée en
+    // arrière-plan via EdgeRuntime.waitUntil pour rendre la main au client
+    // AVANT de dépasser le budget CPU (~2s) de l'edge function Supabase.
+    // ────────────────────────────────────────────────────────────────────
+    const stepsDurationMs = Date.now() - startedAt;
+
+    const finalize = async () => {
+      let filesUploaded = 0;
+      let archiveSize = 0;
+      try {
+        if (sessionId) {
+          const archive = await downloadSessionArchive(sessionId);
+          if (archive) {
+            const { bytes, contentType } = archive;
+            archiveSize = bytes.byteLength;
+            const head = toHex(bytes.slice(0, 16));
+            const tail = toHex(bytes.slice(Math.max(0, bytes.byteLength - 16)));
+            const check = isValidZip(bytes);
+            if (!check.ok) {
+              log("archive.invalid", "failed",
+                `reason=${check.reason} size=${archiveSize} ct=${contentType} head=${head} tail=${tail}`);
+            } else {
+              const repacked = repackDceArchive(bytes, platform);
+              const finalBytes = repacked?.bytes ?? bytes;
+              const finalExt = repacked?.suggestedExt ?? "zip";
+              const finalSize = finalBytes.byteLength;
+              if (repacked) {
+                log("archive.repack", "ok", `entries=${repacked.entries} in=${archiveSize}B out=${finalSize}B ext=${finalExt}`);
+              } else {
+                log("archive.repack", "skipped", "fallback to raw bytes");
+              }
+
+              const filename = `${tender_id}/agent_${Date.now()}.${finalExt}`;
+              const mime = finalExt === "pdf" ? "application/pdf" : "application/zip";
+              const { error: upErr } = await supabase.storage
+                .from("dce-documents")
+                .upload(filename, finalBytes, { contentType: mime, upsert: true });
+              if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
+              log("storage.upload", "ok", `${filename} (${finalSize} B) ct=${contentType} head=${head}`);
+
+              if (triggered_by) {
+                await supabase.from("dce_uploads").insert({
+                  tender_id,
+                  user_id: triggered_by,
+                  file_name: `DCE_agent_${platform}.${finalExt}`,
+                  file_path: filename,
+                  file_size: finalSize,
+                  agent_run_id: runId,
+                });
+              }
+              filesUploaded = 1;
+            }
           } else {
-            log("archive.repack", "skipped", "fallback to raw bytes");
+            log("storage.upload", "skipped", "aucune archive");
           }
-
-          const filename = `${tender_id}/agent_${Date.now()}.${finalExt}`;
-          const mime = finalExt === "pdf" ? "application/pdf" : "application/zip";
-          const { error: upErr } = await supabase.storage
-            .from("dce-documents")
-            .upload(filename, finalBytes, { contentType: mime, upsert: true });
-          if (upErr) throw new Error(`Storage upload: ${upErr.message}`);
-          log("storage.upload", "ok", `${filename} (${finalSize} B) ct=${contentType} head=${head}`);
-
-          if (triggered_by) {
-            await supabase.from("dce_uploads").insert({
-              tender_id,
-              user_id: triggered_by,
-              file_name: `DCE_agent_${platform}.${finalExt}`,
-              file_path: filename,
-              file_size: finalSize,
-              agent_run_id: runId,
-            });
-          }
-          filesUploaded = 1;
         }
-      } else {
-        log("storage.upload", "skipped", "aucune archive");
+
+        const durationMs = Date.now() - startedAt;
+        const browserbaseMin = durationMs / 60000;
+        const costUsd = browserbaseMin * 0.10 + captchasSolved * 0.003 + 0.01;
+
+        await supabase
+          .from("agent_runs")
+          .update({
+            status: filesUploaded > 0 ? "success" : "no_files",
+            finished_at: new Date().toISOString(),
+            duration_ms: durationMs,
+            cost_usd: Number(costUsd.toFixed(4)),
+            captchas_solved: captchasSolved,
+            files_downloaded: filesUploaded,
+            browserbase_session_id: sessionId,
+            trace: trace as any,
+          })
+          .eq("id", runId!);
+
+        if (robot) {
+          await supabase.from("platform_robots")
+            .update({ last_used_at: new Date().toISOString() })
+            .eq("platform", platform);
+        }
+      } catch (bgErr: any) {
+        console.error("[agent] background finalize failed", bgErr);
+        try {
+          await supabase
+            .from("agent_runs")
+            .update({
+              status: "failed",
+              finished_at: new Date().toISOString(),
+              duration_ms: Date.now() - startedAt,
+              error_message: `finalize: ${bgErr?.message ?? String(bgErr)}`,
+              trace: trace as any,
+              captchas_solved: captchasSolved,
+              browserbase_session_id: sessionId,
+            })
+            .eq("id", runId!);
+        } catch (_) { /* noop */ }
+      } finally {
+        try { if (cdp) cdp.close(); } catch (_) { /* noop */ }
+        try { if (sessionId) await closeBrowserbaseSession(sessionId); } catch (_) { /* noop */ }
       }
-    }
+    };
 
-    const durationMs = Date.now() - startedAt;
-    const browserbaseMin = durationMs / 60000;
-    const costUsd = browserbaseMin * 0.10 + captchasSolved * 0.003 + 0.01;
-
+    // Marque le run "uploading" et lance la finalisation en arrière-plan.
     await supabase
       .from("agent_runs")
-      .update({
-        status: filesUploaded > 0 ? "success" : "no_files",
-        finished_at: new Date().toISOString(),
-        duration_ms: durationMs,
-        cost_usd: Number(costUsd.toFixed(4)),
-        captchas_solved: captchasSolved,
-        files_downloaded: filesUploaded,
-        browserbase_session_id: sessionId,
-        trace: trace as any,
-      })
+      .update({ status: "uploading", duration_ms: stepsDurationMs })
       .eq("id", runId!);
 
-    if (robot) {
-      await supabase.from("platform_robots")
-        .update({ last_used_at: new Date().toISOString() })
-        .eq("platform", platform);
+    // @ts-ignore EdgeRuntime fourni par le runtime Supabase
+    const ER: any = (globalThis as any).EdgeRuntime;
+    if (ER?.waitUntil) {
+      ER.waitUntil(finalize());
+    } else {
+      // Fallback: lance sans attendre (dev local)
+      finalize().catch((e) => console.error("[agent] finalize bg fallback", e));
     }
 
     return {
       success: true,
       run_id: runId,
-      files_uploaded: filesUploaded,
+      files_uploaded: 0,
       captchas_solved: captchasSolved,
-      duration_ms: durationMs,
-      cost_usd: Number(costUsd.toFixed(4)),
+      duration_ms: stepsDurationMs,
+      cost_usd: 0,
+      background: true,
     };
   };
 
   try {
     const result = await Promise.race([runMain(), hardTimeout]);
-    if (cdp) cdp.close();
-    if (sessionId) await closeBrowserbaseSession(sessionId);
+    // NB: cdp.close() et closeBrowserbaseSession sont déclenchés en arrière-plan
+    // par finalize() pour éviter de dépasser le budget CPU avant la réponse.
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
     console.error("[agent] FATAL", err);
-    if (cdp) cdp.close();
-    if (sessionId) await closeBrowserbaseSession(sessionId);
+    try { if (cdp) cdp.close(); } catch (_) {}
+    try { if (sessionId) await closeBrowserbaseSession(sessionId); } catch (_) {}
     if (runId) {
       const isTimeout = /timeout/i.test(err.message ?? "");
       await supabase
