@@ -633,6 +633,63 @@ export type Database = {
         }
         Relationships: []
       }
+      rescrape_jobs: {
+        Row: {
+          created_at: string
+          created_by: string
+          done: number
+          error_message: string | null
+          errors: number
+          finished_at: string | null
+          found: number
+          id: string
+          inserted: number
+          last_url: string | null
+          scope: Json
+          started_at: string
+          status: string
+          total: number
+          updated: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          done?: number
+          error_message?: string | null
+          errors?: number
+          finished_at?: string | null
+          found?: number
+          id?: string
+          inserted?: number
+          last_url?: string | null
+          scope?: Json
+          started_at?: string
+          status?: string
+          total?: number
+          updated?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          done?: number
+          error_message?: string | null
+          errors?: number
+          finished_at?: string | null
+          found?: number
+          id?: string
+          inserted?: number
+          last_url?: string | null
+          scope?: Json
+          started_at?: string
+          status?: string
+          total?: number
+          updated?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       saved_searches: {
         Row: {
           created_at: string | null

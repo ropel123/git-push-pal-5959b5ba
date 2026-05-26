@@ -448,60 +448,92 @@ const Sourcing = () => {
     load();
   };
 
-  // ---- Relancer le scraping (différent de la re-classification IA) ----
+  // ---- Relancer le scraping (background, survit à la fermeture de l'onglet) ----
   const [rescrapeProgress, setRescrapeProgress] = useState<{ done: number; total: number; found: number; inserted: number; updated: number; errors: number } | null>(null);
+  const [rescrapeJobId, setRescrapeJobId] = useState<string | null>(null);
+
+  // Reprise au mount : si un job est encore "running" pour ce user, on s'y raccroche.
+  useEffect(() => {
+    if (!isAdmin) return;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("rescrape_jobs")
+        .select("id, total, done, found, inserted, updated, errors")
+        .eq("created_by", user.id)
+        .eq("status", "running")
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) {
+        setRescrapeJobId(data.id);
+        setRescrapeProgress({
+          done: data.done, total: data.total, found: data.found,
+          inserted: data.inserted, updated: data.updated, errors: data.errors,
+        });
+        setRunning("__rescrape__");
+      }
+    })();
+  }, [isAdmin]);
+
+  // Polling tant qu'un job est suivi.
+  useEffect(() => {
+    if (!rescrapeJobId) return;
+    let cancelled = false;
+    const tick = async () => {
+      const { data } = await supabase
+        .from("rescrape_jobs")
+        .select("status, total, done, found, inserted, updated, errors")
+        .eq("id", rescrapeJobId)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      setRescrapeProgress({
+        done: data.done, total: data.total, found: data.found,
+        inserted: data.inserted, updated: data.updated, errors: data.errors,
+      });
+      if (data.status !== "running") {
+        setRunning(null);
+        setRescrapeJobId(null);
+        toast({
+          title: data.status === "done" ? "Re-scraping terminé" : "Re-scraping interrompu",
+          description: `${data.done}/${data.total} URLs · ${data.found} trouvés · ${data.inserted} insérés · ${data.updated} mis à jour${data.errors ? ` · ${data.errors} erreurs` : ""}`,
+          variant: data.status === "done" ? undefined : "destructive",
+        });
+        setTimeout(() => setRescrapeProgress(null), 8000);
+        load();
+      }
+    };
+    const interval = setInterval(tick, 2000);
+    tick();
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [rescrapeJobId]);
 
   const rescrapeScope = async (scope: "all" | { platform: string }) => {
-    let query = supabase
-      .from("sourcing_urls")
-      .select("id, platform, url")
-      .eq("is_active", true);
-    if (typeof scope === "object") query = query.eq("platform", scope.platform);
-    const { data: rows, error } = await query;
-    if (error || !rows) {
-      toast({ title: "Erreur", description: error?.message ?? "Impossible de charger", variant: "destructive" });
-      return;
-    }
-    if (rows.length === 0) {
+    const count = scope === "all"
+      ? urls.filter(u => u.is_active).length
+      : urls.filter(u => u.is_active && u.platform === scope.platform).length;
+    if (count === 0) {
       toast({ title: "Aucune URL active à relancer" });
       return;
     }
-    const label = typeof scope === "object" ? `${rows.length} URLs ${scope.platform}` : `les ${rows.length} URLs actives`;
-    const minutes = Math.ceil((rows.length * 30) / 60);
-    if (!confirm(`Relancer le scraping de ${label} ? Durée estimée : ~${minutes} min (Firecrawl).`)) return;
+    const label = typeof scope === "object" ? `${count} URLs ${scope.platform}` : `les ${count} URLs actives`;
+    const minutes = Math.ceil((count * 30) / 60);
+    if (!confirm(`Relancer le scraping de ${label} ? Durée estimée : ~${minutes} min. Le job tourne en arrière-plan : tu peux quitter la page.`)) return;
 
     setRunning("__rescrape__");
-    setRescrapeProgress({ done: 0, total: rows.length, found: 0, inserted: 0, updated: 0, errors: 0 });
-
-    let done = 0, found = 0, inserted = 0, updated = 0, errors = 0;
-    let cursor = 0;
-    const CONCURRENCY = 2;
-    const worker = async () => {
-      while (cursor < rows.length) {
-        const idx = cursor++;
-        const id = rows[idx].id;
-        try {
-          const { data, error } = await supabase.functions.invoke("scrape-list", { body: { sourcing_url_id: id } });
-          if (error) errors++;
-          else {
-            found += data?.items_found ?? 0;
-            inserted += data?.inserted ?? 0;
-            updated += data?.updated ?? 0;
-          }
-        } catch { errors++; }
-        done++;
-        setRescrapeProgress({ done, total: rows.length, found, inserted, updated, errors });
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
-
-    setRunning(null);
-    toast({
-      title: "Re-scraping terminé",
-      description: `${done}/${rows.length} URLs · ${found} trouvés · ${inserted} insérés · ${updated} mis à jour${errors ? ` · ${errors} erreurs` : ""}`,
+    setRescrapeProgress({ done: 0, total: count, found: 0, inserted: 0, updated: 0, errors: 0 });
+    const { data, error } = await supabase.functions.invoke("rescrape-batch", {
+      body: { scope: scope === "all" ? "all" : scope },
     });
-    setTimeout(() => setRescrapeProgress(null), 8000);
-    load();
+    if (error || !data?.job_id) {
+      setRunning(null);
+      setRescrapeProgress(null);
+      toast({ title: "Erreur", description: error?.message ?? "Impossible de lancer le job", variant: "destructive" });
+      return;
+    }
+    setRescrapeJobId(data.job_id);
+    toast({ title: "Re-scraping lancé en arrière-plan", description: `${data.total} URLs en file. Tu peux fermer cette page.` });
   };
 
   if (adminLoading || loading) {
