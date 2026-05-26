@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
     }
 
     // 3. Download DCE
-    const dl = await downloadDce(jar, dce_url, landingHtml);
+    const dl = await downloadDce(jar, dceUrl, landingHtml);
     log("dce.download", "ok", `lots=${dl.lotCount} bytes=${dl.bytes.byteLength} ct=${dl.contentType}`);
 
     // 4. Upload to bucket
