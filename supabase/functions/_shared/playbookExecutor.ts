@@ -272,7 +272,12 @@ async function execHybrid(ctx: ExecutorContext): Promise<ExecutorResult> {
     if (!isDetailLink(l)) continue;
     try {
       const h = new URL(l).hostname.toLowerCase();
-      if (baseHost && h !== baseHost && !h.endsWith(`.${baseHost}`) && !baseHost.endsWith(`.${h}`)) continue;
+      const sameHost = baseHost && (h === baseHost || h.endsWith(`.${baseHost}`) || baseHost.endsWith(`.${h}`));
+      // Famille MPI : tous les hôtes `*.marches-publics.info` ou `marchespublics.*`
+      // partagent le même backend. On les considère comme un seul domaine.
+      const MPI_FAMILY = /(^|\.)marches-publics\.info$|^marchespublics\./i;
+      const bothMpi = MPI_FAMILY.test(h) && MPI_FAMILY.test(baseHost);
+      if (baseHost && !sameHost && !bothMpi) continue;
     } catch { continue; }
     detailLinks.push(l);
     if (detailLinks.length >= Math.min(30, MAX_CALLS_PER_URL - calls)) break;
