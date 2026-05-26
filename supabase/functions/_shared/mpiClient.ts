@@ -9,9 +9,12 @@ const TWOCAPTCHA_API_KEY = Deno.env.get("TWOCAPTCHA_API_KEY") ?? "";
 const MPI_LOGIN = Deno.env.get("MPI_LOGIN") ?? "";
 const MPI_PASSWORD = Deno.env.get("MPI_PASSWORD") ?? "";
 
-const BASE = "https://www.marches-publics.info";
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+
+function originOf(url: string): string {
+  return new URL(url).origin;
+}
 
 export type CookieJar = Record<string, string>;
 

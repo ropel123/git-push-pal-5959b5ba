@@ -1,81 +1,59 @@
-# Plan : agent IA `fetch-dce-mpi` (auth Hackify + captcha 1ère fois)
+# Fix `fetch-dce-mpi` — navigation publication → page DCE
 
-## Flow MPI confirmé
+## Problème
 
+Logs montrent :
 ```
-1er retrait :
-  GET  dematEnt.login&type=DCE&IDM=...
-  → page captcha image
-  → POST captcha + email/password Hackify
-  → cookie session (CFID/CFTOKEN/JSESSIONID) valide plusieurs h/j
-
-Retraits suivants (même cookie) :
-  GET  dematEnt.login&type=DCE&IDM=...
-  → direct page DCE avec lots
-  → cocher tous lots + télécharger ZIP
+GET landing .../fuseaction=pub.affPublication&refPub=...&IDS=4992
+landing forms=1 → captcha=false cookies=0  (rien à faire)
+ERROR Not on DCE page (lots/télécharger not found)
 ```
 
-Clé du design : **persister le cookie de session MPI** pour amortir le captcha sur N retraits.
+L'URL stockée dans `tenders.dce_url` est la **page publication** (vue publique de l'AO), pas la **page de retrait DCE** (`fuseaction=dematEnt.login&type=DCE&IDM=...`). Le flow MPI réel est :
 
-## Architecture
-
-### Nouvelle table `platform_sessions`
-Stocke les cookies de session par plateforme pour les réutiliser.
-
-| Champ | Type | Notes |
-|---|---|---|
-| platform | text | 'mpi', 'atexo'... |
-| cookies | jsonb | { CFID, CFTOKEN, JSESSIONID, ... } |
-| expires_at | timestamptz | now() + 12h par défaut |
-| last_used_at | timestamptz | |
-| login_count | int | métrique |
-
-RLS : service_role only (jamais exposé client).
-
-### Edge function `fetch-dce-mpi`
-
-`supabase/functions/fetch-dce-mpi/index.ts` + `_shared/mpiClient.ts`.
-
-**Logique :**
-
-```text
-1. Lire platform_sessions where platform='mpi' AND expires_at > now()
-2. Si cookie valide :
-     GET page DCE → si HTML contient form login → cookie expiré, goto 3
-     Sinon → parser lots, télécharger ZIP, return ✓
-3. Sinon (1ère fois ou expiré) :
-     GET landing → extraire image captcha
-     2Captcha resolve (TWOCAPTCHA_API_KEY déjà présent)
-     POST captcha + MPI_LOGIN/MPI_PASSWORD
-     Capturer Set-Cookie → upsert platform_sessions (expires_at = now()+12h)
-     Retry étape 2
-4. Upload ZIP → bucket dce-documents/{tender_id}/dce.zip
-5. Insert dce_downloads + dce_uploads (lots)
+```
+publication (pub.affPublication?IDS=...)
+    ↓ clic "Retirer le DCE"
+dematEnt.login&type=DCE&IDM=...
+    ↓ login (captcha + email/pwd) 1ère fois
+page DCE avec lots + télécharger
 ```
 
-**Throttling** : max 1 login complet (avec captcha) / 30s. Les retraits avec cookie valide ne sont pas throttlés.
+Bonus : on est sur `marchespublicsmanche.fr` (portail enfant MPI), pas `marches-publics.info`. La constante `BASE` du client doit être dérivée de l'URL d'entrée.
 
-### Routing depuis `fetch-dce-agent`
-Détection serveur : si `platform === 'mpi'` et secrets MPI présents → `supabase.functions.invoke('fetch-dce-mpi', { tender_id })` au lieu de Browserbase. Pas de changement UI nécessaire.
+## Corrections
 
-## Secrets requis (bloquant)
-- `MPI_LOGIN` = `f.farrero@hackify.fr`
-- `MPI_PASSWORD`
-- `TWOCAPTCHA_API_KEY` (déjà présent ✓)
+### 1. `_shared/mpiClient.ts`
 
-## Étapes d'implémentation
-1. Ajouter secrets MPI_LOGIN / MPI_PASSWORD via `add_secret`
-2. Migration : table `platform_sessions` + RLS service_role
-3. Créer `_shared/mpiClient.ts` (cookie jar, login, captcha, parse lots, download)
-4. Créer `fetch-dce-mpi/index.ts` (orchestration + insert dce_downloads/uploads)
-5. Patch `fetch-dce-agent/index.ts` : fast-path si platform='mpi'
-6. Test sur AO actuel (IDM 1820420, 13 lots) : 1er appel doit résoudre captcha, 2ème doit aller direct
+- **Supprimer `BASE` constant**, le dériver à chaque call : `new URL(dceUrl).origin`.
+- **Ajouter `resolveDceUrl(jar, startUrl)`** :
+  - Si l'URL contient déjà `fuseaction=dematEnt.login` et `type=DCE` → retourner telle quelle.
+  - Sinon : GET la page, chercher un lien `<a href>` contenant `dematEnt.login` + `type=DCE` (ou texte "Retirer le DCE" / "Télécharger le DCE"). Retourner cette URL absolue.
+  - Si introuvable : essayer de construire `…?fuseaction=dematEnt.login&type=DCE&IDM=<refPub ou IDS>` (fallback heuristique) puis throw si rien ne marche.
 
-## Détails techniques
-- Cookie jar simple : `Map<string,string>` reconstruit depuis `Set-Cookie`, sérialisé en JSON avant insert
-- Image captcha : récupérer via fetch en gardant le cookie de session preview, base64 → 2Captcha `method=base64`
-- Form submit en `application/x-www-form-urlencoded`, ColdFusion `fuseaction=...`
-- Détection cookie expiré : présence de `<input type="password"` ou `fuseaction=dematEnt.login`
-- ZIP traité comme blob unique (bucket dce-documents) + entrée dce_uploads par lot parsé depuis la page
+### 2. `fetch-dce-mpi/index.ts`
 
-Confirme-tu pour qu'on ajoute les secrets MPI ?
+- Au début, appeler `resolveDceUrl(jar, dce_url)` → utiliser le résultat comme `dceUrl` pour login + download.
+- Logger `dce.resolve_url` (ok avec URL résolue, ou skipped si identique).
+- Probe de session : pareil, sur l'URL résolue.
+
+### 3. Détail technique : extraction du lien DCE
+
+Sur la page publication MPI, le bouton "Retirer le DCE" est typiquement :
+```html
+<a href="index.cfm?fuseaction=dematEnt.login&type=DCE&IDM=1820420">
+  Retirer le DCE
+</a>
+```
+Regex : `/<a[^>]*href=["']([^"']*fuseaction=dematEnt\.login[^"']*type=DCE[^"']*)["']/i`
+Si plusieurs matches, prendre le premier.
+
+## Test
+
+Re-cliquer le bouton DCE Agent sur l'AO actuel (`f6f11b9e-...`). Attendu dans les logs :
+```
+GET landing pub.affPublication
+dce.resolve_url ok → .../dematEnt.login&type=DCE&IDM=...
+GET dce → captcha + login → cookies persistés
+download → upload bucket
+```
