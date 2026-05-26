@@ -46,7 +46,9 @@ interface Tender {
   additional_info: string | null;
   dce_url: string | null;
   submission_url: string | null;
+  enriched_data?: any;
 }
+
 
 interface AwardNotice {
   id: string;
