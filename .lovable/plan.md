@@ -1,37 +1,45 @@
-Objectif : supprimer le fast-path HTTP MPI et faire passer MPI par la même infra que Atexo (Browserbase + playbook 10 steps + LLM-pick).
+Faire passer MPI par le flux Browserbase + LLM-pick (comme Atexo), avec authentification réelle via les secrets `MPI_LOGIN` / `MPI_PASSWORD`. Pas d'identité anonyme pour MPI.
 
-## Changements
+## Changements code
 
-1. **`supabase/functions/fetch-dce-agent/index.ts`** — supprimer le bloc fast-path MPI (lignes ~1038-1049) :
-   ```ts
-   if (platform === "mpi" && MPI_LOGIN && MPI_PASSWORD) { ... }
-   ```
-   MPI tombera alors dans le flux normal : chargement du playbook `mpi` (déjà actif, 10 steps en base) → Browserbase → exécution étape par étape avec LLM-pick sur les `act`.
+**`supabase/functions/fetch-dce-agent/index.ts`** — déjà appliqué :
+- Suppression du fast-path HTTP MPI (plus d'appel à `fetch-dce-mpi`).
+- Dans le chargement du robot : si `platform === "mpi"` et qu'il n'y a aucune ligne dans `platform_robots`, on lit `MPI_LOGIN` / `MPI_PASSWORD` depuis l'environnement et on les utilise comme robot (login + password).
 
-2. **Playbook MPI** — vérifier les 10 steps en base et les ajuster si besoin pour couvrir le tunnel Grand Est :
-   - goto `{{dce_url}}` (la page publication du buyer profile)
-   - act "Dossier de Consultation des Entreprises" (le lien sur la page acheteur)
-   - wait_for_inputs → login MPI
-   - fill identifiant / mot de passe (via secrets `MPI_LOGIN` / `MPI_PASSWORD`)
-   - act "Se connecter"
-   - act "Sélectionner tous les lots" / cocher checkboxes
-   - act "Suivant" / "Valider"
-   - act "J'accepte les CGU" si présent
-   - act "Télécharger le DCE"
-   - capture download via API Browserbase
+## Changement base de données (migration à exécuter)
 
-3. **Garder le fichier `fetch-dce-mpi`** désactivé (ne plus l'appeler) mais ne pas le supprimer immédiatement, au cas où on veuille revenir au HTTP pur plus tard. On le marquera comme legacy.
+Mettre à jour le playbook `mpi` dans `agent_playbooks` pour refléter le tunnel réel MPI authentifié :
 
-4. **Logs** — vérifier que les events `router.detect_platform` → `playbook.load mpi` → `step.act("...")` remontent bien comme pour Atexo.
+```text
+1.  navigate                  → ouvre l'URL DCE (page acheteur Grand Est, etc.)
+2.  wait 2s
+3.  click_if_present          → "Dossier de Consultation des Entreprises"
+4.  wait 1.5s
+5.  wait_for_inputs (min=2)   → écran de login MPI
+6.  fill_login                → MPI_LOGIN / MPI_PASSWORD (via secrets, fallback déjà codé)
+7.  click_if_present          → "Se connecter / Valider"
+8.  wait 2s
+9.  act_if_present            → cocher tous les lots disponibles
+10. act_if_present            → cocher CGU / certifications si présentes
+11. click_if_present          → "Suivant / Valider / Continuer"
+12. wait 1.5s
+13. solve_image_captcha_if_present
+14. act_if_present            → bouton final "RETRAIT / TÉLÉCHARGER / Télécharger le DCE"
+15. wait_download (75s)
+```
 
-## Détails techniques
+**Pas** de `fill_anonymous_identity` dans ce playbook : MPI exige un vrai compte.
 
-- Aucune nouvelle dépendance, aucun nouveau secret (BROWSERBASE_API_KEY, MPI_LOGIN, MPI_PASSWORD déjà présents).
-- Coût passe de ~0,001 $ à ~0,15 $ par DCE MPI (Browserbase + captcha éventuel) — acceptable vs taux d'échec actuel.
-- Migration SQL si on doit corriger les steps du playbook `mpi`.
+## Edge function legacy
+
+`fetch-dce-mpi` reste en place (non appelée) — peut être supprimée plus tard une fois le nouveau flux validé en prod.
 
 ## Validation
 
-- Re-cliquer "Récupérer le DCE automatiquement" sur le tender Grand Est `20abaed5-...`.
-- Vérifier dans les logs : `router.detect_platform mpi` → `playbook.load MPI / AWS achat` → progression des steps jusqu'au download.
-- Le ZIP doit apparaître dans `dce-documents`.
+- Re-cliquer "Récupérer le DCE automatiquement" sur le tender `20abaed5-...` (Grand Est, lien MPI).
+- Logs attendus :
+  - `router.detect_platform` → `mpi`
+  - `playbook.load` → `MPI / AWS achat (marches-publics.info)`
+  - `robot.load` → `ok ... (via env MPI_LOGIN)`
+  - étapes 1..15 jusqu'à `wait_download ok`
+- Le ZIP DCE doit apparaître dans `dce-documents`.
