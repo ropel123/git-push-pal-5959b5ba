@@ -1,30 +1,37 @@
-## Objectif
-Corriger l’erreur 500 du bouton DCE Agent sur MPI : la session est considérée comme valide, mais la page obtenue après redirection (`dematEnt.choixDCE`) n’est pas reconnue comme une page DCE téléchargeable, donc `downloadDce` échoue avec `lots/télécharger not found`.
+Objectif : supprimer le fast-path HTTP MPI et faire passer MPI par la même infra que Atexo (Browserbase + playbook 10 steps + LLM-pick).
 
-## Plan de correction
-1. **Renforcer la détection de session MPI**
-   - Dans `supabase/functions/_shared/mpiClient.ts`, ajuster `isLoginRequired` pour ne pas considérer `dematEnt.login&type=DCE` comme un login requis quand la page redirige déjà vers une étape DCE authentifiée.
-   - Éviter que `cookies={}` en base soit traité comme une session réutilisable valide.
+## Changements
 
-2. **Gérer l’étape MPI `choixDCE`**
-   - Étendre `downloadDce` pour reconnaître les pages intermédiaires `dematEnt.choixDCE` / `verifLotsDCE`.
-   - Si la page contient un formulaire ou des liens vers l’étape suivante, soumettre/suivre cette étape avant de chercher le formulaire final de téléchargement.
-   - Conserver l’envoi de toutes les cases “lot” quand elles sont présentes.
+1. **`supabase/functions/fetch-dce-agent/index.ts`** — supprimer le bloc fast-path MPI (lignes ~1038-1049) :
+   ```ts
+   if (platform === "mpi" && MPI_LOGIN && MPI_PASSWORD) { ... }
+   ```
+   MPI tombera alors dans le flux normal : chargement du playbook `mpi` (déjà actif, 10 steps en base) → Browserbase → exécution étape par étape avec LLM-pick sur les `act`.
 
-3. **Améliorer les logs de diagnostic**
-   - Ajouter des logs courts indiquant l’URL finale, le `content-type`, la présence de formulaires, de checkboxes et un extrait du titre/page quand la page DCE n’est pas reconnue.
-   - Renvoyer une erreur plus explicite côté `fetch-dce-mpi`, afin que `fetch-dce-agent` affiche autre chose qu’un simple `non-2xx`.
+2. **Playbook MPI** — vérifier les 10 steps en base et les ajuster si besoin pour couvrir le tunnel Grand Est :
+   - goto `{{dce_url}}` (la page publication du buyer profile)
+   - act "Dossier de Consultation des Entreprises" (le lien sur la page acheteur)
+   - wait_for_inputs → login MPI
+   - fill identifiant / mot de passe (via secrets `MPI_LOGIN` / `MPI_PASSWORD`)
+   - act "Se connecter"
+   - act "Sélectionner tous les lots" / cocher checkboxes
+   - act "Suivant" / "Valider"
+   - act "J'accepte les CGU" si présent
+   - act "Télécharger le DCE"
+   - capture download via API Browserbase
 
-4. **Vérifier sans modifier le parcours Browserbase générique**
-   - Garder le fast-path MPI isolé.
-   - Ne pas toucher aux playbooks ni au flux des autres plateformes.
+3. **Garder le fichier `fetch-dce-mpi`** désactivé (ne plus l'appeler) mais ne pas le supprimer immédiatement, au cas où on veuille revenir au HTTP pur plus tard. On le marquera comme legacy.
 
-## Fichiers concernés
-- `supabase/functions/_shared/mpiClient.ts`
-- `supabase/functions/fetch-dce-mpi/index.ts`
-- Optionnellement `supabase/functions/fetch-dce-agent/index.ts` uniquement pour propager un message d’erreur plus lisible depuis la fonction MPI.
+4. **Logs** — vérifier que les events `router.detect_platform` → `playbook.load mpi` → `step.act("...")` remontent bien comme pour Atexo.
+
+## Détails techniques
+
+- Aucune nouvelle dépendance, aucun nouveau secret (BROWSERBASE_API_KEY, MPI_LOGIN, MPI_PASSWORD déjà présents).
+- Coût passe de ~0,001 $ à ~0,15 $ par DCE MPI (Browserbase + captcha éventuel) — acceptable vs taux d'échec actuel.
+- Migration SQL si on doit corriger les steps du playbook `mpi`.
 
 ## Validation
-- Redéployer `fetch-dce-mpi` après correction.
-- Relancer le bouton DCE Agent sur l’AO courant.
-- Vérifier dans les logs que le flux passe bien : résolution URL → éventuel login/captcha → choix lots → téléchargement → upload storage.
+
+- Re-cliquer "Récupérer le DCE automatiquement" sur le tender Grand Est `20abaed5-...`.
+- Vérifier dans les logs : `router.detect_platform mpi` → `playbook.load MPI / AWS achat` → progression des steps jusqu'au download.
+- Le ZIP doit apparaître dans `dce-documents`.

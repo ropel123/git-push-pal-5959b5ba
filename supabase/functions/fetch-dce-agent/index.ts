@@ -1035,18 +1035,9 @@ Deno.serve(async (req) => {
     const { platform, via } = await detectPlatform(supabase, dce_url, tenderSource);
     log("router.detect_platform", "ok", `${platform} (via=${via}, source=${tenderSource ?? "n/a"})`);
 
-    // Fast-path : MPI a son edge function dédiée (HTTP natif, pas de Browserbase).
-    if (platform === "mpi" && Deno.env.get("MPI_LOGIN") && Deno.env.get("MPI_PASSWORD")) {
-      log("router.fastpath_mpi", "ok", "deleguating to fetch-dce-mpi");
-      const { data: fp, error: fpErr } = await supabase.functions.invoke("fetch-dce-mpi", {
-        body: { tender_id, dce_url, triggered_by: triggered_by ?? null },
-      });
-      if (fpErr) {
-        const upstream = (fp as any)?.error ?? fpErr.message;
-        throw new Error(`fetch-dce-mpi: ${upstream}`);
-      }
-      return fp;
-    }
+    // MPI passe désormais par le flux Browserbase + playbook + LLM-pick comme les autres plateformes.
+
+
 
     const { data: runRow, error: runErr } = await supabase
       .from("agent_runs")
@@ -1093,8 +1084,23 @@ Deno.serve(async (req) => {
         .eq("is_active", true)
         .maybeSingle();
       if (r) { robot = r; log("robot.load", "ok", r.login); }
-      else log("robot.load", "skipped", "aucun compte — fallback identité anonyme");
+      else {
+        // Fallback : pour MPI, on lit les identifiants depuis les secrets d'environnement.
+        if (platform === "mpi") {
+          const mpiLogin = Deno.env.get("MPI_LOGIN");
+          const mpiPwd = Deno.env.get("MPI_PASSWORD");
+          if (mpiLogin && mpiPwd) {
+            robot = { login: mpiLogin, password_encrypted: mpiPwd };
+            log("robot.load", "ok", `${mpiLogin} (via env MPI_LOGIN)`);
+          } else {
+            log("robot.load", "skipped", "MPI_LOGIN/MPI_PASSWORD manquants");
+          }
+        } else {
+          log("robot.load", "skipped", "aucun compte — fallback identité anonyme");
+        }
+      }
     }
+
 
     const { data: anonId } = await supabase
       .from("agent_anonymous_identity")
