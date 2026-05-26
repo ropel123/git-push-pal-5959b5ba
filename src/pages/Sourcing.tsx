@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil, Search, X, ChevronDown } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { detectPlatform, PLATFORMS } from "@/lib/detectPlatform";
 
 const Sourcing = () => {
@@ -369,13 +369,15 @@ const Sourcing = () => {
 
   const [reclassifyProgress, setReclassifyProgress] = useState<{ done: number; total: number; bySource: Record<string, number>; byPlatform: Record<string, number> } | null>(null);
 
-  const reclassifyAll = async (scope: "all" | "custom" = "all") => {
+  const reclassifyAll = async (scope: "all" | "custom" | { platform: string } = "all") => {
     let query = supabase
       .from("sourcing_urls")
       .select("id, platform")
       .order("created_at", { ascending: false });
     if (scope === "custom") {
       query = query.in("platform", ["custom", "safetender"]);
+    } else if (typeof scope === "object" && scope.platform) {
+      query = query.eq("platform", scope.platform);
     }
     const { data: rows, error: fetchErr } = await query;
     if (fetchErr || !rows) {
@@ -384,13 +386,18 @@ const Sourcing = () => {
     }
     const ids = rows.map((r: any) => r.id as string);
     if (ids.length === 0) {
-      toast({ title: scope === "custom" ? "Aucune URL en custom" : "Aucune URL à traiter" });
+      toast({ title: "Aucune URL à traiter" });
       return;
     }
     const providerLabel = aiProvider === "anthropic" ? "Anthropic Haiku 4.5 + web_fetch" : "OpenRouter Opus 4.7";
     const costPerUrl = aiProvider === "anthropic" ? 0.003 : 0.024;
     const secPerUrl = aiProvider === "anthropic" ? 3 : 6;
-    const scopeLabel = scope === "custom" ? `${ids.length} URLs en custom/safetender` : `les ${ids.length} URLs`;
+    const scopeLabel =
+      scope === "custom"
+        ? `${ids.length} URLs en custom/safetender`
+        : typeof scope === "object"
+        ? `${ids.length} URLs en ${scope.platform}`
+        : `les ${ids.length} URLs`;
     if (!confirm(`Re-classifier ${scopeLabel} via ${providerLabel} ? Durée estimée : ~${Math.ceil(ids.length * secPerUrl / 60)} min, coût ~$${(ids.length * costPerUrl).toFixed(2)}.`)) return;
 
     setRunning("__all__");
@@ -483,7 +490,7 @@ const Sourcing = () => {
                     <ChevronDown className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="max-h-[400px] overflow-y-auto">
                   <DropdownMenuItem onClick={() => reclassifyAll("custom")}>
                     <Wand2 className="mr-2 h-4 w-4" />
                     Relancer uniquement les custom ({urls.filter((u) => u.platform === "custom" || u.platform === "safetender").length})
@@ -492,6 +499,29 @@ const Sourcing = () => {
                     <RefreshCcw className="mr-2 h-4 w-4" />
                     Relancer toutes les URLs ({urls.length})
                   </DropdownMenuItem>
+                  {(() => {
+                    const counts = urls.reduce<Record<string, number>>((acc, u) => {
+                      const p = u.platform || "custom";
+                      acc[p] = (acc[p] ?? 0) + 1;
+                      return acc;
+                    }, {});
+                    const entries = Object.entries(counts)
+                      .filter(([p]) => p !== "custom" && p !== "safetender")
+                      .sort((a, b) => b[1] - a[1]);
+                    if (entries.length === 0) return null;
+                    return (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">Par plateforme</DropdownMenuLabel>
+                        {entries.map(([platform, count]) => (
+                          <DropdownMenuItem key={platform} onClick={() => reclassifyAll({ platform })}>
+                            <Wand2 className="mr-2 h-4 w-4" />
+                            Relancer uniquement {platform} ({count})
+                          </DropdownMenuItem>
+                        ))}
+                      </>
+                    );
+                  })()}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
