@@ -582,6 +582,55 @@ const Sourcing = () => {
               </DropdownMenu>
             </div>
           </div>
+
+          {/* Relancer le scraping (différent de la re-classification) */}
+          <div className="flex">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => rescrapeScope({ platform: "mpi" })}
+              disabled={running === "__rescrape__"}
+              className="rounded-r-none"
+            >
+              {running === "__rescrape__"
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <RefreshCcw className="mr-2 h-4 w-4" />}
+              {rescrapeProgress
+                ? `Scrape : ${rescrapeProgress.done}/${rescrapeProgress.total} · ${rescrapeProgress.inserted}+${rescrapeProgress.updated}`
+                : `Relancer scraping mpi (${urls.filter((u) => u.platform === "mpi" && u.is_active).length})`}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="secondary" disabled={running === "__rescrape__"} className="rounded-l-none border-l border-border px-2">
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-[400px] overflow-y-auto">
+                <DropdownMenuLabel className="text-xs text-muted-foreground">Relancer le scraping</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => rescrapeScope("all")}>
+                  <RefreshCcw className="mr-2 h-4 w-4" />
+                  Toutes les URLs actives ({urls.filter((u) => u.is_active).length})
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs text-muted-foreground">Par plateforme</DropdownMenuLabel>
+                {(() => {
+                  const counts = urls.filter((u) => u.is_active).reduce<Record<string, number>>((acc, u) => {
+                    const p = u.platform || "custom";
+                    acc[p] = (acc[p] ?? 0) + 1;
+                    return acc;
+                  }, {});
+                  return Object.entries(counts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([platform, count]) => (
+                      <DropdownMenuItem key={platform} onClick={() => rescrapeScope({ platform })}>
+                        <Play className="mr-2 h-4 w-4" />
+                        {platform} ({count})
+                      </DropdownMenuItem>
+                    ));
+                })()}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
