@@ -236,7 +236,7 @@ export async function loginMpi(jar: CookieJar, dceUrl: string): Promise<{
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       "Referer": dceUrl,
-      "Origin": BASE,
+      "Origin": originOf(dceUrl),
     },
     body,
   });
