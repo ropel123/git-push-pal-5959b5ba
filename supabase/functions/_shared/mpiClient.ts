@@ -327,8 +327,12 @@ export async function downloadDce(jar: CookieJar, dceUrl: string, currentHtml?: 
 
 export function isLoginRequired(html: string): boolean {
   if (!html) return true;
-  return /type\s*=\s*["']?password/i.test(html) ||
-    /fuseaction=dematEnt\.login/i.test(html) && /captcha|connecter|connexion/i.test(html);
+  // Real login form present
+  if (/type\s*=\s*["']?password/i.test(html)) return true;
+  // Page asks to "se connecter / s'identifier" AND no DCE selection in sight
+  const hasLoginPrompt = /(s'identifier|se\s*connecter|identifiant|mot\s*de\s*passe)/i.test(html);
+  const hasDceStep = /choixDCE|verifLotsDCE|dematEnt\.dce|idlot|type\s*=\s*["']?checkbox/i.test(html);
+  return hasLoginPrompt && !hasDceStep;
 }
 
 // ---------- Resolve DCE retrieval URL ----------
