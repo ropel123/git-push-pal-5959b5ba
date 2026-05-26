@@ -1034,7 +1034,7 @@ Deno.serve(async (req) => {
 
   const runMain = async () => {
     const body = await req.json();
-    const { tender_id, dce_url, triggered_by } = body;
+    const { tender_id, dce_url, triggered_by, run_id: providedRunId } = body;
     if (!tender_id || !dce_url) throw new Error("tender_id and dce_url required");
 
     // Load tender source to enrich platform detection (custom domains like profilacheteur.meuse.fr)
@@ -1052,9 +1052,13 @@ Deno.serve(async (req) => {
 
 
 
+    const insertPayload: Record<string, unknown> = {
+      tender_id, platform, dce_url, status: "running", triggered_by: triggered_by ?? null,
+    };
+    if (providedRunId) insertPayload.id = providedRunId;
     const { data: runRow, error: runErr } = await supabase
       .from("agent_runs")
-      .insert({ tender_id, platform, dce_url, status: "running", triggered_by: triggered_by ?? null })
+      .insert(insertPayload)
       .select("id")
       .single();
     if (runErr) throw new Error(`agent_runs insert: ${runErr.message}`);

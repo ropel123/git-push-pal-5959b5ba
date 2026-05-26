@@ -47,19 +47,19 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
   }, [runId, status, liveViewUrl]);
 
   const launch = async () => {
+    const newRunId = crypto.randomUUID();
     setStatus("running");
-    setDetail("Lancement de l'agent IA navigateur…");
-    setRunId(null);
+    setDetail("Ouverture du navigateur live…");
+    setRunId(newRunId);
     setLiveViewUrl(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const { data, error } = await supabase.functions.invoke("fetch-dce-agent", {
-        body: { tender_id: tenderId, dce_url: dceUrl, triggered_by: user?.id },
+        body: { tender_id: tenderId, dce_url: dceUrl, triggered_by: user?.id, run_id: newRunId },
       });
 
       if (error) throw error;
-      if (data?.run_id) setRunId(data.run_id);
 
       if (data?.success && data.files_uploaded > 0) {
         setStatus("success");
