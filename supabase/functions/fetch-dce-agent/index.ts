@@ -1461,7 +1461,9 @@ Deno.serve(async (req) => {
             break;
           }
           case "download_all_pieces": {
-            // Helper JS : cliquer la ligne "DCE (ou Pièces communes)" sur la page de retrait
+            // Helper JS : cliquer la ligne EXACTE "DCE (ou Pièces communes)" sur la page de retrait.
+            // Strict : on cible uniquement ce libellé (ou "DCE" seul), en excluant tous les
+            // autres libellés de la section Pièces communes et toutes les lignes de lots.
             const jsClickDceRow = `
 (() => {
   const isVisible = (el) => {
@@ -1478,67 +1480,73 @@ Deno.serve(async (req) => {
     try { el.dispatchEvent(new MouseEvent('mouseup', opts)); } catch (_) {}
     try { el.click(); } catch (_) {}
   };
-  const re = /dce\\s*\\(?\\s*ou\\s*pi[èe]ces?\\s*communes?\\)?|^\\s*dce\\s*$|pi[èe]ces?\\s*communes/i;
-  const all = Array.from(document.querySelectorAll('td, th, tr, div, span, label, p, a'))
-    .filter(isVisible);
-  const labelEls = all.filter(el => {
-    const own = (el.innerText || '').trim();
-    if (own.length === 0 || own.length > 120) return false;
-    return re.test(own);
-  });
-  if (labelEls.length === 0) return { kind: 'no_label' };
-  labelEls.sort((a, b) => {
-    const ta = (a.innerText || '').toLowerCase();
-    const tb = (b.innerText || '').toLowerCase();
-    const sa = (ta.includes('pi') && ta.includes('commun')) ? 0 : 1;
-    const sb = (tb.includes('pi') && tb.includes('commun')) ? 0 : 1;
-    return sa - sb;
-  });
+  const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+  const reStrict = /^\\s*dce\\s*\\(\\s*ou\\s+pi[èe]ces?\\s+communes?\\s*\\)\\s*$/i;
+  const reDceAlone = /^\\s*dce\\s*$/i;
+  const reBlack = /(conditions?\\s+d['’]?acc[èe]s|information\\s+sur\\s+les\\s+d[ée]p[ôo]ts|couverture|aapc|r[èe]glement\\s+de\\s+consultation|^\\s*pi[èe]ces?\\s+communes\\s*$|^\\s*pi[èe]ces?\\s+sp[ée]cifiques|^\\s*lot\\s*\\d+)/i;
 
-  // 1) Le libellé lui-même est un <a> téléchargeable
-  for (const label of labelEls) {
+  const candidates = Array.from(document.querySelectorAll('td, th, div, span, label, p, a, b, strong'))
+    .filter(isVisible)
+    .map(el => ({ el, text: norm(el.innerText || el.textContent || '') }))
+    .filter(x => x.text.length > 0 && x.text.length <= 120)
+    .filter(x => reStrict.test(x.text) || reDceAlone.test(x.text))
+    .filter(x => !reBlack.test(x.text));
+
+  if (candidates.length === 0) {
+    const sniff = Array.from(document.querySelectorAll('td, div, span, a, p'))
+      .filter(isVisible)
+      .map(el => norm(el.innerText || ''))
+      .filter(t => t && t.length < 80 && /dce/i.test(t))
+      .slice(0, 8);
+    return { kind: 'no_label', sniff };
+  }
+
+  // Privilégier le libellé exact "DCE (ou Pièces communes)" sur "DCE" seul.
+  candidates.sort((a, b) => (reStrict.test(b.text) ? 1 : 0) - (reStrict.test(a.text) ? 1 : 0));
+
+  for (const { el: label, text } of candidates) {
     if (label.tagName === 'A' && (label.href || label.getAttribute('href'))) {
       fireClick(label);
-      return { kind: 'clicked_label_link', label: (label.innerText || '').slice(0, 80), href: (label.href || '').slice(0, 200) };
+      return { kind: 'clicked_label_link', label: text, href: (label.href || '').slice(0, 200) };
+    }
+    const row = label.closest('tr');
+    if (row) {
+      const btns = Array.from(row.querySelectorAll('a, button, input[type=submit], input[type=button]'))
+        .filter(isVisible)
+        .filter(el => /t[ée]l[ée]charger|download|retrait/i.test(((el.innerText || el.value || el.getAttribute('aria-label') || el.title || '') + '')));
+      if (btns.length > 0) {
+        fireClick(btns[0]);
+        return {
+          kind: 'clicked_dce_row',
+          label: text,
+          btnText: norm(btns[0].innerText || btns[0].value || btns[0].title || ''),
+        };
+      }
     }
   }
 
-  // 2) Bouton Télécharger dans la même ligne <tr> / conteneur
-  for (const label of labelEls) {
-    const row = label.closest('tr') || label.parentElement;
-    if (!row) continue;
-    const btns = Array.from(row.querySelectorAll('a, button, input[type=submit], input[type=button], img'))
-      .filter(isVisible)
-      .filter(el => /t[ée]l[ée]charger|download|retrait/i.test(((el.innerText || el.value || el.getAttribute('aria-label') || el.title || el.alt || '') + '')));
-    if (btns.length === 0) continue;
-    fireClick(btns[0]);
-    return {
-      kind: 'clicked_dce_row',
-      label: (label.innerText || '').slice(0, 80),
-      btnText: (btns[0].innerText || btns[0].value || btns[0].title || btns[0].alt || '').slice(0, 80),
-    };
-  }
-
-  // 3) Proximité visuelle : bouton Télécharger sur la même ligne Y que le libellé
-  const primary = labelEls[0];
+  // Fallback proximité STRICTE : bouton "Télécharger" à droite du libellé DCE,
+  // tolérance Y serrée pour ne pas remonter sur la ligne "Règlement de consultation".
+  const primary = candidates[0].el;
   const lr = primary.getBoundingClientRect();
   const cy = lr.top + lr.height / 2;
   const allBtns = Array.from(document.querySelectorAll('a, button, input[type=submit], input[type=button]'))
     .filter(isVisible)
-    .filter(el => /t[ée]l[ée]charger|download|retrait/i.test(((el.innerText || el.value || el.getAttribute('aria-label') || el.title || '') + '')));
+    .filter(el => /t[ée]l[ée]charger/i.test(((el.innerText || el.value || el.getAttribute('aria-label') || el.title || '') + '')));
   let best = null;
   let bestDy = 1e9;
   for (const b of allBtns) {
     const br = b.getBoundingClientRect();
+    if (br.left < lr.right - 5) continue;
     const by = br.top + br.height / 2;
     const dy = Math.abs(by - cy);
-    if (dy < bestDy && dy < Math.max(40, lr.height * 1.5)) { best = b; bestDy = dy; }
+    if (dy < bestDy && dy <= Math.max(18, lr.height * 0.9)) { best = b; bestDy = dy; }
   }
   if (best) {
     fireClick(best);
-    return { kind: 'clicked_nearby', label: (primary.innerText || '').slice(0, 80), btnText: (best.innerText || best.value || '').slice(0, 80), dy: bestDy };
+    return { kind: 'clicked_nearby', label: norm(primary.innerText || ''), btnText: norm(best.innerText || best.value || ''), dy: bestDy };
   }
-  return { kind: 'label_without_button', candidates: labelEls.length };
+  return { kind: 'label_without_button', candidates: candidates.length, label: norm(primary.innerText || '') };
 })()
 `;
 
