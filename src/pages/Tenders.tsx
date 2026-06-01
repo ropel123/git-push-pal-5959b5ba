@@ -357,6 +357,12 @@ const Tenders = () => {
                   <FileText className="h-4 w-4" /> DCE auto disponible
                 </Label>
               </div>
+              <div className="flex items-center gap-2">
+                <Switch id="dce-ready-filter" checked={dceReadyFilter} onCheckedChange={(v) => { setDceReadyFilter(v); setPage(0); }} />
+                <Label htmlFor="dce-ready-filter" className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" /> DCE déjà récupéré
+                </Label>
+              </div>
             </div>
             {listingHosts.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap">
