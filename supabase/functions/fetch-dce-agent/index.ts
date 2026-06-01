@@ -966,10 +966,10 @@ function detectPlatformHeuristic(url: string): string {
 }
 
 /**
- * Four-level cascade:
- * 1. Match against active playbooks' url_pattern (regex) loaded from DB
- * 2. Hostname heuristic mapping
- * 3. Tender source mapping (e.g. "scrape:atexo" → "atexo_achatpublic")
+ * Four-level cascade (source-first to prevent over-matching regexes):
+ * 1. Tender source mapping (e.g. "scrape:atexo" → "atexo_spl") — most trustworthy
+ * 2. Match against active playbooks' url_pattern (regex) loaded from DB
+ * 3. Hostname heuristic mapping
  * 4. "generic" fallback (LLM-first playbook that should always exist in DB)
  */
 async function detectPlatform(
@@ -977,7 +977,14 @@ async function detectPlatform(
   url: string,
   tenderSource?: string | null,
 ): Promise<{ platform: string; via: string }> {
-  // 1. DB-driven regex match
+  // 1. Tender source mapping (trusted: comes from our own scraper)
+  if (tenderSource && tenderSource.toLowerCase().startsWith("scrape:")) {
+    const suffix = tenderSource.toLowerCase().slice("scrape:".length).trim();
+    const mapped = SOURCE_PLATFORM_MAP[suffix];
+    if (mapped) return { platform: mapped, via: `source:${suffix}` };
+  }
+
+  // 2. DB-driven regex match
   try {
     const { data: playbooks } = await supabase
       .from("agent_playbooks")
@@ -993,16 +1000,9 @@ async function detectPlatform(
     }
   } catch (_) { /* DB unreachable, fall through */ }
 
-  // 2. Hardcoded hostname heuristic
+  // 3. Hardcoded hostname heuristic
   const heuristic = detectPlatformHeuristic(url);
   if (heuristic !== "unknown") return { platform: heuristic, via: "hostname" };
-
-  // 3. Tender source mapping
-  if (tenderSource && tenderSource.toLowerCase().startsWith("scrape:")) {
-    const suffix = tenderSource.toLowerCase().slice("scrape:".length).trim();
-    const mapped = SOURCE_PLATFORM_MAP[suffix];
-    if (mapped) return { platform: mapped, via: `source:${suffix}` };
-  }
 
   // 4. Generic LLM-first fallback
   return { platform: "generic", via: "fallback" };
