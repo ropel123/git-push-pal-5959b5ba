@@ -438,6 +438,11 @@ const Tenders = () => {
                             {score}/100
                           </Badge>
                         )}
+                        {dceReadyMap.has(tender.id) && (
+                          <Badge variant="outline" className="border-green-500/40 text-green-600 dark:text-green-400 gap-1" title={dceReadyMap.get(tender.id)?.viaAgent ? "Récupéré par l'agent IA" : "Uploadé manuellement"}>
+                            <CheckCircle2 className="h-3 w-3" /> DCE récupéré
+                          </Badge>
+                        )}
                       </div>
                       {tender.object && <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2">{tender.object}</p>}
                       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
