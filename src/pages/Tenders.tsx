@@ -151,15 +151,18 @@ const Tenders = () => {
 
   const loading = tendersQuery.isLoading || tendersQuery.isFetching;
   const totalCount = tendersQuery.data?.count ?? 0;
+  const dceReadyQuery = useDceUploadedTenderIds(user?.id);
+  const dceReadyMap = dceReadyQuery.data ?? new Map<string, { viaAgent: boolean }>();
   const tenders = useMemo(() => {
-    const items = tendersQuery.data?.items ?? [];
+    let items = tendersQuery.data?.items ?? [];
+    if (dceReadyFilter) items = items.filter((t) => dceReadyMap.has(t.id));
     if (smartFilter && profile && items.length > 0) {
       return [...items]
         .map((t) => ({ ...t, _score: computeScore(t, profile) }))
         .sort((a, b) => b._score - a._score);
     }
     return items;
-  }, [tendersQuery.data, smartFilter, profile]);
+  }, [tendersQuery.data, smartFilter, profile, dceReadyFilter, dceReadyMap]);
 
 
   const fetchSavedSearches = async () => {
