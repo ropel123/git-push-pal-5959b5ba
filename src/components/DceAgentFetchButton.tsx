@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,30 +21,54 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
   const [detail, setDetail] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [liveViewUrl, setLiveViewUrl] = useState<string | null>(null);
+  const notifiedRef = useRef(false);
 
-  // Poll agent_runs row to grab live_view_url as soon as Browserbase session opens
+  // Poll agent_runs row: live_view_url early, then final status when background finalize completes
   useEffect(() => {
     if (!runId || status !== "running") return;
     let cancelled = false;
+
     const tick = async () => {
       const { data } = await supabase
         .from("agent_runs")
-        .select("live_view_url")
+        .select("live_view_url,status,files_downloaded,duration_ms,cost_usd,captchas_solved,error_message")
         .eq("id", runId)
         .maybeSingle();
-      if (!cancelled && data?.live_view_url) {
-        setLiveViewUrl(data.live_view_url);
+      if (cancelled || !data) return;
+
+      if (data.live_view_url && !liveViewUrl) setLiveViewUrl(data.live_view_url);
+
+      const s = (data.status ?? "") as string;
+      if (["success", "no_files", "failed", "timeout"].includes(s) && !notifiedRef.current) {
+        notifiedRef.current = true;
+        const files = data.files_downloaded ?? 0;
+        const dur = data.duration_ms ? (data.duration_ms / 1000).toFixed(1) : "?";
+        const cost = typeof data.cost_usd === "number" ? data.cost_usd.toFixed(3) : "?";
+        const caps = data.captchas_solved ?? 0;
+
+        if (s === "success" && files > 0) {
+          setStatus("success");
+          setDetail(`${files} fichier(s) récupéré(s) — ${caps} captcha(s) résolu(s) — ${dur}s — ~${cost} $`);
+          toast({ title: "Agent IA terminé ✓", description: "Le DCE a été récupéré automatiquement." });
+          onSuccess?.();
+        } else if (s === "no_files") {
+          setStatus("no_files");
+          setDetail("L'agent a complété le parcours mais aucun fichier n'a été téléchargé.");
+        } else {
+          setStatus("failed");
+          setDetail(data.error_message ?? "Échec inconnu");
+          toast({ title: "Agent en échec", description: data.error_message ?? "Échec inconnu", variant: "destructive" });
+        }
       }
     };
+
     tick();
-    const iv = setInterval(() => {
-      if (!liveViewUrl) tick();
-    }, 1500);
+    const iv = setInterval(tick, 2000);
     return () => {
       cancelled = true;
       clearInterval(iv);
     };
-  }, [runId, status, liveViewUrl]);
+  }, [runId, status, liveViewUrl, toast, onSuccess]);
 
   const launch = async () => {
     const newRunId = crypto.randomUUID();
@@ -52,6 +76,7 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
     setDetail("Ouverture du navigateur live…");
     setRunId(newRunId);
     setLiveViewUrl(null);
+    notifiedRef.current = false;
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -61,7 +86,16 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
 
       if (error) throw error;
 
+      // Mode background : la fonction a rendu la main avant la fin de l'upload.
+      // On laisse status="running" et l'effet de polling se chargera de basculer
+      // en success/no_files/failed dès que agent_runs.status sera mis à jour.
+      if (data?.background) {
+        setDetail("Téléchargement et upload en arrière-plan…");
+        return;
+      }
+
       if (data?.success && data.files_uploaded > 0) {
+        notifiedRef.current = true;
         setStatus("success");
         setDetail(
           `${data.files_uploaded} fichier(s) récupéré(s) — ${data.captchas_solved} captcha(s) résolu(s) — ${(data.duration_ms / 1000).toFixed(1)}s — ~${data.cost_usd.toFixed(3)} $`,
@@ -69,12 +103,14 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
         toast({ title: "Agent IA terminé ✓", description: "Le DCE a été récupéré automatiquement." });
         onSuccess?.();
       } else if (data?.success) {
+        notifiedRef.current = true;
         setStatus("no_files");
         setDetail("L'agent a complété le parcours mais aucun fichier n'a été téléchargé.");
       } else {
         throw new Error(data?.error || "Erreur inconnue");
       }
     } catch (e: any) {
+      notifiedRef.current = true;
       setStatus("failed");
       setDetail(e.message);
       toast({ title: "Agent en échec", description: e.message, variant: "destructive" });
