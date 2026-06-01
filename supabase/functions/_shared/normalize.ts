@@ -117,6 +117,7 @@ const ATEXO_HOST_SUFFIXES = [
   "alsacemarchespublics.eu",
   "solaere.recia.fr",       // RECIA Centre-Val de Loire
   "webmarche.recia.fr",
+  "adm76.com",              // Atexo Seine-Maritime (marchespublics.adm76.com)
 ];
 
 function endsWithHost(host: string, suffix: string): boolean {
