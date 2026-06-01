@@ -14,6 +14,7 @@ const ATEXO_HOST_SUFFIXES = [
   "alsacemarchespublics.eu",
   "solaere.recia.fr",
   "webmarche.recia.fr",
+  "adm76.com",
 ];
 
 function endsWithHost(host: string, suffix: string): boolean {
