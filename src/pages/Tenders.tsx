@@ -10,13 +10,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight, FileText, Sparkles, ExternalLink, Globe } from "lucide-react";
+import { Search, Calendar, MapPin, Euro, Plus, Save, ChevronDown, ChevronUp, Download, BookmarkCheck, Trash2, ChevronLeft, ChevronRight, FileText, Sparkles, ExternalLink, Globe, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { computeScore, getScoreColor } from "@/lib/scoring";
 import { useTenders, type TenderStatus } from "@/hooks/queries/useTenders";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useDceUploadedTenderIds } from "@/hooks/queries/useDceUploads";
 
 interface Tender {
   id: string;
@@ -76,6 +77,7 @@ const Tenders = () => {
   const [platformFilter, setPlatformFilter] = useState("");
   const [listingHostFilter, setListingHostFilter] = useState("");
   const [dceFilter, setDceFilter] = useState(false);
+  const [dceReadyFilter, setDceReadyFilter] = useState(false);
   const [smartFilter, setSmartFilter] = useState(true);
   const [profile, setProfile] = useState<any>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
@@ -149,15 +151,18 @@ const Tenders = () => {
 
   const loading = tendersQuery.isLoading || tendersQuery.isFetching;
   const totalCount = tendersQuery.data?.count ?? 0;
+  const dceReadyQuery = useDceUploadedTenderIds(user?.id);
+  const dceReadyMap = dceReadyQuery.data ?? new Map<string, { viaAgent: boolean }>();
   const tenders = useMemo(() => {
-    const items = tendersQuery.data?.items ?? [];
+    let items = tendersQuery.data?.items ?? [];
+    if (dceReadyFilter) items = items.filter((t) => dceReadyMap.has(t.id));
     if (smartFilter && profile && items.length > 0) {
       return [...items]
         .map((t) => ({ ...t, _score: computeScore(t, profile) }))
         .sort((a, b) => b._score - a._score);
     }
     return items;
-  }, [tendersQuery.data, smartFilter, profile]);
+  }, [tendersQuery.data, smartFilter, profile, dceReadyFilter, dceReadyMap]);
 
 
   const fetchSavedSearches = async () => {
@@ -174,6 +179,7 @@ const Tenders = () => {
     setProcedureFilter(f.procedureFilter ?? "");
     setPlatformFilter(f.platformFilter ?? "");
     setDceFilter(f.dceFilter ?? false);
+    setDceReadyFilter(f.dceReadyFilter ?? false);
     setShowFilters(true);
     setPage(0);
     toast({ title: `Recherche "${s.name}" appliquée` });
@@ -204,7 +210,7 @@ const Tenders = () => {
   const saveSearch = async () => {
     if (!user || !searchName.trim()) return;
     setSavingSearch(true);
-    const filters = { search, regionFilter, statusFilter, procedureFilter, platformFilter, dceFilter };
+    const filters = { search, regionFilter, statusFilter, procedureFilter, platformFilter, dceFilter, dceReadyFilter };
     await supabase.from("saved_searches").insert({ user_id: user.id, name: searchName.trim(), filters });
     toast({ title: "Recherche sauvegardée ✓" });
     setSearchName("");
@@ -351,6 +357,12 @@ const Tenders = () => {
                   <FileText className="h-4 w-4" /> DCE auto disponible
                 </Label>
               </div>
+              <div className="flex items-center gap-2">
+                <Switch id="dce-ready-filter" checked={dceReadyFilter} onCheckedChange={(v) => { setDceReadyFilter(v); setPage(0); }} />
+                <Label htmlFor="dce-ready-filter" className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" /> DCE déjà récupéré
+                </Label>
+              </div>
             </div>
             {listingHosts.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap">
@@ -373,7 +385,7 @@ const Tenders = () => {
               <Button variant="secondary" size="sm" onClick={saveSearch} disabled={savingSearch || !searchName.trim()}>
                 <Save className="h-4 w-4 mr-1" /> Sauvegarder
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setPlatformFilter(""); setListingHostFilter(""); setDceFilter(false); setSearch(""); setPage(0); }}>
+              <Button variant="ghost" size="sm" onClick={() => { setRegionFilter(""); setStatusFilter(""); setProcedureFilter(""); setPlatformFilter(""); setListingHostFilter(""); setDceFilter(false); setDceReadyFilter(false); setSearch(""); setPage(0); }}>
                 Réinitialiser
               </Button>
             </div>
@@ -424,6 +436,11 @@ const Tenders = () => {
                         {score !== null && (
                           <Badge variant="outline" className={getScoreColor(score)}>
                             {score}/100
+                          </Badge>
+                        )}
+                        {dceReadyMap.has(tender.id) && (
+                          <Badge variant="outline" className="border-green-500/40 text-green-600 dark:text-green-400 gap-1" title={dceReadyMap.get(tender.id)?.viaAgent ? "Récupéré par l'agent IA" : "Uploadé manuellement"}>
+                            <CheckCircle2 className="h-3 w-3" /> DCE récupéré
                           </Badge>
                         )}
                       </div>
