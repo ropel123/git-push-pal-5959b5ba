@@ -179,6 +179,7 @@ const Tenders = () => {
     setProcedureFilter(f.procedureFilter ?? "");
     setPlatformFilter(f.platformFilter ?? "");
     setDceFilter(f.dceFilter ?? false);
+    setDceReadyFilter(f.dceReadyFilter ?? false);
     setShowFilters(true);
     setPage(0);
     toast({ title: `Recherche "${s.name}" appliquée` });
