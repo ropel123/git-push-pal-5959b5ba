@@ -77,6 +77,7 @@ const Tenders = () => {
   const [platformFilter, setPlatformFilter] = useState("");
   const [listingHostFilter, setListingHostFilter] = useState("");
   const [dceFilter, setDceFilter] = useState(false);
+  const [dceReadyFilter, setDceReadyFilter] = useState(false);
   const [smartFilter, setSmartFilter] = useState(true);
   const [profile, setProfile] = useState<any>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
