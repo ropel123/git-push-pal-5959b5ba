@@ -56,7 +56,7 @@ export function useScrapeLogs(enabled: boolean) {
       const { data, error } = await supabase
         .from("scrape_logs")
         .select("*")
-        .like("source", "scrape:%")
+        .or("source.like.scrape:%,source.like.scrape-awards:%")
         .order("started_at", { ascending: false })
         .limit(50);
       if (error) throw error;
