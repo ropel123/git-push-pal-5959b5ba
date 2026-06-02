@@ -10,7 +10,7 @@ import ThemeToggle from "./ThemeToggle";
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Tableau de bord",
   "/tenders": "Appels d'offres",
-  "/pipeline": "Pipeline",
+  "/pipeline": "Marchés suivis",
   "/awards": "Attributions",
   "/settings": "Paramètres",
   "/activity": "Mon activité",
