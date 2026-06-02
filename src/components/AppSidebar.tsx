@@ -48,11 +48,8 @@ const AppSidebar = () => {
   return (
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/dashboard")}>
-          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">AO</span>
-          </div>
-          <span className="font-bold text-lg text-sidebar-foreground">AppelsOffres</span>
+        <div className="flex items-center cursor-pointer" onClick={() => navigate("/dashboard")}>
+          <HackaoLogo variant="full" size={26} />
         </div>
       </SidebarHeader>
 
