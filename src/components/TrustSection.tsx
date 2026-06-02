@@ -24,7 +24,7 @@ const TrustSection = () => {
           <span className="mb-3 inline-block rounded-full bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
             Ils nous font confiance
           </span>
-          <h2 className="text-3xl md:text-5xl font-bold text-white mb-12">
+          <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-12">
             Utilisé par les leaders du marché.
           </h2>
 
