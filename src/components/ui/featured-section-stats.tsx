@@ -93,7 +93,7 @@ export default function FeaturedSectionStats() {
             <motion.div
               key={index}
               variants={itemVariants}
-              className="group relative p-5 rounded-2xl bg-background/10 backdrop-blur-sm border border-white/10 hover:border-primary/30 transition-all duration-300"
+              className="group relative p-5 rounded-2xl bg-card border border-border hover:border-accent/30 transition-all duration-300"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl" />
               <p className="relative text-2xl md:text-3xl lg:text-4xl font-display font-bold text-gradient-orange mb-2">
