@@ -1,28 +1,19 @@
-## Problème
+## Objectif
+Remplacer l'animation WebGL shader sombre du hero par un fond crème clair avec un gradient de marque subtil (bleue → crème), et corriger le texte "HACKIFY" restant.
 
-`src/components/FAQSection.tsx` utilise des classes couleur en dur héritées du thème dark (`text-white`, `text-white/60`, `text-white/70`, `text-white/50`, `border-white/10`). Sur le fond crème HackAO, le texte devient quasi invisible (cf. capture).
+## Changements
 
-## Correctif
+### 1. `src/components/ui/animated-shader-hero.tsx`
+- Supprimer tout le code WebGL (WebGLRenderer, PointerHandler, useShaderBackground, defaultShaderSource)
+- Remplacer le canvas + overlays sombres (`bg-black/50`, `to-black`) par un fond CSS pur :
+  - `bg-background` (crème) comme base
+  - 3 blobs radiaux animés en CSS (bleu brand, crème brand, bleu brand) avec `blur` et opacité très faible (6–12%)
+  - Animations `float-slow` / `float-slower` en keyframes CSS (18–25s, ease-in-out, infinite)
+  - Garder le gradient bottom fade mais vers `to-background` pour fondre dans la section suivante
+- Conserver toute la structure du contenu (trustBadge, headline, subtitle, boutons, scroll indicator)
 
-Remplacer toutes les couleurs en dur par les tokens sémantiques HackAO :
+### 2. `src/components/HeroSection.tsx`
+- Remplacer `HACKIFY combine` par `HackAO combine` dans le subtitle
 
-| Avant | Après |
-|---|---|
-| `text-white` (titre questions + H2) | `text-foreground` |
-| `text-white/60` (sous-titre) | `text-muted-foreground` |
-| `text-white/70` (réponse) | `text-muted-foreground` |
-| `text-white/50` (footer FAQ) | `text-muted-foreground` |
-| `border-white/10` (séparateur items) | `border-border` |
-| `text-primary` (eyebrow + chevron + lien) | `text-accent` (plus cohérent : bleu vif HackAO réservé aux accents, `primary` = navy donc OK aussi, mais accent plus lisible pour eyebrow/lien) |
-| `hover:text-primary` sur question | `hover:text-accent` |
-
-Aucune autre modification (structure, animations, contenu inchangés).
-
-## Pendant qu'on y est
-
-Audit rapide `rg "text-white|bg-orange|border-white/"` sur `src/components/*.tsx` et `src/pages/*.tsx` pour repérer les autres composants landing qui souffrent du même bug (probablement `HeroSection`, `TrustSection`, `ProblemsSection`, `SolutionSection`, `ProcessSection`, `WhySection`, `TargetSection`, `PricingSection`, `CTASection`, `HoverFooter`, `Navbar`). Je liste les fichiers touchés et je corrige dans la foulée selon la même grille de mapping.
-
-## Hors scope
-
-- Pas de refonte de structure, pas de nouveaux composants.
-- Pas de changement de logique métier.
+## Résultat attendu
+Hero lumineux, sobre et élégant, cohérent avec la DA HackAO crème + navy. Plus de shader sombre qui rendait le texte illisible.

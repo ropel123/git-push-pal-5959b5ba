@@ -17,7 +17,7 @@ const HeroSection = () => {
         line1: "From sourcing to winning",
         line2: ""
       }}
-      subtitle="HACKIFY combine expertise humaine et intelligence artificielle pour vous accompagner sur toute la chaîne de valeur des appels d'offres. Du sourcing IA à la victoire."
+      subtitle="HackAO combine expertise humaine et intelligence artificielle pour vous accompagner sur toute la chaîne de valeur des appels d'offres. Du sourcing IA à la victoire."
       buttons={{
         primary: {
           text: "Commencer gratuitement",
