@@ -578,8 +578,32 @@ const Sourcing = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Sourcing</h1>
-          <p className="text-muted-foreground">URLs scrapées toutes les {urls[0]?.frequency_hours ?? 6}h pour alimenter les appels d'offres</p>
+          <p className="text-muted-foreground">
+            {kind === "tender"
+              ? "URLs d'appels d'offres scrapées périodiquement pour alimenter la base AO."
+              : "URLs d'avis d'attribution scrapées pour récupérer les marchés attribués."}
+          </p>
         </div>
+        <div className="inline-flex rounded-lg border border-border bg-card p-1 self-start">
+          <button
+            type="button"
+            onClick={() => setKind("tender")}
+            className={`px-3 py-1.5 text-sm rounded-md transition ${kind === "tender" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Appels d'offres ({urls.filter((u) => (((u as unknown) as { kind?: string }).kind ?? "tender") === "tender").length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setKind("award")}
+            className={`px-3 py-1.5 text-sm rounded-md transition ${kind === "award" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Avis d'attribution ({urls.filter((u) => ((u as unknown) as { kind?: string }).kind === "award").length})
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <div />
+
         <div className="flex flex-wrap gap-2 items-center justify-end">
           <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1">
             <Wand2 className="h-4 w-4 text-primary" />
