@@ -51,7 +51,8 @@ Deno.serve(async (req) => {
     if (due.length === 0) return json({ ok: true, ran: 0, total: urls.length });
 
     const results = await runWithLimit(due, CONCURRENCY, async (u) => {
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/scrape-list`, {
+      const fn = (u as { kind?: string }).kind === "award" ? "scrape-awards-list" : "scrape-list";
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/${fn}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ sourcing_url_id: u.id }),
       });
       const r = await resp.json().catch(() => ({}));
-      return { id: u.id, url: u.url, ...r };
+      return { id: u.id, url: u.url, kind: (u as { kind?: string }).kind ?? "tender", ...r };
     });
 
     return json({ ok: true, ran: due.length, total: urls.length, results });
