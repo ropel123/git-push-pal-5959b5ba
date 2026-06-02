@@ -135,6 +135,10 @@ const Tenders = () => {
     }
   }, [platformFilter]);
 
+  const dceReadyQuery = useDceUploadedTenderIds(user?.id);
+  const dceReadyMap = dceReadyQuery.data ?? new Map<string, { viaAgent: boolean }>();
+  const dceReadyIds = useMemo(() => Array.from(dceReadyMap.keys()), [dceReadyMap]);
+
   const tendersQuery = useTenders({
     page,
     pageSize: PAGE_SIZE,
@@ -145,24 +149,22 @@ const Tenders = () => {
     platform: platformFilter,
     listingHost: listingHostFilter,
     dceOnly: dceFilter,
+    idsIn: dceReadyFilter ? dceReadyIds : null,
     smart: smartFilter && profile ? { regions: profile.regions, keywords: profile.keywords } : null,
-    enabled: profileLoaded,
+    enabled: profileLoaded && (!dceReadyFilter || !dceReadyQuery.isLoading),
   });
 
   const loading = tendersQuery.isLoading || tendersQuery.isFetching;
   const totalCount = tendersQuery.data?.count ?? 0;
-  const dceReadyQuery = useDceUploadedTenderIds(user?.id);
-  const dceReadyMap = dceReadyQuery.data ?? new Map<string, { viaAgent: boolean }>();
   const tenders = useMemo(() => {
-    let items = tendersQuery.data?.items ?? [];
-    if (dceReadyFilter) items = items.filter((t) => dceReadyMap.has(t.id));
+    const items = tendersQuery.data?.items ?? [];
     if (smartFilter && profile && items.length > 0) {
       return [...items]
         .map((t) => ({ ...t, _score: computeScore(t, profile) }))
         .sort((a, b) => b._score - a._score);
     }
     return items;
-  }, [tendersQuery.data, smartFilter, profile, dceReadyFilter, dceReadyMap]);
+  }, [tendersQuery.data, smartFilter, profile]);
 
 
   const fetchSavedSearches = async () => {
