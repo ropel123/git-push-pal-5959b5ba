@@ -212,7 +212,7 @@ const SettingsPage = () => {
       </div>
 
       <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="profile" className="gap-2 text-xs sm:text-sm">
             <Building2 className="h-4 w-4 hidden sm:block" />
             Profil
@@ -224,10 +224,6 @@ const SettingsPage = () => {
           <TabsTrigger value="branding" className="gap-2 text-xs sm:text-sm">
             <Palette className="h-4 w-4 hidden sm:block" />
             Identité
-          </TabsTrigger>
-          <TabsTrigger value="alerts" className="gap-2 text-xs sm:text-sm">
-            <Bell className="h-4 w-4 hidden sm:block" />
-            Alertes
           </TabsTrigger>
         </TabsList>
 
