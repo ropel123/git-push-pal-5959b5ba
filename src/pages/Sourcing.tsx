@@ -175,6 +175,7 @@ const Sourcing = () => {
       platform,
       display_name: form.display_name || null,
       frequency_hours: form.frequency_hours,
+      kind,
     });
     if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
     else {
