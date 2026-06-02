@@ -1,69 +1,66 @@
-# Pages dédiées vides pour Marchés suivis, Alertes, DCE, Archivés
+# Sourcing scindé : AO + Avis d'attribution
 
-Les liens de la sidebar pointent actuellement vers `/tenders?view=…`, qui ignore le param et affiche les 19 059 AO. Il faut des pages distinctes avec un état vide propre.
+Diviser la zone Sourcing en deux sections indépendantes, chacune avec sa propre liste d'URLs et son propre agent de scraping. Les Avis d'attribution récupérés enrichissent la table `award_notices` existante et sont rattachés aux `tenders` quand un match est trouvé (sinon stockés tels quels).
 
-## Nouvelles routes (4 pages)
+## 1. Base de données
 
-- `/tracked` — **Marchés suivis** (Briefcase)
-- `/alerts` — **Alertes** (Bell)
-- `/dce` — **DCE** (FileArchive)
-- `/archived` — **Archivés** (FileArchive)
+Migration unique :
 
-## Composant partagé `EmptyState`
+- Ajouter `sourcing_urls.kind text NOT NULL DEFAULT 'tender'` avec contrainte `CHECK (kind IN ('tender','award'))`. Toutes les URLs existantes deviennent `tender`.
+- Ajouter les colonnes manquantes sur `award_notices` pour stocker un avis brut non encore rattaché :
+  - `buyer_name text`, `buyer_siret text`
+  - `title text`, `reference text`
+  - `source text`, `source_url text`, `sourcing_url_id uuid`
+  - `raw jsonb DEFAULT '{}'`
+  - Rendre `tender_id` nullable (déjà le cas).
+- Index `award_notices(sourcing_url_id)`, `award_notices(reference)`, `award_notices(buyer_siret)`.
+- GRANT/RLS : ajouter `INSERT/UPDATE` pour `service_role` (les edge functions écrivent), garder `SELECT` authenticated existant.
 
-`src/components/EmptyState.tsx` — carte centrée, DA HackAO :
-- icône ronde `bg-accent/10 text-accent`
-- titre `h1` navy
-- description `text-muted-foreground`
-- CTA optionnel (button accent)
+## 2. Edge functions
 
-## Contenu des 4 pages
+Refactor minimal, on duplique la chaîne existante au lieu de la complexifier :
 
-Toutes utilisent `EmptyState` (aucune donnée fetchée pour l'instant) :
+- `scrape-list` : ajouter un champ `kind` au log et passer le `kind` de la sourcing_url au playbook executor (info uniquement, pas de changement de logique de parsing pour `tender`).
+- Nouvelle fonction `scrape-awards-list` : même squelette que `scrape-list` mais sortie typée "avis d'attribution" → insère dans `award_notices` (matching `tender_id` par `reference` + `buyer_siret` si trouvé). Réutilise `playbookExecutor` / `atexoExecutor` avec un mode `AWARD`.
+- `sourcing-scheduler` : filtrer `sourcing_urls` par `kind` et router :
+  - `kind='tender'` → `scrape-list`
+  - `kind='award'` → `scrape-awards-list`
+- Ajouter dans `_shared/playbookExecutor.ts` un paramètre `kind` pour adapter les sélecteurs/heuristiques aux pages de type "avis" (numéro de marché, attributaire, montant, date d'attribution).
 
-| Page | Titre | Description | CTA |
-|---|---|---|---|
-| Marchés suivis | "Aucun marché suivi" | "Suivez un appel d'offres depuis la recherche pour le retrouver ici." | "Explorer les AO" → `/tenders` |
-| Alertes | "Aucune alerte active" | "Créez une alerte pour être notifié des nouveaux AO correspondant à vos critères." | "Créer une alerte" → `/settings` |
-| DCE | "Aucun DCE téléchargé" | "Les dossiers de consultation que vous récupérez apparaîtront ici." | "Voir les AO" → `/tenders` |
-| Archivés | "Aucun marché archivé" | "Les AO que vous archivez apparaîtront ici pour référence." | (pas de CTA) |
+## 3. UI Sourcing
 
-## Sidebar — mise à jour des liens
+`src/pages/Sourcing.tsx` réorganisé avec deux onglets en haut :
 
-`src/components/AppSidebar.tsx` :
-- Marchés suivis → `/tracked`
-- Alertes → `/alerts`
-- DCE → `/dce`
-- Archivés → `/archived`
+- **Onglet "Appels d'offres"** : liste filtrée `kind='tender'` + bouton "Ajouter une URL AO".
+- **Onglet "Avis d'attribution"** : liste filtrée `kind='award'` + bouton "Ajouter une URL Avis".
 
-## Routes
+Chaque onglet réutilise le même tableau (filtres, logs, test, edit, run) ; seule la valeur de `kind` change à la création/au filtrage. Le formulaire d'ajout reçoit `kind` en prop. Les compteurs et badges affichent le total par section.
 
-`src/App.tsx` — ajouter 4 routes dans le bloc `AppLayout` :
-```tsx
-<Route path="/tracked" element={<TrackedTenders />} />
-<Route path="/alerts" element={<AlertsPage />} />
-<Route path="/dce" element={<DcePage />} />
-<Route path="/archived" element={<ArchivedTenders />} />
+Le panneau "Logs" en bas affiche aussi le `kind` de chaque run.
+
+## 4. Hook & types
+
+- `useSourcingAdmin` : étendre `SourcingUrl` avec `kind`, accepter un filtre `kind` optionnel.
+- Helpers `useTenderSourcingUrls()` / `useAwardSourcingUrls()` pour l'UI.
+
+## Détails techniques
+
+```text
+sourcing_urls
+  kind tender|award (NEW)
+
+award_notices (extended)
+  + buyer_name, buyer_siret, title, reference,
+    source, source_url, sourcing_url_id, raw
+  tender_id nullable (matching post-insert)
+
+scheduler ──► kind=tender ──► scrape-list ──► tenders
+            └─ kind=award  ──► scrape-awards-list ──► award_notices
+                                                       └─ match by reference+siret → set tender_id
 ```
-
-## Fichiers
-
-**Créés** :
-- `src/components/EmptyState.tsx`
-- `src/pages/TrackedTenders.tsx`
-- `src/pages/AlertsPage.tsx`
-- `src/pages/DcePage.tsx`
-- `src/pages/ArchivedTenders.tsx`
-
-**Modifiés** :
-- `src/App.tsx` (4 imports + 4 routes)
-- `src/components/AppSidebar.tsx` (4 URLs)
-- `src/components/AppLayout.tsx` (ajout des titres de page pour les 4 nouvelles routes)
-
-Aucun changement de schéma, de hook, ou de logique métier. Pure structure de navigation + UI vide.
 
 ## Hors scope
 
-- Pas de Mémoires/Chiffrages/Mots-clés/Profils (déjà sur `?view=` — à traiter séparément si besoin).
-- Pas de logique de filtrage (la table `tenders` n'a pas de colonne `tracked`/`archived` ni de relation user — c'est un futur travail data).
-- Pas de branchement réel des alertes (le hook `useAlerts` existe, on l'utilisera dans une itération suivante).
+- Aucune modification du parser HTML/PRADO existant pour les AO (comportement strictement identique).
+- Pas d'UI publique côté utilisateur final (la page reste admin).
+- Pas de migration des URLs existantes vers `kind='award'` — c'est à l'admin de les créer.
