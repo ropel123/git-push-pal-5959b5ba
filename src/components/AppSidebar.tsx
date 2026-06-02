@@ -65,8 +65,7 @@ const NAV: Entry[] = [
     title: "Mes affaires",
     icon: Briefcase,
     children: [
-      { title: "Pipeline", to: "/pipeline", icon: Kanban },
-      { title: "Marchés suivis", to: "/tracked", icon: Briefcase },
+      { title: "Marchés suivis", to: "/pipeline", icon: Briefcase },
       { title: "Alertes", to: "/alerts", icon: Bell },
       { title: "DCE", to: "/dce", icon: FileArchive },
       { title: "Archivés", to: "/archived", icon: FileArchive },
