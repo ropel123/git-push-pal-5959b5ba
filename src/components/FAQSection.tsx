@@ -46,7 +46,7 @@ const FAQItemComponent = ({ item, isOpen, onToggle }: { item: FAQItem; isOpen: b
         onClick={onToggle}
         className="w-full py-6 flex items-center justify-between text-left group"
       >
-        <span className="text-lg font-medium text-white group-hover:text-primary transition-colors pr-4">
+        <span className="text-lg font-medium text-foreground group-hover:text-accent transition-colors pr-4">
           {item.question}
         </span>
         <motion.div
