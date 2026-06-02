@@ -154,9 +154,13 @@ const AppSidebar = () => {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center cursor-pointer" onClick={() => navigate("/dashboard")}>
-          <HackaoLogo variant="full" size={26} />
+      <SidebarHeader className="p-3 border-b border-sidebar-border">
+        <div
+          className="flex items-center justify-center cursor-pointer overflow-hidden"
+          onClick={() => (collapsed ? toggleSidebar() : navigate("/dashboard"))}
+          title={collapsed ? "Déplier" : "Accueil"}
+        >
+          <HackaoLogo variant={collapsed ? "symbol" : "full"} size={26} />
         </div>
       </SidebarHeader>
 
