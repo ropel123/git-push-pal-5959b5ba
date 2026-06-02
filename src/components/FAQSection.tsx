@@ -54,7 +54,7 @@ const FAQItemComponent = ({ item, isOpen, onToggle }: { item: FAQItem; isOpen: b
           transition={{ duration: 0.3 }}
           className="flex-shrink-0"
         >
-          <ChevronDown className="w-5 h-5 text-primary" />
+          <ChevronDown className="w-5 h-5 text-accent" />
         </motion.div>
       </button>
       <AnimatePresence>
