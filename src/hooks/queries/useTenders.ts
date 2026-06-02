@@ -20,6 +20,8 @@ export type TendersFilters = {
   platform?: string;
   listingHost?: string;
   dceOnly?: boolean;
+  /** Restrict results to this set of tender IDs (server-side `.in('id', ...)`). When provided as empty array, returns no rows. */
+  idsIn?: string[] | null;
   smart?: SmartProfile;
   /** Désactive temporairement la query (ex: profil pas encore chargé). */
   enabled?: boolean;
@@ -36,6 +38,7 @@ export function useTenders(filters: TendersFilters = {}) {
     platform = "",
     listingHost = "",
     dceOnly = false,
+    idsIn = null,
     smart = null,
     enabled = true,
   } = filters;
@@ -43,8 +46,13 @@ export function useTenders(filters: TendersFilters = {}) {
   return useQuery({
     enabled,
     placeholderData: keepPreviousData,
-    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, platform, listingHost, dceOnly, smart }],
+    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, platform, listingHost, dceOnly, idsIn, smart }],
     queryFn: async () => {
+      // Short-circuit: caller requested filtering by an empty ID set.
+      if (idsIn && idsIn.length === 0) {
+        return { items: [], count: 0 };
+      }
+
       const from = page * pageSize;
       const to = from + pageSize - 1;
 
@@ -53,6 +61,8 @@ export function useTenders(filters: TendersFilters = {}) {
         .select("*", { count: "exact" })
         .order("publication_date", { ascending: false })
         .range(from, to);
+
+      if (idsIn && idsIn.length > 0) query = query.in("id", idsIn);
 
       if (smart) {
         const regions = smart.regions ?? [];
