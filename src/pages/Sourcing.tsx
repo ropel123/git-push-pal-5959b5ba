@@ -334,9 +334,14 @@ const Sourcing = () => {
     await load();
   };
 
+  const fnForId = (id: string): "scrape-list" | "scrape-awards-list" => {
+    const u = urls.find((x) => x.id === id);
+    return (((u as unknown) as { kind?: string })?.kind === "award") ? "scrape-awards-list" : "scrape-list";
+  };
+
   const runNow = async (id: string) => {
     setRunning(id);
-    const { data, error } = await supabase.functions.invoke("scrape-list", {
+    const { data, error } = await supabase.functions.invoke(fnForId(id), {
       body: { sourcing_url_id: id },
     });
     setRunning(null);
@@ -348,7 +353,7 @@ const Sourcing = () => {
   const dryRun = async (id: string) => {
     setRunning(id);
     setTestResult(null);
-    const { data, error } = await supabase.functions.invoke("scrape-list", {
+    const { data, error } = await supabase.functions.invoke(fnForId(id), {
       body: { sourcing_url_id: id, dry_run: true },
     });
     setRunning(null);
