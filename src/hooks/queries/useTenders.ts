@@ -20,6 +20,8 @@ export type TendersFilters = {
   platform?: string;
   listingHost?: string;
   dceOnly?: boolean;
+  /** Restrict results to this set of tender IDs (server-side `.in('id', ...)`). When provided as empty array, returns no rows. */
+  idsIn?: string[] | null;
   smart?: SmartProfile;
   /** Désactive temporairement la query (ex: profil pas encore chargé). */
   enabled?: boolean;
