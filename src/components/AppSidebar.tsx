@@ -24,6 +24,7 @@ import {
   Globe,
 } from "lucide-react";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import HackaoLogo from "@/components/brand/HackaoLogo";
 
 const menuItems = [
   { title: "Tableau de bord", icon: LayoutDashboard, path: "/dashboard" },
