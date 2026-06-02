@@ -48,6 +48,7 @@ const Sourcing = () => {
   const [saving, setSaving] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [aiProvider, setAiProvider] = useState<"anthropic" | "openrouter">("anthropic");
+  const [kind, setKind] = useState<"tender" | "award">("tender");
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
