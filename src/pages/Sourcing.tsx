@@ -250,6 +250,7 @@ const Sourcing = () => {
         url,
         platform: detectPlatform(url),
         frequency_hours: 6,
+        kind,
       });
       if (error) {
         failed.push({ url, reason: error.message });
