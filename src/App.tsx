@@ -26,6 +26,8 @@ import DcePage from "./pages/DcePage";
 import ArchivedTenders from "./pages/ArchivedTenders";
 import MemoirsPage from "./pages/MemoirsPage";
 import PricingPage from "./pages/PricingPage";
+import GroupsPage from "./pages/GroupsPage";
+import UsersPage from "./pages/UsersPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,6 +69,8 @@ const App = () => (
                 <Route path="/archived" element={<ArchivedTenders />} />
                 <Route path="/memoirs" element={<MemoirsPage />} />
                 <Route path="/pricing" element={<PricingPage />} />
+                <Route path="/groups" element={<GroupsPage />} />
+                <Route path="/users" element={<UsersPage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
