@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
+export type SourcingKind = "tender" | "award";
+
 export type SourcingUrl = {
   id: string;
   url: string;
@@ -9,6 +11,7 @@ export type SourcingUrl = {
   frequency_hours: number;
   is_active: boolean;
   parser_type: string;
+  kind: SourcingKind;
   last_run_at: string | null;
   last_status: string | null;
   last_items_found: number | null;
