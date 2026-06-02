@@ -126,13 +126,13 @@ const FAQSection = () => {
           transition={{ duration: 0.6, delay: 0.4 }}
           className="text-center mt-12"
         >
-          <p className="text-white/50 text-sm">
+          <p className="text-muted-foreground text-sm">
             Vous avez d'autres questions ?{" "}
             <a
               href="https://calendly.com/hackifyao"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary hover:underline"
+              className="text-accent hover:underline"
             >
               Prenez rendez-vous
             </a>
