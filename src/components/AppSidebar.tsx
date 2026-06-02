@@ -38,6 +38,8 @@ import {
   Calculator,
   ChevronRight,
   ShieldCheck,
+  Users2,
+  UserCog,
 } from "lucide-react";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import HackaoLogo from "@/components/brand/HackaoLogo";
@@ -85,6 +87,8 @@ const NAV: Entry[] = [
 const ADMIN: Entry[] = [
   { title: "Agent IA", to: "/agent-monitor", icon: Bot },
   { title: "Sourcing", to: "/sourcing", icon: Globe },
+  { title: "Groupes", to: "/groups", icon: Users2 },
+  { title: "Utilisateurs", to: "/users", icon: UserCog },
   { title: "Paramètres", to: "/settings", icon: Settings },
 ];
 
