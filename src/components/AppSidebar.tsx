@@ -74,8 +74,8 @@ const NAV: Entry[] = [
     title: "Mes réponses",
     icon: FileText,
     children: [
-      { title: "Mémoires techniques", to: "/tenders?view=memoir", icon: BookOpen },
-      { title: "Chiffrages (DIE)", to: "/tenders?view=pricing", icon: Calculator },
+      { title: "Mémoires techniques", to: "/memoirs", icon: BookOpen },
+      { title: "Chiffrages (DIE)", to: "/pricing", icon: Calculator },
     ],
   },
   { title: "Attributions", to: "/awards", icon: Award },

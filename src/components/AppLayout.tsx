@@ -18,6 +18,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/alerts": "Alertes",
   "/dce": "DCE",
   "/archived": "Marchés archivés",
+  "/memoirs": "Mémoires techniques",
+  "/pricing": "Chiffrages (DIE)",
 };
 
 const AppLayout = () => {

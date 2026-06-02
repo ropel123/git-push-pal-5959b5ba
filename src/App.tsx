@@ -24,6 +24,8 @@ import TrackedTenders from "./pages/TrackedTenders";
 import AlertsPage from "./pages/AlertsPage";
 import DcePage from "./pages/DcePage";
 import ArchivedTenders from "./pages/ArchivedTenders";
+import MemoirsPage from "./pages/MemoirsPage";
+import PricingPage from "./pages/PricingPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -63,6 +65,8 @@ const App = () => (
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/dce" element={<DcePage />} />
                 <Route path="/archived" element={<ArchivedTenders />} />
+                <Route path="/memoirs" element={<MemoirsPage />} />
+                <Route path="/pricing" element={<PricingPage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
