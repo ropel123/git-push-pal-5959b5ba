@@ -97,6 +97,8 @@ const AppSidebar = () => {
   const location = useLocation();
   const { signOut } = useAuth();
   const { isAdmin } = useIsAdmin();
+  const { state, toggleSidebar } = useSidebar();
+  const collapsed = state === "collapsed";
 
   const currentUrl = location.pathname + location.search + location.hash;
   const isActive = (to: string) =>
