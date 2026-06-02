@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import hackifyLogo from '@/assets/hackify-logo.png';
+import HackaoLogo from '@/components/brand/HackaoLogo';
 
 const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -22,8 +22,8 @@ const Navbar = () => {
     }`}>
       <div className="section-container">
         <nav className="flex items-center justify-between h-20">
-          <a href="#" className="flex items-center">
-            <img src={hackifyLogo} alt="Hackify" className="h-56 w-auto" />
+          <a href="#" className="flex items-center" aria-label="HackAO">
+            <HackaoLogo variant="full" size={36} />
           </a>
 
           <div className="hidden md:flex items-center gap-4">
