@@ -1,77 +1,57 @@
-## Objectif
-Refondre `src/pages/Dashboard.tsx` pour reprendre la structure du dashboard DoubleTrade (référence utilisateur), mais avec la DA HackAO (crème + navy + accent bleu, tokens sémantiques, pas de couleurs HSL en dur).
+# Sidebar enrichie — style DoubleTrade, DA HackAO
 
-## Structure cible
+Refonte de `src/components/AppSidebar.tsx` pour passer d'une liste plate de 7 items à une navigation hiérarchique en groupes avec sous-menus collapsibles, en gardant 100% de notre identité visuelle (crème + navy + accent bleu, logo HackAO pinwheel).
 
+## Nouvelle structure de navigation
+
+```text
+Accueil                          → /dashboard         (LayoutDashboard)
+
+Recherche  ▾                     (Search)
+  Moteur de recherche            → /tenders
+  Mots-clés                      → /tenders?view=keywords
+  Profils de veille              → /tenders?view=profiles
+
+Mes affaires  ▾                  (Briefcase)
+  Pipeline                       → /pipeline           (Kanban)
+  Marchés suivis                 → /tenders?view=tracked
+  Alertes                        → /settings#alerts    (Bell)
+  DCE                            → /tenders?view=dce   (FileArchive)
+  Archivés                       → /tenders?view=archived
+
+Mes réponses  ▾                  (FileText)
+  Mémoires techniques            → /tenders?view=memoir       (BookOpen)
+  Chiffrages (DIE)               → /tenders?view=pricing      (Calculator)
+
+Attributions                     → /awards            (Award)
+Statistiques                     → /activity          (BarChart3)
+
+Admin  ▾  (visible si isAdmin)
+  Agent IA                       → /agent-monitor     (Bot)
+  Sourcing                       → /sourcing          (Globe)
+  Paramètres                     → /settings          (Settings)
 ```
-┌────────────────────────────────────────────────────────┐
-│ HERO — gradient brand subtil                           │
-│  Bonjour {prénom} !                                    │
-│  [ 🔍 Rechercher un appel d'offres…  ]  → /tenders     │
-└────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────┐  ┌───────────────┐
-│ Mes dernières alertes reçues   ↗   │  │ Mes favoris ↗│
-│ ┌──┬──┬──┬──┬──┬──┬──┐              │  │   donut +    │
-│ │  │  │  │  │  │  │  │ 7 mini-cards │  │   légende    │
-│ └──┴──┴──┴──┴──┴──┴──┘              │  │              │
-└─────────────────────────────────────┘  └───────────────┘
+Items inexistants côté routes (Mots-clés, Profils, Marchés suivis, Archivés, Mémoires, Chiffrages) pointent vers `/tenders?view=…` — le filtrage réel sera branché plus tard, mais la nav est en place dès maintenant. Aucune nouvelle page n'est créée.
 
-┌─────────────────────────────────────────────────────────┐
-│ Mes profils                              [filtre dates] │
-│ [card] [card] [card] [card] [card] [card]               │
-└─────────────────────────────────────────────────────────┘
+## Comportement
 
-┌──────────────────────┐  ┌──────────────────────────────┐
-│ Calendrier           │  │ L'actualité des marchés      │
-│ mini-calendar + jour │  │ publics — feed news (mock)   │
-└──────────────────────┘  └──────────────────────────────┘
-```
+- Groupes collapsibles via `Collapsible` shadcn imbriqué dans `SidebarMenuItem` + `SidebarMenuSub` / `SidebarMenuSubItem` / `SidebarMenuSubButton` (déjà exportés par `components/ui/sidebar.tsx`).
+- Le groupe contenant la route active est **ouvert par défaut** (`defaultOpen` calculé depuis `location.pathname` + `search`).
+- État actif : `isActive` sur le sous-item dont l'URL matche `pathname + search`.
+- En mode collapsed (`collapsible="icon"`), seule l'icône du groupe est visible ; clic = ouvre le popover natif shadcn de `SidebarMenuSub`.
 
-## Détails par bloc
+## Style (DA HackAO)
 
-### 1. Hero greeting
-- `Card` arrondie avec `bg-gradient-brand` opacité 8% sur fond `bg-card`, padding généreux
-- `h1` "Bonjour {user.email split @}" en `text-foreground`
-- Champ recherche (Input + icône Search) → `navigate('/tenders?q=...')`
+- Sidebar : `bg-sidebar` (crème déjà défini), border `border-sidebar-border`.
+- Item actif : fond `bg-sidebar-accent` + texte `text-sidebar-accent-foreground` + barre gauche `bg-accent` (2px).
+- Chevron `ChevronRight` qui tourne 90° quand ouvert (`data-[state=open]:rotate-90 transition-transform`).
+- Group labels en `text-xs uppercase tracking-wider text-sidebar-foreground/50`.
+- Sous-items : `pl-8`, `text-sm`, hover `bg-sidebar-accent/50`.
+- Aucune couleur hardcodée — tout via tokens sémantiques.
 
-### 2. Mes dernières alertes reçues
-- Source : `useAlerts(user?.id)` → 7 dernières
-- Grid `grid-cols-2 sm:grid-cols-3 lg:grid-cols-7`, mini-card par alerte
-- Contenu : timestamp `created_at` (format `dd/MM à HH:mm`), nom de l'alerte (`name`), badge `X non lus` (mock pour l'instant : count placeholder à 0)
-- Lien CTA `↗` en haut à droite → `/settings` (gestion alertes)
+## Fichier modifié
 
-### 3. Mes favoris
-- Donut Recharts depuis `usePipelineDistribution` (déjà en place)
-- Centré : total au milieu
-- Légende verticale à droite avec icône colorée + label + % (utiliser `STAGE_COLORS` mais en passant aux tokens : `hsl(var(--accent))`, `hsl(var(--accent-soft))`, semantic warning/destructive/success)
+- `src/components/AppSidebar.tsx` — réécriture complète (structure + groupes collapsibles).
 
-### 4. Mes profils
-- Source : `useSavedSearches` 
-- Grid `grid-cols-2 sm:grid-cols-3 lg:grid-cols-6`
-- Card avec icône cercle (alternance accent / accent-soft), nom recherche, sous-titre catégorie (filters.category ou "Tous")
-- Click → `/tenders` avec préfiltre
-
-### 5. Calendrier
-- Reprendre `useUrgentTenders` (deadlines à venir)
-- Côté gauche : composant `Calendar` (shadcn) du mois courant, points marqueurs sur jours avec deadline
-- Côté droit : liste des deadlines du jour sélectionné (titre + heure si dispo)
-
-### 6. Actualité des marchés publics
-- Bloc statique pour l'instant (3 articles mock : titre, extrait, date, image placeholder de l'asset existant si dispo)
-- Card scrollable
-
-## Tokens & styling
-- Tous les blocs en `Card` `bg-card border-border shadow-soft rounded-2xl`
-- Couleurs : `text-foreground`, `text-muted-foreground`, `text-accent` pour liens/icônes, `bg-accent/10` pour pastilles
-- Aucune couleur HSL en dur — refactor `STAGE_COLORS` pour utiliser les tokens via `hsl(var(--accent))`, `hsl(var(--accent-soft))`, `hsl(var(--primary))`, `hsl(var(--destructive))`, `hsl(142 71% 45%)` (success, à ajouter en token si besoin)
-- Layout : `max-w-7xl mx-auto space-y-6 p-6`
-
-## Fichiers touchés
-- `src/pages/Dashboard.tsx` — réécriture complète, mêmes hooks
-- Aucun changement de schéma / hooks / business logic
-
-## Hors scope
-- Pas de bannière illustrée chantier (remplacée par gradient brand)
-- Pas de nouveau backend / table (alertes "non lus" mock pour l'instant)
-- Pas de touche aux autres pages
+Aucun changement de routes, de logique métier, de hooks ou de schéma. Pure refonte de présentation.
