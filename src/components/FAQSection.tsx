@@ -66,7 +66,7 @@ const FAQItemComponent = ({ item, isOpen, onToggle }: { item: FAQItem; isOpen: b
             transition={{ duration: 0.3 }}
             className="overflow-hidden"
           >
-            <p className="pb-6 text-white/70 leading-relaxed">
+            <p className="pb-6 text-muted-foreground leading-relaxed">
               {item.answer}
             </p>
           </motion.div>
