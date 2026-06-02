@@ -93,13 +93,13 @@ const FAQSection = () => {
           transition={{ duration: 0.6 }}
           className="text-center mb-16"
         >
-          <span className="text-primary text-sm font-medium tracking-wider uppercase mb-4 block">
+          <span className="text-accent text-sm font-medium tracking-wider uppercase mb-4 block">
             FAQ
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
             Questions fréquentes
           </h2>
-          <p className="text-white/60 text-lg max-w-2xl mx-auto">
+          <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
             Tout ce que vous devez savoir sur nos services d'accompagnement aux appels d'offres.
           </p>
         </motion.div>
