@@ -119,9 +119,14 @@ const Sourcing = () => {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [urls]);
 
+  const urlsByKind = useMemo(
+    () => urls.filter((u) => (((u as unknown) as { kind?: string }).kind ?? "tender") === kind),
+    [urls, kind],
+  );
+
   const filteredUrls = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return urls.filter((u) => {
+    return urlsByKind.filter((u) => {
       if (q) {
         const hay = `${u.url} ${u.display_name ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -136,7 +141,7 @@ const Sourcing = () => {
       if (activeFilter === "inactive" && u.is_active) return false;
       return true;
     });
-  }, [urls, searchQuery, platformFilter, statusFilter, activeFilter]);
+  }, [urlsByKind, searchQuery, platformFilter, statusFilter, activeFilter]);
 
   const filtersActive = searchQuery !== "" || platformFilter !== "all" || statusFilter !== "all" || activeFilter !== "all";
 
