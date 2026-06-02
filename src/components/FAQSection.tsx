@@ -41,7 +41,7 @@ const faqs: FAQItem[] = [
 
 const FAQItemComponent = ({ item, isOpen, onToggle }: { item: FAQItem; isOpen: boolean; onToggle: () => void }) => {
   return (
-    <div className="border-b border-white/10">
+    <div className="border-b border-border">
       <button
         onClick={onToggle}
         className="w-full py-6 flex items-center justify-between text-left group"
