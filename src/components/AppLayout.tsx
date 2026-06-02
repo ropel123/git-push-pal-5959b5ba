@@ -14,6 +14,10 @@ const PAGE_TITLES: Record<string, string> = {
   "/awards": "Attributions",
   "/settings": "Paramètres",
   "/activity": "Mon activité",
+  "/tracked": "Marchés suivis",
+  "/alerts": "Alertes",
+  "/dce": "DCE",
+  "/archived": "Marchés archivés",
 };
 
 const AppLayout = () => {

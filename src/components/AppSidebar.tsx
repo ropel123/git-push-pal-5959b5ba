@@ -64,10 +64,10 @@ const NAV: Entry[] = [
     icon: Briefcase,
     children: [
       { title: "Pipeline", to: "/pipeline", icon: Kanban },
-      { title: "Marchés suivis", to: "/tenders?view=tracked", icon: Briefcase },
-      { title: "Alertes", to: "/settings#alerts", icon: Bell },
-      { title: "DCE", to: "/tenders?view=dce", icon: FileArchive },
-      { title: "Archivés", to: "/tenders?view=archived", icon: FileArchive },
+      { title: "Marchés suivis", to: "/tracked", icon: Briefcase },
+      { title: "Alertes", to: "/alerts", icon: Bell },
+      { title: "DCE", to: "/dce", icon: FileArchive },
+      { title: "Archivés", to: "/archived", icon: FileArchive },
     ],
   },
   {

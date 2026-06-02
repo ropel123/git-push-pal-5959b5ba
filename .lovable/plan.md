@@ -1,57 +1,69 @@
-# Sidebar enrichie — style DoubleTrade, DA HackAO
+# Pages dédiées vides pour Marchés suivis, Alertes, DCE, Archivés
 
-Refonte de `src/components/AppSidebar.tsx` pour passer d'une liste plate de 7 items à une navigation hiérarchique en groupes avec sous-menus collapsibles, en gardant 100% de notre identité visuelle (crème + navy + accent bleu, logo HackAO pinwheel).
+Les liens de la sidebar pointent actuellement vers `/tenders?view=…`, qui ignore le param et affiche les 19 059 AO. Il faut des pages distinctes avec un état vide propre.
 
-## Nouvelle structure de navigation
+## Nouvelles routes (4 pages)
 
-```text
-Accueil                          → /dashboard         (LayoutDashboard)
+- `/tracked` — **Marchés suivis** (Briefcase)
+- `/alerts` — **Alertes** (Bell)
+- `/dce` — **DCE** (FileArchive)
+- `/archived` — **Archivés** (FileArchive)
 
-Recherche  ▾                     (Search)
-  Moteur de recherche            → /tenders
-  Mots-clés                      → /tenders?view=keywords
-  Profils de veille              → /tenders?view=profiles
+## Composant partagé `EmptyState`
 
-Mes affaires  ▾                  (Briefcase)
-  Pipeline                       → /pipeline           (Kanban)
-  Marchés suivis                 → /tenders?view=tracked
-  Alertes                        → /settings#alerts    (Bell)
-  DCE                            → /tenders?view=dce   (FileArchive)
-  Archivés                       → /tenders?view=archived
+`src/components/EmptyState.tsx` — carte centrée, DA HackAO :
+- icône ronde `bg-accent/10 text-accent`
+- titre `h1` navy
+- description `text-muted-foreground`
+- CTA optionnel (button accent)
 
-Mes réponses  ▾                  (FileText)
-  Mémoires techniques            → /tenders?view=memoir       (BookOpen)
-  Chiffrages (DIE)               → /tenders?view=pricing      (Calculator)
+## Contenu des 4 pages
 
-Attributions                     → /awards            (Award)
-Statistiques                     → /activity          (BarChart3)
+Toutes utilisent `EmptyState` (aucune donnée fetchée pour l'instant) :
 
-Admin  ▾  (visible si isAdmin)
-  Agent IA                       → /agent-monitor     (Bot)
-  Sourcing                       → /sourcing          (Globe)
-  Paramètres                     → /settings          (Settings)
+| Page | Titre | Description | CTA |
+|---|---|---|---|
+| Marchés suivis | "Aucun marché suivi" | "Suivez un appel d'offres depuis la recherche pour le retrouver ici." | "Explorer les AO" → `/tenders` |
+| Alertes | "Aucune alerte active" | "Créez une alerte pour être notifié des nouveaux AO correspondant à vos critères." | "Créer une alerte" → `/settings` |
+| DCE | "Aucun DCE téléchargé" | "Les dossiers de consultation que vous récupérez apparaîtront ici." | "Voir les AO" → `/tenders` |
+| Archivés | "Aucun marché archivé" | "Les AO que vous archivez apparaîtront ici pour référence." | (pas de CTA) |
+
+## Sidebar — mise à jour des liens
+
+`src/components/AppSidebar.tsx` :
+- Marchés suivis → `/tracked`
+- Alertes → `/alerts`
+- DCE → `/dce`
+- Archivés → `/archived`
+
+## Routes
+
+`src/App.tsx` — ajouter 4 routes dans le bloc `AppLayout` :
+```tsx
+<Route path="/tracked" element={<TrackedTenders />} />
+<Route path="/alerts" element={<AlertsPage />} />
+<Route path="/dce" element={<DcePage />} />
+<Route path="/archived" element={<ArchivedTenders />} />
 ```
 
-Items inexistants côté routes (Mots-clés, Profils, Marchés suivis, Archivés, Mémoires, Chiffrages) pointent vers `/tenders?view=…` — le filtrage réel sera branché plus tard, mais la nav est en place dès maintenant. Aucune nouvelle page n'est créée.
+## Fichiers
 
-## Comportement
+**Créés** :
+- `src/components/EmptyState.tsx`
+- `src/pages/TrackedTenders.tsx`
+- `src/pages/AlertsPage.tsx`
+- `src/pages/DcePage.tsx`
+- `src/pages/ArchivedTenders.tsx`
 
-- Groupes collapsibles via `Collapsible` shadcn imbriqué dans `SidebarMenuItem` + `SidebarMenuSub` / `SidebarMenuSubItem` / `SidebarMenuSubButton` (déjà exportés par `components/ui/sidebar.tsx`).
-- Le groupe contenant la route active est **ouvert par défaut** (`defaultOpen` calculé depuis `location.pathname` + `search`).
-- État actif : `isActive` sur le sous-item dont l'URL matche `pathname + search`.
-- En mode collapsed (`collapsible="icon"`), seule l'icône du groupe est visible ; clic = ouvre le popover natif shadcn de `SidebarMenuSub`.
+**Modifiés** :
+- `src/App.tsx` (4 imports + 4 routes)
+- `src/components/AppSidebar.tsx` (4 URLs)
+- `src/components/AppLayout.tsx` (ajout des titres de page pour les 4 nouvelles routes)
 
-## Style (DA HackAO)
+Aucun changement de schéma, de hook, ou de logique métier. Pure structure de navigation + UI vide.
 
-- Sidebar : `bg-sidebar` (crème déjà défini), border `border-sidebar-border`.
-- Item actif : fond `bg-sidebar-accent` + texte `text-sidebar-accent-foreground` + barre gauche `bg-accent` (2px).
-- Chevron `ChevronRight` qui tourne 90° quand ouvert (`data-[state=open]:rotate-90 transition-transform`).
-- Group labels en `text-xs uppercase tracking-wider text-sidebar-foreground/50`.
-- Sous-items : `pl-8`, `text-sm`, hover `bg-sidebar-accent/50`.
-- Aucune couleur hardcodée — tout via tokens sémantiques.
+## Hors scope
 
-## Fichier modifié
-
-- `src/components/AppSidebar.tsx` — réécriture complète (structure + groupes collapsibles).
-
-Aucun changement de routes, de logique métier, de hooks ou de schéma. Pure refonte de présentation.
+- Pas de Mémoires/Chiffrages/Mots-clés/Profils (déjà sur `?view=` — à traiter séparément si besoin).
+- Pas de logique de filtrage (la table `tenders` n'a pas de colonne `tracked`/`archived` ni de relation user — c'est un futur travail data).
+- Pas de branchement réel des alertes (le hook `useAlerts` existe, on l'utilisera dans une itération suivante).

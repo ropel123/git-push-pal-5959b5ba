@@ -20,6 +20,10 @@ import BuyerDetail from "./pages/BuyerDetail";
 import Activity from "./pages/Activity";
 import AgentMonitor from "./pages/AgentMonitor";
 import Sourcing from "./pages/Sourcing";
+import TrackedTenders from "./pages/TrackedTenders";
+import AlertsPage from "./pages/AlertsPage";
+import DcePage from "./pages/DcePage";
+import ArchivedTenders from "./pages/ArchivedTenders";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,6 +59,10 @@ const App = () => (
                 <Route path="/activity" element={<Activity />} />
                 <Route path="/agent-monitor" element={<AgentMonitor />} />
                 <Route path="/sourcing" element={<Sourcing />} />
+                <Route path="/tracked" element={<TrackedTenders />} />
+                <Route path="/alerts" element={<AlertsPage />} />
+                <Route path="/dce" element={<DcePage />} />
+                <Route path="/archived" element={<ArchivedTenders />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
