@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import hackifyLogo from '@/assets/hackify-logo.png';
+import HackaoLogo from '@/components/brand/HackaoLogo';
 
 const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
