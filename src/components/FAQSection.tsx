@@ -41,12 +41,12 @@ const faqs: FAQItem[] = [
 
 const FAQItemComponent = ({ item, isOpen, onToggle }: { item: FAQItem; isOpen: boolean; onToggle: () => void }) => {
   return (
-    <div className="border-b border-white/10">
+    <div className="border-b border-border">
       <button
         onClick={onToggle}
         className="w-full py-6 flex items-center justify-between text-left group"
       >
-        <span className="text-lg font-medium text-white group-hover:text-primary transition-colors pr-4">
+        <span className="text-lg font-medium text-foreground group-hover:text-accent transition-colors pr-4">
           {item.question}
         </span>
         <motion.div
@@ -54,7 +54,7 @@ const FAQItemComponent = ({ item, isOpen, onToggle }: { item: FAQItem; isOpen: b
           transition={{ duration: 0.3 }}
           className="flex-shrink-0"
         >
-          <ChevronDown className="w-5 h-5 text-primary" />
+          <ChevronDown className="w-5 h-5 text-accent" />
         </motion.div>
       </button>
       <AnimatePresence>
@@ -66,7 +66,7 @@ const FAQItemComponent = ({ item, isOpen, onToggle }: { item: FAQItem; isOpen: b
             transition={{ duration: 0.3 }}
             className="overflow-hidden"
           >
-            <p className="pb-6 text-white/70 leading-relaxed">
+            <p className="pb-6 text-muted-foreground leading-relaxed">
               {item.answer}
             </p>
           </motion.div>
@@ -93,13 +93,13 @@ const FAQSection = () => {
           transition={{ duration: 0.6 }}
           className="text-center mb-16"
         >
-          <span className="text-primary text-sm font-medium tracking-wider uppercase mb-4 block">
+          <span className="text-accent text-sm font-medium tracking-wider uppercase mb-4 block">
             FAQ
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
             Questions fréquentes
           </h2>
-          <p className="text-white/60 text-lg max-w-2xl mx-auto">
+          <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
             Tout ce que vous devez savoir sur nos services d'accompagnement aux appels d'offres.
           </p>
         </motion.div>
@@ -126,13 +126,13 @@ const FAQSection = () => {
           transition={{ duration: 0.6, delay: 0.4 }}
           className="text-center mt-12"
         >
-          <p className="text-white/50 text-sm">
+          <p className="text-muted-foreground text-sm">
             Vous avez d'autres questions ?{" "}
             <a
               href="https://calendly.com/hackifyao"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary hover:underline"
+              className="text-accent hover:underline"
             >
               Prenez rendez-vous
             </a>
