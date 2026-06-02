@@ -233,36 +233,63 @@ export type Database = {
         Row: {
           award_date: string | null
           awarded_amount: number | null
+          buyer_name: string | null
+          buyer_siret: string | null
           contract_duration: string | null
           created_at: string | null
           id: string
           lots_awarded: Json | null
           num_candidates: number | null
+          raw: Json
+          reference: string | null
+          source: string | null
+          source_url: string | null
+          sourcing_url_id: string | null
           tender_id: string | null
+          title: string | null
+          updated_at: string
           winner_name: string | null
           winner_siren: string | null
         }
         Insert: {
           award_date?: string | null
           awarded_amount?: number | null
+          buyer_name?: string | null
+          buyer_siret?: string | null
           contract_duration?: string | null
           created_at?: string | null
           id?: string
           lots_awarded?: Json | null
           num_candidates?: number | null
+          raw?: Json
+          reference?: string | null
+          source?: string | null
+          source_url?: string | null
+          sourcing_url_id?: string | null
           tender_id?: string | null
+          title?: string | null
+          updated_at?: string
           winner_name?: string | null
           winner_siren?: string | null
         }
         Update: {
           award_date?: string | null
           awarded_amount?: number | null
+          buyer_name?: string | null
+          buyer_siret?: string | null
           contract_duration?: string | null
           created_at?: string | null
           id?: string
           lots_awarded?: Json | null
           num_candidates?: number | null
+          raw?: Json
+          reference?: string | null
+          source?: string | null
+          source_url?: string | null
+          sourcing_url_id?: string | null
           tender_id?: string | null
+          title?: string | null
+          updated_at?: string
           winner_name?: string | null
           winner_siren?: string | null
         }
@@ -839,6 +866,7 @@ export type Database = {
           frequency_hours: number
           id: string
           is_active: boolean
+          kind: string
           last_error: string | null
           last_items_found: number | null
           last_items_inserted: number | null
@@ -857,6 +885,7 @@ export type Database = {
           frequency_hours?: number
           id?: string
           is_active?: boolean
+          kind?: string
           last_error?: string | null
           last_items_found?: number | null
           last_items_inserted?: number | null
@@ -875,6 +904,7 @@ export type Database = {
           frequency_hours?: number
           id?: string
           is_active?: boolean
+          kind?: string
           last_error?: string | null
           last_items_found?: number | null
           last_items_inserted?: number | null

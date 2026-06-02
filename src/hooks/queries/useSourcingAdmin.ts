@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
+export type SourcingKind = "tender" | "award";
+
 export type SourcingUrl = {
   id: string;
   url: string;
@@ -9,6 +11,7 @@ export type SourcingUrl = {
   frequency_hours: number;
   is_active: boolean;
   parser_type: string;
+  kind: SourcingKind;
   last_run_at: string | null;
   last_status: string | null;
   last_items_found: number | null;
@@ -53,7 +56,7 @@ export function useScrapeLogs(enabled: boolean) {
       const { data, error } = await supabase
         .from("scrape_logs")
         .select("*")
-        .like("source", "scrape:%")
+        .or("source.like.scrape:%,source.like.scrape-awards:%")
         .order("started_at", { ascending: false })
         .limit(50);
       if (error) throw error;

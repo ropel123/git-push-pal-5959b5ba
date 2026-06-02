@@ -48,6 +48,7 @@ const Sourcing = () => {
   const [saving, setSaving] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [aiProvider, setAiProvider] = useState<"anthropic" | "openrouter">("anthropic");
+  const [kind, setKind] = useState<"tender" | "award">("tender");
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -118,9 +119,14 @@ const Sourcing = () => {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [urls]);
 
+  const urlsByKind = useMemo(
+    () => urls.filter((u) => (((u as unknown) as { kind?: string }).kind ?? "tender") === kind),
+    [urls, kind],
+  );
+
   const filteredUrls = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return urls.filter((u) => {
+    return urlsByKind.filter((u) => {
       if (q) {
         const hay = `${u.url} ${u.display_name ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -135,7 +141,7 @@ const Sourcing = () => {
       if (activeFilter === "inactive" && u.is_active) return false;
       return true;
     });
-  }, [urls, searchQuery, platformFilter, statusFilter, activeFilter]);
+  }, [urlsByKind, searchQuery, platformFilter, statusFilter, activeFilter]);
 
   const filtersActive = searchQuery !== "" || platformFilter !== "all" || statusFilter !== "all" || activeFilter !== "all";
 
@@ -169,6 +175,7 @@ const Sourcing = () => {
       platform,
       display_name: form.display_name || null,
       frequency_hours: form.frequency_hours,
+      kind,
     });
     if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
     else {
@@ -243,6 +250,7 @@ const Sourcing = () => {
         url,
         platform: detectPlatform(url),
         frequency_hours: 6,
+        kind,
       });
       if (error) {
         failed.push({ url, reason: error.message });
@@ -326,9 +334,14 @@ const Sourcing = () => {
     await load();
   };
 
+  const fnForId = (id: string): "scrape-list" | "scrape-awards-list" => {
+    const u = urls.find((x) => x.id === id);
+    return (((u as unknown) as { kind?: string })?.kind === "award") ? "scrape-awards-list" : "scrape-list";
+  };
+
   const runNow = async (id: string) => {
     setRunning(id);
-    const { data, error } = await supabase.functions.invoke("scrape-list", {
+    const { data, error } = await supabase.functions.invoke(fnForId(id), {
       body: { sourcing_url_id: id },
     });
     setRunning(null);
@@ -340,7 +353,7 @@ const Sourcing = () => {
   const dryRun = async (id: string) => {
     setRunning(id);
     setTestResult(null);
-    const { data, error } = await supabase.functions.invoke("scrape-list", {
+    const { data, error } = await supabase.functions.invoke(fnForId(id), {
       body: { sourcing_url_id: id, dry_run: true },
     });
     setRunning(null);
@@ -565,8 +578,32 @@ const Sourcing = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Sourcing</h1>
-          <p className="text-muted-foreground">URLs scrapées toutes les {urls[0]?.frequency_hours ?? 6}h pour alimenter les appels d'offres</p>
+          <p className="text-muted-foreground">
+            {kind === "tender"
+              ? "URLs d'appels d'offres scrapées périodiquement pour alimenter la base AO."
+              : "URLs d'avis d'attribution scrapées pour récupérer les marchés attribués."}
+          </p>
         </div>
+        <div className="inline-flex rounded-lg border border-border bg-card p-1 self-start">
+          <button
+            type="button"
+            onClick={() => setKind("tender")}
+            className={`px-3 py-1.5 text-sm rounded-md transition ${kind === "tender" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Appels d'offres ({urls.filter((u) => (((u as unknown) as { kind?: string }).kind ?? "tender") === "tender").length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setKind("award")}
+            className={`px-3 py-1.5 text-sm rounded-md transition ${kind === "award" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Avis d'attribution ({urls.filter((u) => ((u as unknown) as { kind?: string }).kind === "award").length})
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <div />
+
         <div className="flex flex-wrap gap-2 items-center justify-end">
           <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1">
             <Wand2 className="h-4 w-4 text-primary" />
