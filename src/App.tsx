@@ -52,6 +52,7 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/onboarding" element={<Onboarding />} />
+              <Route path="/pricing" element={<PricingPage />} />
               <Route element={<AppLayout />}>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/tenders" element={<Tenders />} />
@@ -68,7 +69,6 @@ const App = () => (
                 <Route path="/dce" element={<DcePage />} />
                 <Route path="/archived" element={<ArchivedTenders />} />
                 <Route path="/memoirs" element={<MemoirsPage />} />
-                <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/groups" element={<GroupsPage />} />
                 <Route path="/users" element={<UsersPage />} />
               </Route>

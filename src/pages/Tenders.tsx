@@ -34,6 +34,7 @@ import { useTenders, type TenderStatus } from "@/hooks/queries/useTenders";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useDceUploadedTenderIds } from "@/hooks/queries/useDceUploads";
 import PlatformStatusPanel from "@/components/PlatformStatusPanel";
+import { PROCEDURE_SYNONYMS } from "@/lib/pricing";
 
 interface SavedSearch {
   id: string;
@@ -109,13 +110,21 @@ const Tenders = () => {
   const dceReadyMap = dceReadyQuery.data ?? new Map<string, { viaAgent: boolean }>();
   const dceReadyIds = useMemo(() => Array.from(dceReadyMap.keys()), [dceReadyMap]);
 
+  const procedureList = useMemo(
+    () =>
+      procedureFilter && procedureFilter !== "all"
+        ? PROCEDURE_SYNONYMS[procedureFilter] ?? [procedureFilter]
+        : null,
+    [procedureFilter],
+  );
+
   const tendersQuery = useTenders({
     page,
     pageSize: PAGE_SIZE,
     search: debouncedSearch,
     region: regionFilter,
     status: (statusFilter || undefined) as TenderStatus | undefined,
-    procedure: procedureFilter,
+    procedures: procedureList,
     dceOnly: dceFilter,
     idsIn: dceReadyFilter ? dceReadyIds : null,
     smart: smartFilter && profile ? { regions: profile.regions, keywords: profile.keywords } : null,
@@ -286,6 +295,7 @@ const Tenders = () => {
                   <Select value={procedureFilter} onValueChange={(v) => { setProcedureFilter(v); setPage(0); }}>
                     <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="all">Toutes les procédures</SelectItem>
                       {PROCEDURES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                     </SelectContent>
                   </Select>
