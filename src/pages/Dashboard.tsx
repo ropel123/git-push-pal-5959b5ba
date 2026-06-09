@@ -3,26 +3,20 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import {
   Search,
   Bell,
   ArrowUpRight,
   Bookmark,
-  GraduationCap,
-  FileText,
-  Calendar as CalendarIcon,
+  Kanban,
   Newspaper,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { format, isSameDay, parseISO } from "date-fns";
-import { fr } from "date-fns/locale";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import {
   usePipelineDistribution,
-  useUrgentTenders,
+  useRecentPipeline,
 } from "@/hooks/queries/useDashboard";
-import { useSavedSearches } from "@/hooks/queries/useSavedSearches";
 import { useAlerts } from "@/hooks/queries/useAlerts";
 
 const STAGE_LABELS: Record<string, string> = {
@@ -34,13 +28,12 @@ const STAGE_LABELS: Record<string, string> = {
   lost: "Perdu",
 };
 
-// Couleurs liées aux tokens HackAO (HSL via CSS vars)
+const STAGE_ORDER = ["spotted", "analyzing", "responding", "won", "lost"];
+
 const STAGE_COLOR_VARS = [
   "hsl(var(--accent))",
   "hsl(var(--accent-soft))",
   "hsl(var(--primary))",
-  "hsl(var(--destructive))",
-  "hsl(224 60% 35%)",
   "hsl(142 55% 45%)",
   "hsl(var(--muted-foreground))",
 ];
@@ -53,15 +46,13 @@ const NEWS = [
     date: "27/10/2025",
   },
   {
-    title:
-      "Naviguer avec succès dans les marchés publics : les pièges à éviter",
+    title: "Naviguer avec succès dans les marchés publics : les pièges à éviter",
     excerpt:
       "Dans le paysage complexe des marchés publics français, décrocher un contrat peut être un véritable défi pour les entreprises les plus aguerries.",
     date: "26/10/2025",
   },
   {
-    title:
-      "L'impact de la crise sur les marchés publics français : analyse sectorielle",
+    title: "L'impact de la crise sur les marchés publics français : analyse sectorielle",
     excerpt:
       "En tant qu'expert en marchés publics, il est essentiel d'examiner les répercussions géopolitiques majeures sur les appels d'offres.",
     date: "20/10/2025",
@@ -72,11 +63,9 @@ const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchQ, setSearchQ] = useState("");
-  const [selectedDay, setSelectedDay] = useState<Date | undefined>(new Date());
 
   const { data: distributionRaw } = usePipelineDistribution(user?.id);
-  const { data: urgentTenders = [] } = useUrgentTenders();
-  const { data: savedSearches = [] } = useSavedSearches(user?.id, 6);
+  const { data: recentPipeline = [] } = useRecentPipeline(user?.id);
   const { data: alerts = [] } = useAlerts(user?.id);
 
   const firstName = useMemo(() => {
@@ -86,11 +75,12 @@ const Dashboard = () => {
   }, [user]);
 
   const pipelineDistribution = useMemo(() => {
-    const entries = Object.entries(distributionRaw ?? {}).map(([k, v]) => ({
+    const raw = distributionRaw ?? {};
+    return STAGE_ORDER.map((k) => ({
+      key: k,
       name: STAGE_LABELS[k] ?? k,
-      value: v as number,
+      value: (raw[k] as number) ?? 0,
     }));
-    return entries;
   }, [distributionRaw]);
 
   const totalFav = pipelineDistribution.reduce((s, d) => s + d.value, 0);
@@ -101,18 +91,6 @@ const Dashboard = () => {
   };
 
   const recentAlerts = alerts.slice(0, 7);
-
-  const deadlineDays = useMemo(
-    () => urgentTenders.filter((t) => t.deadline).map((t) => parseISO(t.deadline!)),
-    [urgentTenders],
-  );
-
-  const eventsOfSelectedDay = useMemo(() => {
-    if (!selectedDay) return [];
-    return urgentTenders.filter(
-      (t) => t.deadline && isSameDay(parseISO(t.deadline), selectedDay),
-    );
-  }, [urgentTenders, selectedDay]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto p-4 md:p-6">
@@ -125,10 +103,14 @@ const Dashboard = () => {
           className="absolute inset-0 opacity-[0.10] pointer-events-none"
           style={{ background: "var(--gradient-brand)" }}
         />
-        <div className="absolute -top-20 -right-16 w-72 h-72 rounded-full opacity-20 blur-3xl"
-          style={{ background: "hsl(var(--accent))" }} />
-        <div className="absolute -bottom-24 -left-20 w-72 h-72 rounded-full opacity-15 blur-3xl"
-          style={{ background: "hsl(var(--accent-soft))" }} />
+        <div
+          className="absolute -top-20 -right-16 w-72 h-72 rounded-full opacity-20 blur-3xl"
+          style={{ background: "hsl(var(--accent))" }}
+        />
+        <div
+          className="absolute -bottom-24 -left-20 w-72 h-72 rounded-full opacity-15 blur-3xl"
+          style={{ background: "hsl(var(--accent-soft))" }}
+        />
 
         <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
@@ -140,10 +122,7 @@ const Dashboard = () => {
             </p>
           </div>
 
-          <form
-            onSubmit={submitSearch}
-            className="w-full md:w-[420px] relative"
-          >
+          <form onSubmit={submitSearch} className="w-full md:w-[420px] relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               value={searchQ}
@@ -171,7 +150,7 @@ const Dashboard = () => {
               <h2 className="text-base font-semibold text-foreground">Mes dernières alertes reçues</h2>
             </div>
             <button
-              onClick={() => navigate("/settings")}
+              onClick={() => navigate("/alerts")}
               className="text-muted-foreground hover:text-accent transition-colors"
               aria-label="Voir toutes les alertes"
             >
@@ -221,7 +200,7 @@ const Dashboard = () => {
             </button>
           </div>
 
-          {pipelineDistribution.length === 0 ? (
+          {totalFav === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
               Ajoutez des AO à votre pipeline.
             </p>
@@ -231,7 +210,7 @@ const Dashboard = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={pipelineDistribution}
+                      data={pipelineDistribution.filter((d) => d.value > 0)}
                       dataKey="value"
                       nameKey="name"
                       cx="50%"
@@ -254,129 +233,86 @@ const Dashboard = () => {
               </div>
 
               <ul className="flex-1 space-y-1.5 text-sm">
-                {pipelineDistribution.map((d, i) => {
-                  const pct = totalFav ? Math.round((d.value / totalFav) * 100) : 0;
-                  return (
-                    <li key={d.name} className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full shrink-0"
-                        style={{ background: STAGE_COLOR_VARS[i % STAGE_COLOR_VARS.length] }}
-                      />
-                      <span className="text-foreground truncate flex-1">{d.name}</span>
-                      <span className="text-muted-foreground tabular-nums">
-                        {d.value} · {pct}%
-                      </span>
-                    </li>
-                  );
-                })}
+                {pipelineDistribution
+                  .filter((d) => d.value > 0)
+                  .map((d, i) => {
+                    const pct = totalFav ? Math.round((d.value / totalFav) * 100) : 0;
+                    return (
+                      <li key={d.name} className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ background: STAGE_COLOR_VARS[i % STAGE_COLOR_VARS.length] }}
+                        />
+                        <span className="text-foreground truncate flex-1">{d.name}</span>
+                        <span className="text-muted-foreground tabular-nums">
+                          {d.value} · {pct}%
+                        </span>
+                      </li>
+                    );
+                  })}
               </ul>
             </div>
           )}
         </Card>
       </div>
 
-      {/* Mes profils */}
-      <Card className="rounded-2xl border-border p-6" style={{ boxShadow: "var(--shadow-soft)" }}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <GraduationCap className="h-4 w-4 text-accent" />
-            <h2 className="text-base font-semibold text-foreground">Mes profils</h2>
-          </div>
-          <button
-            onClick={() => navigate("/tenders")}
-            className="text-muted-foreground hover:text-accent transition-colors"
-            aria-label="Toutes les recherches"
-          >
-            <ArrowUpRight className="h-4 w-4" />
-          </button>
-        </div>
-
-        {savedSearches.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-8">
-            Sauvegardez une recherche pour la retrouver ici.
-          </p>
-        ) : (
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-            {savedSearches.map((s, i) => {
-              const isAccent = i % 2 === 0;
-              const category = (s.filters?.category as string | undefined) ?? "Tous secteurs";
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => navigate("/tenders")}
-                  className="group rounded-xl border border-border bg-background hover:bg-muted transition-colors p-4 flex flex-col items-center text-center"
-                >
-                  <div
-                    className="h-10 w-10 rounded-full flex items-center justify-center mb-2"
-                    style={{
-                      background: isAccent ? "hsl(var(--accent) / 0.12)" : "hsl(var(--accent-soft) / 0.35)",
-                    }}
-                  >
-                    <FileText
-                      className="h-5 w-5"
-                      style={{ color: isAccent ? "hsl(var(--accent))" : "hsl(var(--primary))" }}
-                    />
-                  </div>
-                  <div className="text-sm font-medium text-foreground line-clamp-1">{s.name}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{category}</div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-
-      {/* Calendrier + Actualité */}
+      {/* Pipe condensé + Actualité */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="rounded-2xl border-border p-6" style={{ boxShadow: "var(--shadow-soft)" }}>
-          <div className="flex items-center gap-2 mb-4">
-            <CalendarIcon className="h-4 w-4 text-accent" />
-            <h2 className="text-base font-semibold text-foreground">Calendrier</h2>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
-            <Calendar
-              mode="single"
-              selected={selectedDay}
-              onSelect={setSelectedDay}
-              locale={fr}
-              modifiers={{ hasEvent: deadlineDays }}
-              modifiersClassNames={{
-                hasEvent: "relative after:content-[''] after:absolute after:bottom-1 after:left-1/2 after:-translate-x-1/2 after:w-1 after:h-1 after:rounded-full after:bg-accent",
-              }}
-              className="rounded-xl border border-border bg-background"
-            />
-
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground mb-2">
-                {selectedDay
-                  ? format(selectedDay, "EEEE d MMMM yyyy", { locale: fr })
-                  : "—"}{" "}
-                <span className="text-muted-foreground">
-                  ({eventsOfSelectedDay.length} évènement{eventsOfSelectedDay.length > 1 ? "s" : ""})
-                </span>
-              </div>
-
-              {eventsOfSelectedDay.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Aucune deadline ce jour.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {eventsOfSelectedDay.map((t) => (
-                    <li
-                      key={t.id}
-                      onClick={() => navigate(`/tenders/${t.id}`)}
-                      className="rounded-lg border border-border bg-background hover:bg-muted transition-colors p-3 cursor-pointer"
-                    >
-                      <div className="text-sm font-medium text-foreground line-clamp-2">{t.title}</div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        Réception : {format(parseISO(t.deadline!), "dd/MM/yyyy HH:mm", { locale: fr })}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Kanban className="h-4 w-4 text-accent" />
+              <h2 className="text-base font-semibold text-foreground">Mon pipeline</h2>
             </div>
+            <button
+              onClick={() => navigate("/pipeline")}
+              className="text-muted-foreground hover:text-accent transition-colors"
+              aria-label="Voir le pipeline complet"
+            >
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
           </div>
+
+          {totalFav === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Aucun AO dans votre pipeline. Ajoutez-en depuis la recherche.
+            </p>
+          ) : (
+            <div className="grid grid-cols-5 gap-2">
+              {pipelineDistribution.map((s, i) => {
+                const items = recentPipeline.filter((p: any) => (p.stage ?? "spotted") === s.key);
+                return (
+                  <div
+                    key={s.key}
+                    className="rounded-lg border border-border bg-background/50 p-2 flex flex-col gap-2 min-h-[160px]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className="text-[10px] uppercase tracking-wider font-semibold truncate"
+                        style={{ color: STAGE_COLOR_VARS[i % STAGE_COLOR_VARS.length] }}
+                      >
+                        {s.name}
+                      </span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">{s.value}</span>
+                    </div>
+                    <div className="space-y-1.5 flex-1">
+                      {items.slice(0, 2).map((item: any) => (
+                        <button
+                          key={item.id}
+                          onClick={() => navigate(`/tenders/${item.tender_id}`)}
+                          className="w-full text-left rounded-md bg-card border border-border p-1.5 hover:border-accent/50 transition-colors"
+                        >
+                          <p className="text-[11px] font-medium text-foreground line-clamp-2 leading-tight">
+                            {item.tenders?.title ?? "AO"}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
 
         <Card className="rounded-2xl border-border p-6" style={{ boxShadow: "var(--shadow-soft)" }}>
