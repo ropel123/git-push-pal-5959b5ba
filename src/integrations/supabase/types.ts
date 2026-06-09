@@ -303,6 +303,30 @@ export type Database = {
           },
         ]
       }
+      buyer_follows: {
+        Row: {
+          buyer_name: string
+          buyer_siret: string | null
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          buyer_name: string
+          buyer_siret?: string | null
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          buyer_name?: string
+          buyer_siret?: string | null
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       dce_downloads: {
         Row: {
           created_at: string | null

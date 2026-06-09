@@ -10,10 +10,9 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase, FileDown, Send } from "lucide-react";
 import DceUploadSection from "@/components/DceUploadSection";
-import DceAutoFetchButton from "@/components/DceAutoFetchButton";
 import DceAgentFetchButton from "@/components/DceAgentFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
-import PricingChat from "@/components/PricingChat";
+import BuyerFollowButton from "@/components/BuyerFollowButton";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
 
@@ -274,43 +273,6 @@ const TenderDetail = () => {
         </div>
       </div>
 
-      {/* Origine du scraping */}
-      {(() => {
-        const t: any = tender;
-        const rawUrl = t.enriched_data?.raw?._source_url as string | undefined;
-        const host = rawUrl ? (() => { try { return new URL(rawUrl).host; } catch { return null; } })() : null;
-        const rows: { label: string; value: string | null }[] = [
-          { label: "Source", value: t.source ?? null },
-          { label: "URL listing", value: rawUrl ?? null },
-          { label: "URL avis", value: t.source_url ?? null },
-          { label: "URL DCE", value: t.dce_url ?? null },
-        ].filter((r) => r.value);
-        if (rows.length === 0) return null;
-        return (
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-                <ExternalLink className="h-4 w-4" /> Origine du scraping
-                {host && <Badge variant="outline" className="ml-2 text-[10px]">{host}</Badge>}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {rows.map((r) => (
-                <div key={r.label} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 text-xs">
-                  <span className="font-medium text-muted-foreground shrink-0 w-24">{r.label}</span>
-                  {/^https?:\/\//i.test(r.value!) ? (
-                    <a href={r.value!} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all inline-flex items-center gap-1">
-                      {r.value}<ExternalLink className="h-3 w-3 shrink-0" />
-                    </a>
-                  ) : (
-                    <span className="break-all text-foreground">{r.value}</span>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        );
-      })()}
 
       {/* Description */}
       {tender.description ? (
@@ -351,12 +313,13 @@ const TenderDetail = () => {
               </div>
             )}
             {tender.buyer_name && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 <button className="text-primary hover:underline" onClick={() => navigate(`/buyers/${encodeURIComponent(tender.buyer_name!)}`)}>
                   {tender.buyer_name}
                 </button>
                 {tender.buyer_siret && <span className="text-muted-foreground text-xs">({tender.buyer_siret})</span>}
+                <BuyerFollowButton buyerName={tender.buyer_name} buyerSiret={tender.buyer_siret} />
               </div>
             )}
             {tender.buyer_address && (
@@ -520,61 +483,55 @@ const TenderDetail = () => {
         </Card>
       )}
 
-      {/* Auto-fetch DCE (Firecrawl simple) */}
-      {user && id && tender.dce_url && (
-        <DceAutoFetchButton
-          tenderId={id}
-          dceUrl={tender.dce_url}
-          onSuccess={fetchDceAndAnalyses}
-        />
-      )}
-
-      {/* Agent IA navigateur (Browserbase + 2Captcha) */}
-      {user && id && tender.dce_url && (
-        <DceAgentFetchButton
-          tenderId={id}
-          dceUrl={tender.dce_url}
-          onSuccess={fetchDceAndAnalyses}
-        />
-      )}
-
-      {/* DCE Upload */}
+      {/* Documents & Analyse IA — bloc unifié */}
       {user && id && (
-        <DceUploadSection
-          tenderId={id}
-          uploads={dceUploads}
-          onUploadsChange={fetchDceAndAnalyses}
-        />
-      )}
-
-      {/* AI Analysis */}
-      {user && id && (
-        <TenderAnalysisSection
-          tenderId={id}
-          hasDocuments={dceUploads.length > 0}
-          analyses={analyses}
-          onAnalysesChange={fetchDceAndAnalyses}
-        />
-      )}
-
-      {/* Hint: add to pipeline to unlock pricing */}
-      {user && id && !pipelineItem && (
-        <Card className="bg-muted/50 border-dashed border-border">
-          <CardContent className="py-4 text-center text-sm text-muted-foreground">
-            💡 Ajoutez cet appel d'offres à votre pipeline pour accéder à l'assistant de chiffrage IA
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Documents de consultation & analyse IA</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Importez le DCE (ou laissez l'agent IA le récupérer), puis lancez l'analyse pour obtenir une synthèse,
+              un scoring de pertinence et des recommandations de réponse.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {tender.dce_url && (
+              <DceAgentFetchButton
+                tenderId={id}
+                dceUrl={tender.dce_url}
+                onSuccess={fetchDceAndAnalyses}
+              />
+            )}
+            <DceUploadSection
+              tenderId={id}
+              uploads={dceUploads}
+              onUploadsChange={fetchDceAndAnalyses}
+            />
+            <TenderAnalysisSection
+              tenderId={id}
+              hasDocuments={dceUploads.length > 0}
+              analyses={analyses}
+              onAnalysesChange={fetchDceAndAnalyses}
+            />
           </CardContent>
         </Card>
       )}
 
-      {/* Pricing Chat - visible when in pipeline */}
-      {user && id && pipelineItem && (
-        <PricingChat
-          tenderId={id}
-          pipelineItemId={pipelineItem.id}
-          existingPricing={pipelineItem.pricing_strategy as any}
-          onPricingSaved={fetchPipelineItem}
-        />
-      )}
+      {/* CTA chef de projet */}
+      <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/30">
+        <CardContent className="py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <p className="font-medium text-foreground">Besoin d'aide pour répondre à cet appel d'offres ?</p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Prenez rendez-vous avec un chef de projet AO — analyse, rédaction et dépôt clé en main.
+            </p>
+          </div>
+          <Button asChild className="shrink-0">
+            <a href="mailto:contact@hackao.fr?subject=Accompagnement%20AO" target="_blank" rel="noopener noreferrer">
+              Prendre rendez-vous
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Award notices */}
       {awards.length > 0 && (
