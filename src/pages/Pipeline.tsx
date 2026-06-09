@@ -11,7 +11,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Trash2, Euro, MessageSquare, Send, Download, AlertTriangle, GripVertical } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
@@ -315,5 +314,3 @@ const Pipeline = () => {
 
 export default Pipeline;
 
-// Hidden trigger reference to satisfy unused import in older usage
-void DialogTrigger;
