@@ -53,17 +53,9 @@ const isGroup = (e: Entry): e is Group => "children" in e;
 
 const NAV: Entry[] = [
   { title: "Accueil", to: "/dashboard", icon: LayoutDashboard },
+  { title: "Recherche", to: "/tenders", icon: Search },
   {
-    title: "Recherche",
-    icon: Search,
-    children: [
-      { title: "Moteur de recherche", to: "/tenders", icon: Search },
-      { title: "Mots-clés", to: "/tenders?view=keywords", icon: Search },
-      { title: "Profils de veille", to: "/tenders?view=profiles", icon: Search },
-    ],
-  },
-  {
-    title: "Mes affaires",
+    title: "Mes appels d'offres",
     icon: Briefcase,
     children: [
       { title: "Marchés suivis", to: "/pipeline", icon: Briefcase },
@@ -72,14 +64,7 @@ const NAV: Entry[] = [
       { title: "Archivés", to: "/archived", icon: FileArchive },
     ],
   },
-  {
-    title: "Mes réponses",
-    icon: FileText,
-    children: [
-      { title: "Mémoires techniques", to: "/memoirs", icon: BookOpen },
-      { title: "Chiffrages (DIE)", to: "/pricing", icon: Calculator },
-    ],
-  },
+  { title: "Mémoires techniques", to: "/memoirs", icon: BookOpen },
   { title: "Attributions", to: "/awards", icon: Award },
   { title: "Statistiques", to: "/activity", icon: BarChart3 },
 ];
