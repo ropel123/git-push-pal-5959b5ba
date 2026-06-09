@@ -64,9 +64,15 @@ export function useTenders(filters: TendersFilters = {}) {
 
       if (idsIn && idsIn.length > 0) query = query.in("id", idsIn);
 
+      // PostgREST `.or()` parses commas/parentheses as separators and doesn't accept
+      // quotes around ilike values. Sanitize each user-provided term so terms like
+      // "informatique, cloud" or "agence (75)" don't silently break the request.
+      const sanitize = (s: string) =>
+        s.trim().replace(/[,()*"']/g, " ").replace(/\s+/g, " ").trim();
+
       if (smart) {
-        const regions = smart.regions ?? [];
-        const keywords = smart.keywords ?? [];
+        const regions = (smart.regions ?? []).filter(Boolean);
+        const keywords = (smart.keywords ?? []).map(sanitize).filter(Boolean);
         if (regions.length > 0) query = query.in("region", regions);
         if (keywords.length > 0) {
           const orClauses = keywords.flatMap((kw) => [
@@ -79,7 +85,7 @@ export function useTenders(filters: TendersFilters = {}) {
 
       if (dceOnly) query = query.not("dce_url", "is", null).neq("dce_url", "");
 
-      const term = search.trim();
+      const term = sanitize(search);
       if (term) {
         query = query.or(
           `title.ilike.%${term}%,buyer_name.ilike.%${term}%,object.ilike.%${term}%`,

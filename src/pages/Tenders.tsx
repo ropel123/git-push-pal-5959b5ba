@@ -148,14 +148,15 @@ const Tenders = () => {
     setProcedureFilter(f.procedureFilter ?? DEFAULT_PROCEDURE);
     setDceFilter(f.dceFilter ?? false);
     setDceReadyFilter(f.dceReadyFilter ?? false);
+    if (typeof f.smartFilter === "boolean") setSmartFilter(f.smartFilter);
     setPage(0);
-    toast({ title: `Recherche "${s.name}" appliquée` });
+    toast({ title: `Profil de veille "${s.name}" appliqué` });
   };
 
   const deleteSavedSearch = async (id: string) => {
     await supabase.from("saved_searches").delete().eq("id", id);
     setSavedSearches((prev) => prev.filter((s) => s.id !== id));
-    toast({ title: "Recherche supprimée" });
+    toast({ title: "Profil de veille supprimé" });
   };
 
   const addToPipeline = async (tenderId: string) => {
@@ -177,12 +178,18 @@ const Tenders = () => {
   const saveSearch = async () => {
     if (!user || !searchName.trim()) return;
     setSavingSearch(true);
-    const filters = { search, regionFilter, statusFilter, procedureFilter, dceFilter, dceReadyFilter };
-    await supabase.from("saved_searches").insert({ user_id: user.id, name: searchName.trim(), filters });
-    toast({ title: "Recherche sauvegardée ✓" });
-    setSearchName("");
+    const filters = { search, regionFilter, statusFilter, procedureFilter, dceFilter, dceReadyFilter, smartFilter };
+    const { error } = await supabase
+      .from("saved_searches")
+      .insert({ user_id: user.id, name: searchName.trim(), filters });
+    if (error) {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Profil de veille sauvegardé ✓" });
+      setSearchName("");
+      fetchSavedSearches();
+    }
     setSavingSearch(false);
-    fetchSavedSearches();
   };
 
   const exportCSV = () => {
