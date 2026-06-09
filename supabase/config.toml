@@ -32,3 +32,6 @@ verify_jwt = true
 
 [functions.stripe-webhook]
 verify_jwt = false
+
+[functions.fetch-boamp]
+verify_jwt = false
