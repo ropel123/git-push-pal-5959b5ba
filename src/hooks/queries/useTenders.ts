@@ -17,6 +17,8 @@ export type TendersFilters = {
   region?: string;
   status?: TenderStatus;
   procedure?: string;
+  /** Optional explicit list of procedure_type values (synonyms expansion). Takes precedence over `procedure`. */
+  procedures?: string[] | null;
   platform?: string;
   listingHost?: string;
   dceOnly?: boolean;
@@ -35,6 +37,7 @@ export function useTenders(filters: TendersFilters = {}) {
     region = "",
     status = "",
     procedure = "",
+    procedures = null,
     platform = "",
     listingHost = "",
     dceOnly = false,
@@ -46,7 +49,7 @@ export function useTenders(filters: TendersFilters = {}) {
   return useQuery({
     enabled,
     placeholderData: keepPreviousData,
-    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, platform, listingHost, dceOnly, idsIn, smart }],
+    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, procedures, platform, listingHost, dceOnly, idsIn, smart }],
     queryFn: async () => {
       // Short-circuit: caller requested filtering by an empty ID set.
       if (idsIn && idsIn.length === 0) {
