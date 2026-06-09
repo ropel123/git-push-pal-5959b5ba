@@ -98,7 +98,11 @@ export function useTenders(filters: TendersFilters = {}) {
       if (status && status !== ("all" as TenderStatus)) {
         query = query.eq("status", status as TenderStatus);
       }
-      if (procedure && procedure !== "all") query = query.eq("procedure_type", procedure);
+      if (procedures && procedures.length > 0) {
+        query = query.in("procedure_type", procedures);
+      } else if (procedure && procedure !== "all") {
+        query = query.eq("procedure_type", procedure);
+      }
       if (platform && platform !== "all") query = query.eq("source", platform);
       if (listingHost && listingHost !== "all") {
         query = query.ilike("enriched_data->raw->>_source_url", `%${listingHost}%`);
