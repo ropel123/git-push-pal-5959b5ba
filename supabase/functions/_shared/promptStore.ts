@@ -13,6 +13,57 @@ export type PromptConfig = {
   temperature: number | null;
 };
 
+export type ResolvedProvider = {
+  url: string;
+  key: string;
+  model: string;
+  name: string;
+  extraHeaders: Record<string, string>;
+};
+
+/** Construit un provider d'API chat-completions à partir de son nom logique. */
+export function buildProvider(name: string, model: string): ResolvedProvider | null {
+  if (name === "openrouter") {
+    const key = Deno.env.get("OPENROUTER_API_KEY");
+    if (!key) return null;
+    return {
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      key,
+      model,
+      name: "openrouter",
+      extraHeaders: { "HTTP-Referer": "https://lovable.dev", "X-Title": "Hackao AI" },
+    };
+  }
+  if (name === "lovable") {
+    const key = Deno.env.get("LOVABLE_API_KEY");
+    if (!key) return null;
+    return {
+      url: "https://ai.gateway.lovable.dev/v1/chat/completions",
+      key,
+      model,
+      name: "lovable",
+      extraHeaders: {},
+    };
+  }
+  return null;
+}
+
+/**
+ * Chaîne de providers à tenter dans l'ordre (principal puis secours),
+ * limitée à ceux dont la clé API est configurée.
+ */
+export function resolveProviderChain(config: PromptConfig): ResolvedProvider[] {
+  const specs = [
+    { name: config.provider, model: config.model },
+    ...(config.fallbackProvider && config.fallbackModel
+      ? [{ name: config.fallbackProvider, model: config.fallbackModel }]
+      : []),
+  ];
+  return specs
+    .map((s) => buildProvider(s.name, s.model))
+    .filter((p): p is ResolvedProvider => p !== null);
+}
+
 export async function loadPromptConfig(
   key: string,
   defaults: PromptConfig

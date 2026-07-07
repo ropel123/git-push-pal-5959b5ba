@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { safeFetch, assertPublicUrl } from "../_shared/urlGuard.ts";
 import { extractDocumentText } from "../_shared/documentText.ts";
-import { loadPromptConfig, type PromptConfig } from "../_shared/promptStore.ts";
+import { loadPromptConfig, resolveProviderChain, type PromptConfig, type ResolvedProvider } from "../_shared/promptStore.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -285,42 +285,7 @@ async function fetchWebsiteContent(url: string): Promise<string> {
   return stripHtmlToText(html);
 }
 
-interface AIProvider {
-  url: string;
-  key: string;
-  model: string;
-  name: string;
-  extraHeaders: Record<string, string>;
-}
-
-/** Construit un provider à partir de son nom logique (openrouter | lovable). */
-function buildProvider(name: string, model: string): AIProvider | null {
-  if (name === "openrouter") {
-    const key = Deno.env.get("OPENROUTER_API_KEY");
-    if (!key) return null;
-    return {
-      url: "https://openrouter.ai/api/v1/chat/completions",
-      key,
-      model,
-      name: "openrouter",
-      extraHeaders: { "HTTP-Referer": "https://lovable.dev", "X-Title": "Memoir AI Agent" },
-    };
-  }
-  if (name === "lovable") {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return null;
-    return {
-      url: "https://ai.gateway.lovable.dev/v1/chat/completions",
-      key,
-      model,
-      name: "lovable",
-      extraHeaders: {},
-    };
-  }
-  return null;
-}
-
-async function callAI(provider: AIProvider, body: Record<string, unknown>): Promise<Response> {
+async function callAI(provider: ResolvedProvider, body: Record<string, unknown>): Promise<Response> {
   console.log(`[memoir] Calling provider=${provider.name} model=${provider.model}`);
   const resp = await fetch(provider.url, {
     method: "POST",
@@ -480,15 +445,7 @@ serve(async (req) => {
 
     // Providers ordonnés : principal puis fallback, en ne gardant que ceux
     // dont la clé API est configurée. Toute erreur bascule sur le suivant.
-    const providerSpecs = [
-      { name: promptConfig.provider, model: promptConfig.model },
-      ...(promptConfig.fallbackProvider && promptConfig.fallbackModel
-        ? [{ name: promptConfig.fallbackProvider, model: promptConfig.fallbackModel }]
-        : []),
-    ];
-    const providers = providerSpecs
-      .map((s) => buildProvider(s.name, s.model))
-      .filter((p): p is AIProvider => p !== null);
+    const providers = resolveProviderChain(promptConfig);
 
     if (providers.length === 0) {
       return jsonResponse({ error: "Aucune clé API configurée" }, 500);

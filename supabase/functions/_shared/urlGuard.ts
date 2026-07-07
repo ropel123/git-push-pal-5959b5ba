@@ -83,20 +83,25 @@ export async function assertPublicUrl(raw: string): Promise<URL> {
   }
 
   // Résolution DNS pour bloquer les domaines pointant vers le réseau interne.
-  // Si la résolution n'est pas permise par le runtime, on garde les gardes
-  // hostname/IP littérale ci-dessus.
-  try {
-    const [a, aaaa] = await Promise.all([
-      Deno.resolveDns(hostname, "A").catch(() => [] as string[]),
-      Deno.resolveDns(hostname, "AAAA").catch(() => [] as string[]),
-    ]);
-    const ips = [...a, ...aaaa];
-    if (ips.some(isPrivateIp)) {
-      throw new Error("Le domaine résout vers une adresse privée");
+  // Si la résolution n'est pas disponible dans le runtime (tests, permissions),
+  // on garde les gardes hostname/IP littérale ci-dessus.
+  const deno = (globalThis as {
+    Deno?: { resolveDns?: (host: string, type: "A" | "AAAA") => Promise<string[]> };
+  }).Deno;
+  if (deno?.resolveDns) {
+    try {
+      const [a, aaaa] = await Promise.all([
+        deno.resolveDns(hostname, "A").catch(() => [] as string[]),
+        deno.resolveDns(hostname, "AAAA").catch(() => [] as string[]),
+      ]);
+      const ips = [...a, ...aaaa];
+      if (ips.some(isPrivateIp)) {
+        throw new Error("Le domaine résout vers une adresse privée");
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("adresse privée")) throw e;
+      console.warn("[urlGuard] resolveDns indisponible, garde DNS ignorée:", e);
     }
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("adresse privée")) throw e;
-    console.warn("[urlGuard] resolveDns indisponible, garde DNS ignorée:", e);
   }
 
   return url;
