@@ -60,6 +60,19 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Administration des prompts IA
+
+Les assistants IA (mémoire technique d'onboarding, analyses d'AO, stratégie de prix, génération de documents) sont pilotés depuis la page **Admin → Prompts IA** (`/admin/prompts`, rôle `admin` requis) :
+
+- édition du system prompt de chaque fonction,
+- choix du provider et du modèle (principal + secours),
+- température optionnelle, activation/désactivation,
+- historique des versions avec restauration.
+
+Les configurations sont stockées dans les tables `ai_prompts` / `ai_prompt_versions` et lues à chaud par les edge functions via `supabase/functions/_shared/promptStore.ts`. Si une clé est absente ou inactive, la fonction retombe sur ses valeurs par défaut codées en dur : rien ne casse.
+
+Les conversations de l'assistant mémoire technique sont persistées dans `memoir_conversations` (reprise automatique après refresh), et les appels IA sont limités par utilisateur via `ai_request_log`.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
