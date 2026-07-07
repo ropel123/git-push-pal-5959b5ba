@@ -131,6 +131,134 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_prompt_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          fallback_model: string | null
+          fallback_provider: string | null
+          id: string
+          model: string
+          note: string | null
+          prompt_id: string
+          provider: string
+          system_prompt: string
+          temperature: number | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          model: string
+          note?: string | null
+          prompt_id: string
+          provider: string
+          system_prompt: string
+          temperature?: number | null
+          version: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          model?: string
+          note?: string | null
+          prompt_id?: string
+          provider?: string
+          system_prompt?: string
+          temperature?: number | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_prompt_versions_prompt_id_fkey"
+            columns: ["prompt_id"]
+            isOneToOne: false
+            referencedRelation: "ai_prompts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_prompts: {
+        Row: {
+          created_at: string
+          description: string | null
+          fallback_model: string | null
+          fallback_provider: string | null
+          id: string
+          is_active: boolean
+          key: string
+          label: string
+          model: string
+          provider: string
+          system_prompt: string
+          temperature: number | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          is_active?: boolean
+          key: string
+          label: string
+          model: string
+          provider?: string
+          system_prompt: string
+          temperature?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          is_active?: boolean
+          key?: string
+          label?: string
+          model?: string
+          provider?: string
+          system_prompt?: string
+          temperature?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Relationships: []
+      }
+      ai_request_log: {
+        Row: {
+          created_at: string
+          fn: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fn: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fn?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       alerts: {
         Row: {
           created_at: string | null
@@ -418,6 +546,39 @@ export type Database = {
           source_key?: string
           sourcing_url_id?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      memoir_conversations: {
+        Row: {
+          created_at: string
+          id: string
+          memoir_draft: Json | null
+          messages: Json
+          mode: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          memoir_draft?: Json | null
+          messages?: Json
+          mode?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          memoir_draft?: Json | null
+          messages?: Json
+          mode?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
