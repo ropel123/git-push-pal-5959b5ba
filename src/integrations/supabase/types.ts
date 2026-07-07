@@ -131,6 +131,134 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_prompt_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          fallback_model: string | null
+          fallback_provider: string | null
+          id: string
+          model: string
+          note: string | null
+          prompt_id: string
+          provider: string
+          system_prompt: string
+          temperature: number | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          model: string
+          note?: string | null
+          prompt_id: string
+          provider: string
+          system_prompt: string
+          temperature?: number | null
+          version: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          model?: string
+          note?: string | null
+          prompt_id?: string
+          provider?: string
+          system_prompt?: string
+          temperature?: number | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_prompt_versions_prompt_id_fkey"
+            columns: ["prompt_id"]
+            isOneToOne: false
+            referencedRelation: "ai_prompts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_prompts: {
+        Row: {
+          created_at: string
+          description: string | null
+          fallback_model: string | null
+          fallback_provider: string | null
+          id: string
+          is_active: boolean
+          key: string
+          label: string
+          model: string
+          provider: string
+          system_prompt: string
+          temperature: number | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          is_active?: boolean
+          key: string
+          label: string
+          model: string
+          provider?: string
+          system_prompt: string
+          temperature?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          is_active?: boolean
+          key?: string
+          label?: string
+          model?: string
+          provider?: string
+          system_prompt?: string
+          temperature?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Relationships: []
+      }
+      ai_request_log: {
+        Row: {
+          created_at: string
+          fn: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fn: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fn?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       alerts: {
         Row: {
           created_at: string | null
@@ -262,6 +390,13 @@ export type Database = {
           winner_siren?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "award_notices_sourcing_url_id_fkey"
+            columns: ["sourcing_url_id"]
+            isOneToOne: false
+            referencedRelation: "sourcing_urls"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "award_notices_tender_id_fkey"
             columns: ["tender_id"]
@@ -418,6 +553,39 @@ export type Database = {
           source_key?: string
           sourcing_url_id?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      memoir_conversations: {
+        Row: {
+          created_at: string
+          id: string
+          memoir_draft: Json | null
+          messages: Json
+          mode: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          memoir_draft?: Json | null
+          messages?: Json
+          mode?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          memoir_draft?: Json | null
+          messages?: Json
+          mode?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -665,6 +833,148 @@ export type Database = {
           id?: string
           name?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      scrape_logs: {
+        Row: {
+          error: string | null
+          finished_at: string | null
+          id: string
+          items_found: number | null
+          items_inserted: number | null
+          items_skipped: number | null
+          items_updated: number | null
+          metadata: Json
+          source: string
+          sourcing_url_id: string | null
+          started_at: string
+          status: string | null
+        }
+        Insert: {
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          items_found?: number | null
+          items_inserted?: number | null
+          items_skipped?: number | null
+          items_updated?: number | null
+          metadata?: Json
+          source: string
+          sourcing_url_id?: string | null
+          started_at?: string
+          status?: string | null
+        }
+        Update: {
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          items_found?: number | null
+          items_inserted?: number | null
+          items_skipped?: number | null
+          items_updated?: number | null
+          metadata?: Json
+          source?: string
+          sourcing_url_id?: string | null
+          started_at?: string
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scrape_logs_sourcing_url_id_fkey"
+            columns: ["sourcing_url_id"]
+            isOneToOne: false
+            referencedRelation: "sourcing_urls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sourcing_seen_urls: {
+        Row: {
+          first_seen_at: string
+          last_seen_at: string
+          sourcing_url_id: string
+          url_hash: string
+        }
+        Insert: {
+          first_seen_at?: string
+          last_seen_at?: string
+          sourcing_url_id: string
+          url_hash: string
+        }
+        Update: {
+          first_seen_at?: string
+          last_seen_at?: string
+          sourcing_url_id?: string
+          url_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sourcing_seen_urls_sourcing_url_id_fkey"
+            columns: ["sourcing_url_id"]
+            isOneToOne: false
+            referencedRelation: "sourcing_urls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sourcing_urls: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          frequency_hours: number
+          id: string
+          is_active: boolean
+          kind: string
+          last_error: string | null
+          last_items_found: number | null
+          last_items_inserted: number | null
+          last_run_at: string | null
+          last_status: string | null
+          metadata: Json
+          parser_type: string
+          platform: string
+          selectors: Json
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          frequency_hours?: number
+          id?: string
+          is_active?: boolean
+          kind?: string
+          last_error?: string | null
+          last_items_found?: number | null
+          last_items_inserted?: number | null
+          last_run_at?: string | null
+          last_status?: string | null
+          metadata?: Json
+          parser_type?: string
+          platform?: string
+          selectors?: Json
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          frequency_hours?: number
+          id?: string
+          is_active?: boolean
+          kind?: string
+          last_error?: string | null
+          last_items_found?: number | null
+          last_items_inserted?: number | null
+          last_run_at?: string | null
+          last_status?: string | null
+          metadata?: Json
+          parser_type?: string
+          platform?: string
+          selectors?: Json
+          updated_at?: string
+          url?: string
         }
         Relationships: []
       }
