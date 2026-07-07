@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { safeFetch, assertPublicUrl } from "../_shared/urlGuard.ts";
+import { extractDocumentText } from "../_shared/documentText.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -382,7 +383,41 @@ serve(async (req) => {
     }
     await supabase.from("ai_request_log").insert({ user_id: user.id, fn: FN_NAME });
 
-    const { messages: rawMessages, analyze_website_url } = await req.json();
+    const { messages: rawMessages, analyze_website_url, extract_document_path } = await req.json();
+
+    // Extraction du texte d'une pièce jointe uploadée par l'utilisateur.
+    if (extract_document_path) {
+      if (typeof extract_document_path !== "string") {
+        return jsonResponse({ error: "Chemin invalide" }, 400);
+      }
+      // Le fichier doit appartenir à l'utilisateur (préfixe user_id/).
+      if (!extract_document_path.startsWith(`${user.id}/`)) {
+        return jsonResponse({ error: "Accès refusé à ce fichier" }, 403);
+      }
+      try {
+        const { data: blob, error: dlError } = await supabase.storage
+          .from("company-assets")
+          .download(extract_document_path);
+        if (dlError || !blob) {
+          return jsonResponse({ error: "Fichier introuvable" }, 404);
+        }
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const fileName = extract_document_path.split("/").pop() ?? "document";
+        const text = await extractDocumentText(fileName, bytes);
+        if (!text) {
+          return jsonResponse({ document_content: "", note: "Format non pris en charge ou document vide." });
+        }
+        return jsonResponse({
+          document_content: wrapExternalContent(`document ${fileName}`, text),
+        });
+      } catch (e) {
+        console.error("[memoir] extraction failed:", e);
+        return jsonResponse(
+          { error: `Impossible de lire le document : ${e instanceof Error ? e.message : "erreur"}` },
+          400
+        );
+      }
+    }
 
     // Analyse de site web demandée par le client (suite à un tool call de l'IA)
     if (analyze_website_url) {

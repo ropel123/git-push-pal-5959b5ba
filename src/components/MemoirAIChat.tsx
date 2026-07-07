@@ -162,6 +162,32 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const extractAttachments = async (attachments: Attachment[]): Promise<ChatMessage[]> => {
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const results: ChatMessage[] = [];
+    for (const att of attachments) {
+      if (!att.path) continue;
+      try {
+        const resp = await fetch(CHAT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ messages: [], extract_document_path: att.path }),
+        });
+        const data = await resp.json();
+        if (data.document_content) {
+          results.push({
+            role: "user",
+            content: `[Document joint « ${att.name} » — contenu extrait]\n\n${data.document_content}`,
+            hidden: true,
+          });
+        }
+      } catch (e) {
+        console.error("[memoir] extraction attachment failed:", att.name, e);
+      }
+    }
+    return results;
+  };
+
   const toApiMessages = (history: ChatMessage[]) =>
     history.map((m) => {
       if (m.attachments?.length) {
@@ -289,11 +315,16 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     if ((!input.trim() && pendingFiles.length === 0) || isLoading) return;
 
     let attachments: Attachment[] = [];
+    let contextMsgs: ChatMessage[] = [];
     if (pendingFiles.length > 0) {
       setUploading(true);
       attachments = await uploadFiles(pendingFiles);
-      setUploading(false);
       setPendingFiles([]);
+      // Extraction du contenu des pièces jointes → messages de contexte cachés,
+      // pour que l'IA lise réellement les documents et pas seulement leur nom.
+      const extractable = attachments.filter((a) => a.path);
+      if (extractable.length > 0) contextMsgs = await extractAttachments(extractable);
+      setUploading(false);
     }
 
     const userMsg: ChatMessage = {
@@ -301,7 +332,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
       content: input.trim() || (attachments.length > 0 ? "Voici mes documents." : ""),
       attachments: attachments.length > 0 ? attachments : undefined,
     };
-    const newMessages = [...messages, userMsg];
+    const newMessages = [...messages, userMsg, ...contextMsgs];
     setMessages(newMessages);
     setInput("");
     if (conversationId) persistConversation(conversationId, { messages: newMessages });
