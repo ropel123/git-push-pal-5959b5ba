@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { computeScore, getScoreColor } from "@/lib/scoring";
+import { effectiveTenderStatus, tenderStatusLabel, tenderStatusColor } from "@/lib/tenderStatus";
 import { useTenders, type TenderStatus } from "@/hooks/queries/useTenders";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useDceUploadedTenderIds } from "@/hooks/queries/useDceUploads";
@@ -223,16 +224,10 @@ const Tenders = () => {
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
-  const getStatusColor = (status: string | null) => {
-    switch (status) {
-      case "open": return "bg-green-500/20 text-green-400 border-green-500/30";
-      case "closed": return "bg-red-500/20 text-red-400 border-red-500/30";
-      case "awarded": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
+  const getStatusColor = (status: string | null) =>
+    (status && tenderStatusColor[status]) || "bg-muted text-muted-foreground";
 
-  const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
+  const statusLabel = tenderStatusLabel;
 
   const resetFilters = () => {
     setRegionFilter("");
@@ -417,11 +412,14 @@ const Tenders = () => {
                                 </h3>
                               );
                             })()}
-                            {tender.status && (
-                              <Badge variant="outline" className={getStatusColor(tender.status)}>
-                                {statusLabel[tender.status] ?? tender.status}
-                              </Badge>
-                            )}
+                            {tender.status && (() => {
+                              const displayStatus = effectiveTenderStatus(tender.status, tender.deadline);
+                              return (
+                                <Badge variant="outline" className={getStatusColor(displayStatus)}>
+                                  {(displayStatus && statusLabel[displayStatus]) ?? displayStatus}
+                                </Badge>
+                              );
+                            })()}
                             {score !== null && (
                               <Badge variant="outline" className={getScoreColor(score)}>
                                 {score}/100

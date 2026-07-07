@@ -7,14 +7,10 @@ import { ArrowLeft, Building2, Euro, Calendar, MapPin } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useBuyerData } from "@/hooks/queries/useBuyer";
+import { effectiveTenderStatus, tenderStatusLabel, tenderStatusColor } from "@/lib/tenderStatus";
 
-const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
-const statusColor: Record<string, string> = {
-  open: "bg-green-500/20 text-green-400 border-green-500/30",
-  closed: "bg-red-500/20 text-red-400 border-red-500/30",
-  awarded: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  cancelled: "bg-muted text-muted-foreground",
-};
+const statusLabel = tenderStatusLabel;
+const statusColor = tenderStatusColor;
 
 const BuyerDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -114,11 +110,14 @@ const BuyerDetail = () => {
                   {t.publication_date && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{format(new Date(t.publication_date), "dd MMM yyyy", { locale: fr })}</span>}
                 </div>
               </div>
-              {t.status && (
-                <Badge variant="outline" className={statusColor[t.status] ?? ""}>
-                  {statusLabel[t.status] ?? t.status}
-                </Badge>
-              )}
+              {t.status && (() => {
+                const displayStatus = effectiveTenderStatus(t.status, (t as { deadline?: string | null }).deadline)!;
+                return (
+                  <Badge variant="outline" className={statusColor[displayStatus] ?? ""}>
+                    {statusLabel[displayStatus] ?? displayStatus}
+                  </Badge>
+                );
+              })()}
             </div>
           ))}
         </CardContent>

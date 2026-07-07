@@ -14,7 +14,8 @@ export function useDashboardStats(userId: string | undefined) {
         supabase.from("tenders").select("id", { count: "exact", head: true }),
         supabase.from("pipeline_items").select("id", { count: "exact", head: true }).eq("user_id", userId!),
         supabase.from("pipeline_items").select("id", { count: "exact", head: true }).eq("user_id", userId!).eq("stage", "won"),
-        supabase.from("tenders").select("id", { count: "exact", head: true }).eq("status", "open"),
+        supabase.from("tenders").select("id", { count: "exact", head: true }).eq("status", "open")
+          .or(`deadline.is.null,deadline.gte.${new Date().toISOString()}`),
       ]);
       return {
         totalTenders: t.count ?? 0,

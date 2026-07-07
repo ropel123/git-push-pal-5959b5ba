@@ -16,6 +16,7 @@ import BuyerFollowButton from "@/components/BuyerFollowButton";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { effectiveTenderStatus, tenderStatusLabel, tenderStatusColor } from "@/lib/tenderStatus";
 
 interface Tender {
   id: string;
@@ -60,19 +61,8 @@ interface AwardNotice {
   contract_duration: string | null;
 }
 
-const statusLabel: Record<string, string> = {
-  open: "Ouvert",
-  closed: "Clôturé",
-  awarded: "Attribué",
-  cancelled: "Annulé",
-};
-
-const statusColor: Record<string, string> = {
-  open: "bg-green-500/20 text-green-400 border-green-500/30",
-  closed: "bg-red-500/20 text-red-400 border-red-500/30",
-  awarded: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  cancelled: "bg-muted text-muted-foreground",
-};
+const statusLabel = tenderStatusLabel;
+const statusColor = tenderStatusColor;
 
 const TenderDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -234,11 +224,14 @@ const TenderDetail = () => {
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-foreground">{tender.title}</h1>
-            {tender.status && (
-              <Badge variant="outline" className={statusColor[tender.status] ?? ""}>
-                {statusLabel[tender.status] ?? tender.status}
-              </Badge>
-            )}
+            {tender.status && (() => {
+              const displayStatus = effectiveTenderStatus(tender.status, tender.deadline)!;
+              return (
+                <Badge variant="outline" className={statusColor[displayStatus] ?? ""}>
+                  {statusLabel[displayStatus] ?? displayStatus}
+                </Badge>
+              );
+            })()}
             {tender.contract_type && (
               <Badge variant="secondary">
                 <Briefcase className="h-3 w-3 mr-1" />
