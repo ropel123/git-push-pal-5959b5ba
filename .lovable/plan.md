@@ -1,125 +1,74 @@
 
-# Plan pré-launch HackAO
+## Diagnostic
 
-Roadmap découpée en 5 phases livrables indépendamment. Chaque phase = un message de build distinct pour rester pilotable.
+Ta base de données a perdu plusieurs tables (probablement supprimées via SQL Editor). Il manque aujourd'hui dans `public` :
 
----
+- `sourcing_urls` — **la liste maîtresse des URLs à scraper** (BOAMP, TED, plateformes acheteurs)
+- `sourcing_seen_urls` — cache anti-doublons
+- `scrape_logs` — journal des scrapes
+- `ai_prompts`, `ai_prompt_versions` — prompts éditables
+- `ai_request_log` — rate limiting IA
+- `memoir_conversations` — conversations mémoire technique
 
-## Phase 1 — Quick wins Accueil + Recherche + Mes affaires
+Résultat : `fetch-boamp`, `sourcing-scheduler`, `scrape-awards-list`, `reclassify-sourcing-urls`, la page Sourcing et le panneau plateformes ne peuvent plus rien lire ni écrire.
 
-### Accueil (`src/pages/Dashboard.tsx`)
-- Supprimer le bloc **Calendrier** (colonne gauche du dernier grid) et le remplacer par un **Pipe Kanban condensé** (réutilisation de `usePipelineDistribution` + lien vers `/pipeline`). Affichage : une colonne compacte par étape (Repéré, En analyse, En réponse, Gagné, Perdu) avec compteurs + 2-3 dernières opportunités.
-- Supprimer la carte **Mes profils** (savedSearches).
-- Garder Alertes + Favoris + Actualité.
+## Comment on faisait avant
 
-### Recherche (`src/pages/Tenders.tsx`)
-- Sidebar filtres **sticky** (`sticky top-0 h-screen overflow-y-auto`) au lieu de scroll commun.
-- **Badge plateformes** : ajouter un petit panneau « Sources actives » en haut des filtres, alimenté par `sourcing_urls` (group by `platform` + dernier `last_status`). Vert = success récent, ambre = stale > 48h, rouge = error.
-- Supprimer l'option **« Toutes les procédures »** dans le filtre procédure (laisser multi-select propre).
-- Supprimer le filtre **« Plateforme »** (devient redondant avec le panneau statut).
-- **Nettoyer** la liste de procédures : whitelister (Appel d'offres ouvert, Appel d'offres restreint, Procédure adaptée (MAPA), Dialogue compétitif, Procédure négociée, Concours, Marché de gré à gré, Accord-cadre).
-- **Pré-sélectionner** « Appel d'offres ouvert » par défaut au premier chargement (persisté dans URL params).
-- Fix **« Mots clés ne marche pas »** : auditer `useTenders` (probable problème d'`ilike` côté Supabase ou de debounce), corriger.
-- Fix **« Profils de veille ne marche pas »** : auditer `useSavedSearches` + bouton « appliquer ».
+Il n'y a **jamais eu de "liste d'URLs BOAMP/TED"** au sens catalogue :
 
-### Mes affaires (`src/pages/Pipeline.tsx`)
-- Renommer la page et l'item sidebar : **« Mes appels d'offres »**.
-- Activer **drag-and-drop horizontal** entre colonnes Kanban (déjà cliquable via flèches actuellement) — utiliser `@dnd-kit/core` déjà installé si dispo, sinon l'ajouter.
-- Supprimer la sous-section/onglet **Chiffrage** et la route `/pricing` (ou la cacher).
+- **BOAMP** : une seule ligne dans `sourcing_urls` avec l'URL clé `https://www.boamp.fr/api/explore/v2.1/catalog/datasets/boamp`. La fonction `fetch-boamp` interroge l'**API BOAMP** (opendata) directement, paginée par tranches de 100, et upsert dans `tenders`. Cette ligne ne sert qu'à afficher un statut (dernier run, succès/erreur) dans le panneau plateformes.
+- **TED** : pareil côté ingestion — la fonction `reparse-ted-awards` (que tu as aussi supprimée) tapait l'**API TED v3** directement pour récupérer les XML puis parsait via `parseBoampAward`. Aucune URL TED n'a jamais été seedée dans `sourcing_urls`.
+- **Plateformes acheteurs** (Maximilien, PLACE, MPI, AMP, Nantes, AuRA, Ternum, Alsace, Pays de Loire, Haute-Garonne) : **10 URLs seedées** dans `sourcing_urls`, scrapées via Firecrawl par `scrape-list`, orchestrées par `sourcing-scheduler`.
 
----
+## Plan de restauration
 
-## Phase 2 — Refonte TenderDetail (`src/pages/TenderDetail.tsx`)
+### 1. Restaurer le schéma manquant (une migration)
 
-- Onglet **Informations générales** : ajouter bouton **« Suivre cet acheteur »** (insert dans une nouvelle table `buyer_follows` → migration légère, RLS user_id).
-- Supprimer le bloc **« Origine du scrapping »**.
-- Supprimer le bouton **« Récupérer le DCE automatiquement »** (manuel).
-- **Renommer** la description du bouton « Récupération automatique par agent IA » (texte plus clair, type « Notre agent IA télécharge, dézippe et analyse les pièces du DCE en arrière-plan »).
-- **Fusionner** les blocs « Documents de consultation » et « Analyse IA » en un seul panneau avec onglets internes (DCE / Analyse).
-- Ajouter en bas un CTA **« Besoin d'aide pour répondre à cet AO ? Prenez rendez-vous avec un chef de projet »** → lien Calendly (URL à fournir, sinon mailto temporaire).
+Recréer à l'identique des migrations d'origine :
 
----
+- `sourcing_urls` (colonnes + `kind` tender/award + RLS admin + trigger updated_at + index actif/due + GRANT service_role)
+- `sourcing_seen_urls`
+- `scrape_logs` (avec `sourcing_url_id`, `items_updated`, `items_skipped`, `metadata`)
+- `ai_prompts` + `ai_prompt_versions` (RLS admin, trigger updated_at)
+- `ai_request_log` (service_role only)
+- `memoir_conversations` (RLS user-scoped, index actif par mode)
 
-## Phase 3 — Attributions (`src/pages/Awards.tsx`)
+FK vers `sourcing_urls` restaurées : `agent_playbooks.sourcing_url_id`, `award_notices.sourcing_url_id` existent déjà comme colonnes libres — les recontraindre.
 
-Page actuellement minimale. Construire :
-- Liste paginée des `award_notices` (table existante, peuplée par `scrape-awards-list`).
-- Filtres : acheteur, date d'attribution, fourchette montant, secteur.
-- Détail latéral : titulaire, montant, durée, lien vers le tender lié si match.
-- Stat header : nb attributions du mois, total montants, top 5 acheteurs.
+### 2. Reseeder `sourcing_urls`
 
----
+- **10 plateformes acheteurs** (kind='tender') identiques au seed d'origine `20260421151644` :
+  Maximilien, APProch/PLACE, Ternum, Grand Est, Alsace, AMP Métropole, Nantes Métropole, AuRA, Pays de Loire, Haute-Garonne.
+- **1 ligne BOAMP** (kind='tender', platform='boamp', parser_type='api') avec l'URL clé attendue par `fetch-boamp/index.ts`.
 
-## Phase 4 — Paiement Stripe BYOK + grilles de prix
+Pas de ligne TED côté sourcing (respect de la contrainte data : TED autorisé uniquement pour les avis d'attribution, ingérés via l'API TED, pas via `sourcing_urls`).
 
-Choix utilisateur : **BYOK** (la clé Stripe sera fournie via `STRIPE_SECRET_KEY` secret).
+### 3. Restaurer la fonction `reparse-ted-awards`
 
-### Setup
-- Demander la clé via `add_secret` (STRIPE_SECRET_KEY).
-- Edge functions :
-  - `create-checkout` : crée une session Stripe Checkout (mode subscription ou payment selon plan).
-  - `stripe-webhook` : reçoit events, met à jour table `subscriptions`.
-  - `customer-portal` : ouvre le portail Stripe pour gérer abonnement.
-- Migration : table `subscriptions` (user_id, plan, status, current_period_end, stripe_customer_id, stripe_subscription_id) + RLS user-scoped + grants standards.
+Recréer `supabase/functions/reparse-ted-awards/index.ts` (celle qui enrichissait les 1660 anciennes attributions TED via l'API TED v3 + `parseBoampAward`). Ajouter `verify_jwt = false` dans `config.toml`.
 
-### Grilles à exposer dans la landing + page `/billing`
-**Sourcing**
-- 99 € HT / mois — alertes illimitées + accès plateforme
-- +20 € HT / mois par adresse e-mail supplémentaire
+### 4. Reseeder les prompts IA
 
-**Assistant IA**
-- Starter — 99 € / mois — 1 AO analysé
-- Pro — 250 € / mois — 3 AO
-- Business — 450 € / mois — 10 AO
+Ré-insérer `generate-memoir`, `analyze-tender.quick`, `analyze-tender.technical`, `generate-pricing-strategy`, `generate-tender-document` (les prompts qu'on avait seedés dans les migrations `20260707102000` et suivantes).
 
-**Chef de projet AO (offre hybride, pas auto-checkout)**
-- Marchés < 1 M€ : 500 € HT fixe + 1 % du marché gagné
-- Marchés > 1 M€ : 2 000 € HT fixe + 0,5 % du marché gagné
-- Bouton « Demander un devis » → formulaire / Calendly (pas de Stripe).
+### 5. Vérifications
 
----
+- Ouvrir /sourcing (admin) → 11 lignes visibles, toutes en statut vide.
+- Déclencher `fetch-boamp?days=7` → la ligne BOAMP se met à jour, des tenders arrivent.
+- Déclencher `sourcing-scheduler` → les 10 plateformes tournent.
+- Le panneau plateformes de /tenders réaffiche les statuts.
 
-## Phase 5 — Landing publique (refonte complète `src/pages/Index.tsx`)
+## À confirmer avant que je lance
 
-Refonte complète avec sections :
-1. Hero (HackAO, value prop « L'IA qui répond aux appels d'offres publics à votre place »)
-2. Problèmes (perte de temps, dispersion des sources, mémoire technique éparpillée)
-3. Solution (3 piliers : Veille, Analyse IA, Réponse assistée)
-4. Démo visuelle / before-after
-5. Plateformes scrapées (logos / liste)
-6. Pricing (3 grilles du Phase 4)
-7. Témoignages / trust
-8. FAQ
-9. CTA final + footer
+1. Tu veux bien qu'on **recrée à l'identique** les tables perdues (schéma des migrations d'origine, sans données) ?
+2. Tu veux le **même set de 10 plateformes** qu'à l'origine, ou tu as retiré/ajouté des acheteurs entre temps ?
+3. Je restaure aussi `reparse-ted-awards` (utile pour enrichir les 1400 attributions TED restantes) ?
 
-**Style** : crème + navy + accent bleu (charte mémoire), gradient bleu→jaune réservé hero + CTA premium. Polices existantes.
+Une fois confirmé, je passe en build et j'enchaîne migration + seed + fonction + config.
 
-Pour la refonte hero/sections visuelles, je passerai par **design directions** (3 propositions rendues) avant d'implémenter.
+## Détails techniques
 
----
+- Fichier `supabase/functions/fetch-boamp/index.ts` attend exactement `SOURCING_URL_KEY = "https://www.boamp.fr/api/explore/v2.1/catalog/datasets/boamp"` — la ligne BOAMP doit avoir ce `url` exact.
+- Les GRANT à inclure : `GRANT ALL ON public.sourcing_urls TO service_role;` (les edge functions passent en service role), pas de grant `authenticated` — accès via RLS admin uniquement, cohérent avec les autres tables admin.
+- Aucune data utilisateur perdue n'est récupérable (tenders/awards déjà présents, c'est juste le pilotage du scraping qui est cassé).
 
-## Phase 6 — Idée différée (non incluse maintenant)
-
-- **API vers Salesforce** : à scoper séparément (auth OAuth Salesforce, mapping objets, sync push/pull). À planifier après lancement.
-
----
-
-## Migrations DB nécessaires
-
-1. `buyer_follows (user_id, buyer_id, created_at)` — Phase 2
-2. `subscriptions (user_id, plan, status, …)` — Phase 4
-
-Toutes avec RLS user-scoped + GRANTs standard.
-
----
-
-## Ordre de livraison recommandé
-
-1. Phase 1 (impact UX immédiat, pas de backend)
-2. Phase 2 (TenderDetail, migration légère)
-3. Phase 5 design directions (en parallèle pendant que tu valides Phase 1/2)
-4. Phase 3 (Awards) — dépend de `scrape-awards-list` qui peuple déjà la table
-5. Phase 4 (Stripe BYOK) — nécessite ta clé
-6. Phase 5 implémentation landing
-
-Dis-moi par quelle phase tu veux que je commence en build, ou si tu veux d'abord ajuster le périmètre.
