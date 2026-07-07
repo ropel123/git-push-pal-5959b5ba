@@ -88,8 +88,10 @@ const Sourcing = () => {
   const kpis = useMemo(() => {
     const rows = allData ?? [];
     const totalHosts = rows.length;
-    const classified = rows.filter((r) => r.platform).length;
-    const unknown = totalHosts - classified;
+    // "Classés" = hosts dont la catégorie est réellement résolue (comme les pills),
+    // et non "un fingerprint existe" — un host étiqueté custom/inconnu ne compte pas.
+    const unknown = rows.filter((r) => normalizeCat(r.category) === "inconnu").length;
+    const classified = totalHosts - unknown;
     const boamp = rows.reduce((s, r) => s + Number(r.boamp_count), 0);
     const ted = rows.reduce((s, r) => s + Number(r.ted_count), 0);
     return { totalHosts, classified, unknown, boamp, ted };
