@@ -46,7 +46,17 @@ function isPrivateIp(ip: string): boolean {
  */
 export async function assertPublicUrl(raw: string): Promise<URL> {
   let input = raw.trim();
-  if (!/^https?:\/\//i.test(input)) input = `https://${input}`;
+  const schemeMatch = input.match(/^([a-z][a-z0-9+.-]*):/i);
+  if (schemeMatch) {
+    // Un schéma explicite non http(s) (file:, ftp:, gopher:…) est refusé
+    // plutôt que réécrit, pour éviter tout contournement.
+    const scheme = schemeMatch[1].toLowerCase();
+    if (scheme !== "http" && scheme !== "https") {
+      throw new Error("Seuls les protocoles http et https sont autorisés");
+    }
+  } else {
+    input = `https://${input}`;
+  }
 
   let url: URL;
   try {

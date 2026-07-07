@@ -90,6 +90,9 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     } else {
       sendToAI([], conv.id);
     }
+    // sendToAI/toast volontairement omis : initConversation ne doit se
+    // recréer qu'au changement d'utilisateur ou de mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, mode]);
 
   // Démarrage automatique — initRef évite le double appel en StrictMode.
