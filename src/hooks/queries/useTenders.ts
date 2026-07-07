@@ -97,6 +97,11 @@ export function useTenders(filters: TendersFilters = {}) {
       if (region && region !== "all") query = query.eq("region", region);
       if (status && status !== ("all" as TenderStatus)) {
         query = query.eq("status", status as TenderStatus);
+        // Le cron de clôture laisse ~24h de marge après la deadline : sans ce
+        // filtre, des AO périmés apparaîtraient encore comme "Ouvert".
+        if (status === "open") {
+          query = query.or(`deadline.is.null,deadline.gte.${new Date().toISOString()}`);
+        }
       }
       if (procedures && procedures.length > 0) {
         query = query.in("procedure_type", procedures);
