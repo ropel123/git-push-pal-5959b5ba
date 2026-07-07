@@ -74,6 +74,7 @@ const ADMIN: Entry[] = [
   { title: "Sourcing", to: "/sourcing", icon: Globe },
   { title: "Groupes", to: "/groups", icon: Users2 },
   { title: "Utilisateurs", to: "/users", icon: UserCog },
+  { title: "Prompts IA", to: "/admin/prompts", icon: Bot },
   { title: "Paramètres", to: "/settings", icon: Settings },
 ];
 

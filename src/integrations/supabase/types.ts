@@ -14,6 +14,113 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_prompts: {
+        Row: {
+          created_at: string
+          description: string | null
+          fallback_model: string | null
+          fallback_provider: string | null
+          id: string
+          is_active: boolean
+          key: string
+          label: string
+          model: string
+          provider: string
+          system_prompt: string
+          temperature: number | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          is_active?: boolean
+          key: string
+          label: string
+          model: string
+          provider?: string
+          system_prompt: string
+          temperature?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          is_active?: boolean
+          key?: string
+          label?: string
+          model?: string
+          provider?: string
+          system_prompt?: string
+          temperature?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Relationships: []
+      }
+      ai_prompt_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          fallback_model: string | null
+          fallback_provider: string | null
+          id: string
+          model: string
+          note: string | null
+          prompt_id: string
+          provider: string
+          system_prompt: string
+          temperature: number | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          model: string
+          note?: string | null
+          prompt_id: string
+          provider: string
+          system_prompt: string
+          temperature?: number | null
+          version: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          fallback_model?: string | null
+          fallback_provider?: string | null
+          id?: string
+          model?: string
+          note?: string | null
+          prompt_id?: string
+          provider?: string
+          system_prompt?: string
+          temperature?: number | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_prompt_versions_prompt_id_fkey"
+            columns: ["prompt_id"]
+            isOneToOne: false
+            referencedRelation: "ai_prompts"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       agent_anonymous_identity: {
         Row: {
           company_name: string

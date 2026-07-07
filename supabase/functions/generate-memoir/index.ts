@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { safeFetch, assertPublicUrl } from "../_shared/urlGuard.ts";
 import { extractDocumentText } from "../_shared/documentText.ts";
+import { loadPromptConfig, type PromptConfig } from "../_shared/promptStore.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,6 +11,16 @@ const corsHeaders = {
 };
 
 const FN_NAME = "generate-memoir";
+
+// Valeurs par défaut si la table ai_prompts est indisponible ou vide.
+const DEFAULT_PROMPT_CONFIG: PromptConfig = {
+  systemPrompt: "",
+  provider: "openrouter",
+  model: "anthropic/claude-sonnet-4",
+  fallbackProvider: "lovable",
+  fallbackModel: "google/gemini-2.5-pro",
+  temperature: null,
+};
 
 // Garde-fous anti-abus : l'endpoint ne doit pas servir de proxy LLM gratuit.
 const RATE_LIMIT_PER_HOUR = 60;
@@ -282,27 +293,31 @@ interface AIProvider {
   extraHeaders: Record<string, string>;
 }
 
-function getOpenRouterProvider(apiKey: string, model: string): AIProvider {
-  return {
-    url: "https://openrouter.ai/api/v1/chat/completions",
-    key: apiKey,
-    model,
-    name: "openrouter",
-    extraHeaders: {
-      "HTTP-Referer": "https://lovable.dev",
-      "X-Title": "Memoir AI Agent",
-    },
-  };
-}
-
-function getLovableProvider(apiKey: string, model: string): AIProvider {
-  return {
-    url: "https://ai.gateway.lovable.dev/v1/chat/completions",
-    key: apiKey,
-    model,
-    name: "lovable",
-    extraHeaders: {},
-  };
+/** Construit un provider à partir de son nom logique (openrouter | lovable). */
+function buildProvider(name: string, model: string): AIProvider | null {
+  if (name === "openrouter") {
+    const key = Deno.env.get("OPENROUTER_API_KEY");
+    if (!key) return null;
+    return {
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      key,
+      model,
+      name: "openrouter",
+      extraHeaders: { "HTTP-Referer": "https://lovable.dev", "X-Title": "Memoir AI Agent" },
+    };
+  }
+  if (name === "lovable") {
+    const key = Deno.env.get("LOVABLE_API_KEY");
+    if (!key) return null;
+    return {
+      url: "https://ai.gateway.lovable.dev/v1/chat/completions",
+      key,
+      model,
+      name: "lovable",
+      extraHeaders: {},
+    };
+  }
+  return null;
 }
 
 async function callAI(provider: AIProvider, body: Record<string, unknown>): Promise<Response> {
@@ -450,27 +465,34 @@ serve(async (req) => {
 
     const profileContext = buildProfileContext(profile);
 
+    // Configuration éditable depuis l'admin (system prompt + modèles).
+    const promptConfig = await loadPromptConfig(FN_NAME, { ...DEFAULT_PROMPT_CONFIG, systemPrompt: SYSTEM_PROMPT });
+
     const requestBody = {
       messages: [
-        { role: "system", content: SYSTEM_PROMPT + profileContext },
+        { role: "system", content: promptConfig.systemPrompt + profileContext },
         ...validation.messages,
       ],
       stream: true,
       tools: [SAVE_MEMOIR_TOOL, ANALYZE_WEBSITE_TOOL],
+      ...(promptConfig.temperature !== null ? { temperature: promptConfig.temperature } : {}),
     };
 
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    // Providers ordonnés : principal puis fallback, en ne gardant que ceux
+    // dont la clé API est configurée. Toute erreur bascule sur le suivant.
+    const providerSpecs = [
+      { name: promptConfig.provider, model: promptConfig.model },
+      ...(promptConfig.fallbackProvider && promptConfig.fallbackModel
+        ? [{ name: promptConfig.fallbackProvider, model: promptConfig.fallbackModel }]
+        : []),
+    ];
+    const providers = providerSpecs
+      .map((s) => buildProvider(s.name, s.model))
+      .filter((p): p is AIProvider => p !== null);
 
-    if (!OPENROUTER_API_KEY && !LOVABLE_API_KEY) {
+    if (providers.length === 0) {
       return jsonResponse({ error: "Aucune clé API configurée" }, 500);
     }
-
-    // Tentative sur chaque provider disponible : toute erreur (statut ou
-    // réseau) déclenche la bascule sur le suivant.
-    const providers: AIProvider[] = [];
-    if (OPENROUTER_API_KEY) providers.push(getOpenRouterProvider(OPENROUTER_API_KEY, "anthropic/claude-sonnet-4"));
-    if (LOVABLE_API_KEY) providers.push(getLovableProvider(LOVABLE_API_KEY, "google/gemini-2.5-pro"));
 
     let aiResponse: Response | null = null;
     let lastStatus = 0;
