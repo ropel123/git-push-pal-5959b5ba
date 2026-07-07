@@ -28,6 +28,7 @@ import GroupsPage from "./pages/GroupsPage";
 import UsersPage from "./pages/UsersPage";
 import Sourcing from "./pages/Sourcing";
 import SourcingHostDetail from "./pages/SourcingHostDetail";
+import AdminPromptsPage from "./pages/AdminPromptsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -71,6 +72,7 @@ const App = () => (
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/sourcing" element={<Sourcing />} />
                 <Route path="/sourcing/:host" element={<SourcingHostDetail />} />
+                <Route path="/admin/prompts" element={<AdminPromptsPage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

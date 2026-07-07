@@ -51,6 +51,7 @@ const Onboarding = () => {
       .update({
         primary_color: primaryColor,
         secondary_color: secondaryColor,
+        onboarding_completed: true,
         ...(logoPath ? { company_logo_path: logoPath } : {}),
       })
       .eq("user_id", user.id);
