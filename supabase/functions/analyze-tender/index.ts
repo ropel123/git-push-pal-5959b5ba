@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { callAI } from "../_shared/aiGateway.ts";
+import { callAI, type AIProvider } from "../_shared/aiGateway.ts";
+import { loadPromptConfig } from "../_shared/promptStore.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -175,29 +176,39 @@ IMPORTANT : Utilise les données réelles du profil de l'entreprise pour pré-re
 Sois stratégique et orienté vers la victoire. Base ton analyse sur le profil réel de l'entreprise.`,
     };
 
-    const systemPrompt = systemPrompts[analysis_type] || systemPrompts.quick;
+    const defaultPrompt = systemPrompts[analysis_type] || systemPrompts.quick;
+    const promptKey = systemPrompts[analysis_type] ? `analyze-tender.${analysis_type}` : "analyze-tender.quick";
 
-    // Appel IA via passerelle unifiée — Claude 3.5 Sonnet par défaut, fallback Gemini
+    // Configuration éditable depuis l'admin (system prompt + modèle).
+    const promptConfig = await loadPromptConfig(promptKey, {
+      systemPrompt: defaultPrompt,
+      provider: "openrouter",
+      model: "anthropic/claude-3.5-sonnet",
+      fallbackProvider: "lovable",
+      fallbackModel: "google/gemini-2.5-flash",
+      temperature: null,
+    });
+    // La passerelle aiGateway nomme ses providers claude/gemini
+    // (openrouter/lovable dans l'admin).
+    const gatewayProvider: AIProvider = promptConfig.provider === "lovable" ? "gemini" : "claude";
+
+    // Appel IA via passerelle unifiée, fallback automatique sur l'autre provider
     let aiResult;
     try {
       aiResult = await callAI({
-        provider: "claude",
+        provider: gatewayProvider,
+        model: promptConfig.model,
+        ...(promptConfig.temperature !== null ? { temperature: promptConfig.temperature } : {}),
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: promptConfig.systemPrompt },
           { role: "user", content: tenderContext },
         ],
       });
     } catch (e) {
       const status = (e as any)?.status;
-      if (status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded, please try again later." }), {
+      if (status === 429 || status === 402) {
+        return new Response(JSON.stringify({ error: "Le service IA est momentanément saturé, réessayez dans quelques instants." }), {
           status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required, please add funds." }), {
-          status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }

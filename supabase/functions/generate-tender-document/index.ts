@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { loadPromptConfig, resolveProviderChain } from "../_shared/promptStore.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,9 +70,19 @@ Sections à générer (dans cet ordre) :
 9. type "references" : Références
 10. type "closing" : Conclusion`;
 
-    const systemPrompt = `Tu es un expert en réponse aux marchés publics français. Tu rédiges des documents professionnels et convaincants.
+    const defaultSystemPrompt = `Tu es un expert en réponse aux marchés publics français. Tu rédiges des documents professionnels et convaincants.
 Tu DOIS retourner des sections avec des types variés pour créer un document visuellement riche.
 Le contenu doit être détaillé, professionnel et adapté au marché.`;
+
+    // Configuration éditable depuis l'admin (system prompt + modèles).
+    const promptConfig = await loadPromptConfig("generate-tender-document", {
+      systemPrompt: defaultSystemPrompt,
+      provider: "lovable",
+      model: "google/gemini-3-flash-preview",
+      fallbackProvider: "openrouter",
+      fallbackModel: "anthropic/claude-3.5-sonnet",
+      temperature: null,
+    });
 
     const userPrompt = `${templateInstructions}
 
@@ -101,21 +112,15 @@ ${refs}
 
 Génère le document avec les sections typées demandées. Le contenu doit être substantiel (au moins 3-4 paragraphes par section content, 3-4 items par section stats).`;
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY non configurée");
+    const providers = resolveProviderChain(promptConfig);
+    if (providers.length === 0) throw new Error("Aucune clé API configurée");
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+    const requestBody = {
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: promptConfig.systemPrompt },
           { role: "user", content: userPrompt },
         ],
+        ...(promptConfig.temperature !== null ? { temperature: promptConfig.temperature } : {}),
         tools: [
           {
             type: "function",
@@ -173,23 +178,42 @@ Génère le document avec les sections typées demandées. Le contenu doit être
           },
         ],
         tool_choice: { type: "function", function: { name: "generate_document_sections" } },
-      }),
-    });
+    };
 
-    if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Tentative sur chaque provider (principal puis secours).
+    let aiResponse: Response | null = null;
+    let lastStatus = 0;
+    for (const provider of providers) {
+      try {
+        const resp = await fetch(provider.url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${provider.key}`,
+            "Content-Type": "application/json",
+            ...provider.extraHeaders,
+          },
+          body: JSON.stringify({ model: provider.model, ...requestBody }),
         });
+        if (resp.ok) {
+          aiResponse = resp;
+          break;
+        }
+        lastStatus = resp.status;
+        const errText = await resp.text().catch(() => "");
+        console.warn(`[tender-doc] ${provider.name} failed (${resp.status}): ${errText.slice(0, 300)}. Trying next provider.`);
+      } catch (e) {
+        console.warn(`[tender-doc] ${provider.name} network error:`, e);
       }
-      if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required" }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const errText = await aiResponse.text();
-      console.error("AI error:", aiResponse.status, errText);
-      throw new Error("Erreur IA");
+    }
+
+    if (!aiResponse) {
+      const message = lastStatus === 429
+        ? "Le service IA est momentanément saturé, réessayez dans quelques instants."
+        : "Le service IA est momentanément indisponible, réessayez dans quelques instants.";
+      return new Response(JSON.stringify({ error: message }), {
+        status: lastStatus === 429 ? 429 : 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const aiData = await aiResponse.json();

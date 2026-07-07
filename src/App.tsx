@@ -28,6 +28,7 @@ import MemoirsPage from "./pages/MemoirsPage";
 import PricingPage from "./pages/PricingPage";
 import GroupsPage from "./pages/GroupsPage";
 import UsersPage from "./pages/UsersPage";
+import AdminPromptsPage from "./pages/AdminPromptsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -71,6 +72,7 @@ const App = () => (
                 <Route path="/memoirs" element={<MemoirsPage />} />
                 <Route path="/groups" element={<GroupsPage />} />
                 <Route path="/users" element={<UsersPage />} />
+                <Route path="/admin/prompts" element={<AdminPromptsPage />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
