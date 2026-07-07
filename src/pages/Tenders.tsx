@@ -30,11 +30,10 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { computeScore, getScoreColor } from "@/lib/scoring";
-import { effectiveTenderStatus, tenderStatusLabel, tenderStatusColor } from "@/lib/tenderStatus";
 import { useTenders, type TenderStatus } from "@/hooks/queries/useTenders";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useDceUploadedTenderIds } from "@/hooks/queries/useDceUploads";
-import PlatformStatusPanel from "@/components/PlatformStatusPanel";
+
 import { PROCEDURE_SYNONYMS } from "@/lib/pricing";
 
 interface SavedSearch {
@@ -224,10 +223,16 @@ const Tenders = () => {
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
-  const getStatusColor = (status: string | null) =>
-    (status && tenderStatusColor[status]) || "bg-muted text-muted-foreground";
+  const getStatusColor = (status: string | null) => {
+    switch (status) {
+      case "open": return "bg-green-500/20 text-green-400 border-green-500/30";
+      case "closed": return "bg-red-500/20 text-red-400 border-red-500/30";
+      case "awarded": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+      default: return "bg-muted text-muted-foreground";
+    }
+  };
 
-  const statusLabel = tenderStatusLabel;
+  const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
 
   const resetFilters = () => {
     setRegionFilter("");
@@ -245,7 +250,7 @@ const Tenders = () => {
         {/* Sticky filters sidebar */}
         <aside className="hidden lg:block w-72 shrink-0">
           <div className="sticky top-4 space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1">
-            <PlatformStatusPanel />
+            
 
             <Card className="border-border">
               <CardContent className="p-4 space-y-3">
@@ -412,14 +417,11 @@ const Tenders = () => {
                                 </h3>
                               );
                             })()}
-                            {tender.status && (() => {
-                              const displayStatus = effectiveTenderStatus(tender.status, tender.deadline);
-                              return (
-                                <Badge variant="outline" className={getStatusColor(displayStatus)}>
-                                  {(displayStatus && statusLabel[displayStatus]) ?? displayStatus}
-                                </Badge>
-                              );
-                            })()}
+                            {tender.status && (
+                              <Badge variant="outline" className={getStatusColor(tender.status)}>
+                                {statusLabel[tender.status] ?? tender.status}
+                              </Badge>
+                            )}
                             {score !== null && (
                               <Badge variant="outline" className={getScoreColor(score)}>
                                 {score}/100

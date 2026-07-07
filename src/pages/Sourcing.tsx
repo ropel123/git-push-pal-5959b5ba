@@ -1,1139 +1,363 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { useDceSourcing, useClassifyHost } from "@/hooks/queries/useDceSourcing";
+import { useReclassifyJob, useStartReclassify } from "@/hooks/queries/useReclassifyJob";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { useSourcingUrls, useScrapeLogs, type SourcingUrl } from "@/hooks/queries/useSourcingAdmin";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
-import { Loader2, Play, Plus, RefreshCcw, Trash2, FlaskConical, Info, Wand2, Pencil, Search, X, ChevronDown } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { detectPlatform, PLATFORMS } from "@/lib/detectPlatform";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
+import { ExternalLink, FileText, Sparkles, Loader2, Zap } from "lucide-react";
+
+const KNOWN_CATEGORIES = [
+  "atexo", "place", "mpi", "dematis", "achatpublic",
+  "marches-securises", "klekoon", "xmarches", "safetender",
+  "aws", "synapse", "centrale-marches", "francemarches", "aji",
+  "eu-supply", "domino", "bravo", "autre-mp", "anjou", "inconnu",
+];
+
+const normalizeCat = (c: string | null) => {
+  if (!c || c === "autre" || c === "inconnu") return "inconnu";
+  return c;
+};
+
+const categoryColor = (c: string | null) => {
+  const n = normalizeCat(c);
+  if (n === "inconnu") return "bg-muted text-muted-foreground";
+  if (n === "place") return "bg-primary/10 text-primary";
+  if (n === "atexo") return "bg-accent/40 text-foreground";
+  return "bg-secondary text-secondary-foreground";
+};
 
 const Sourcing = () => {
-  const navigate = useNavigate();
-  const { toast } = useToast();
   const { isAdmin, loading: adminLoading } = useIsAdmin();
-  const { data: urls = [], isLoading: urlsLoading, refetch: refetchUrls } = useSourcingUrls(!!isAdmin);
-  const { data: logs = [], refetch: refetchLogs } = useScrapeLogs(!!isAdmin);
-  const loading = urlsLoading;
-  const load = async () => {
-    await Promise.all([refetchUrls(), refetchLogs()]);
-  };
-  const [running, setRunning] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkUrls, setBulkUrls] = useState("");
-  const [bulkImporting, setBulkImporting] = useState(false);
-  const [bulkResult, setBulkResult] = useState<null | {
-    inserted: string[];
-    alreadyExists: string[];
-    duplicatesInPaste: string[];
-    invalid: { line: string; reason: string }[];
-    failed: { url: string; reason: string }[];
-  }>(null);
-  const [form, setForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6 });
-  const [testResult, setTestResult] = useState<any>(null);
-  const [editing, setEditing] = useState<SourcingUrl | null>(null);
-  const [editForm, setEditForm] = useState({ url: "", platform: "custom", display_name: "", frequency_hours: 6, is_active: true });
-  const [saving, setSaving] = useState(false);
-  const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [aiProvider, setAiProvider] = useState<"anthropic" | "openrouter">("anthropic");
-  const [kind, setKind] = useState<"tender" | "award">("tender");
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  // Fetch unfiltered by category so we can show counts everywhere
+  const { data: allData, isLoading, isFetching } = useDceSourcing(search, "all");
+  const classify = useClassifyHost();
+  const startReclassify = useStartReclassify();
+  const { data: lastJob } = useReclassifyJob();
+  const [pendingHost, setPendingHost] = useState<string | null>(null);
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState("");
-  const [platformFilter, setPlatformFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [activeFilter, setActiveFilter] = useState<string>("all");
+  const counts = useMemo(() => {
+    const rows = allData ?? [];
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      const k = normalizeCat(r.category);
+      map.set(k, (map.get(k) ?? 0) + 1);
+    }
+    return map;
+  }, [allData]);
 
-  // Atexo backfill
-  const [backfillRunning, setBackfillRunning] = useState(false);
-  const [backfillProgress, setBackfillProgress] = useState<{
-    remaining: number;
-    updated: number;
-    failed: number;
-    iterations: number;
-  } | null>(null);
+  const visibleData = useMemo(() => {
+    const rows = allData ?? [];
+    if (category === "all") return rows;
+    return rows.filter((r) => normalizeCat(r.category) === category);
+  }, [allData, category]);
 
-  const runAtexoBackfill = async () => {
-    if (backfillRunning) return;
-    setBackfillRunning(true);
-    setBackfillProgress({ remaining: 0, updated: 0, failed: 0, iterations: 0 });
-    let totalUpdated = 0;
-    let totalFailed = 0;
-    let iterations = 0;
-    let remaining = Infinity;
+  const kpis = useMemo(() => {
+    const rows = allData ?? [];
+    const totalHosts = rows.length;
+    const classified = rows.filter((r) => r.platform).length;
+    const unknown = totalHosts - classified;
+    const boamp = rows.reduce((s, r) => s + Number(r.boamp_count), 0);
+    const ted = rows.reduce((s, r) => s + Number(r.ted_count), 0);
+    return { totalHosts, classified, unknown, boamp, ted };
+  }, [allData]);
+
+  const jobRunning = lastJob?.status === "running";
+  const jobPct = lastJob && lastJob.total > 0
+    ? Math.round((lastJob.processed / lastJob.total) * 100)
+    : 0;
+
+  const handleClassify = async (host: string, url: string) => {
+    setPendingHost(host);
     try {
-      while (remaining > 0 && iterations < 30) {
-        iterations++;
-        const { data, error } = await supabase.functions.invoke("atexo-backfill", {
-          body: { batchSize: 100 },
-        });
-        if (error) throw error;
-        const r = data as {
-          remaining: number;
-          updated: number;
-          failed: number;
-          processed: number;
-        };
-        remaining = r.remaining ?? 0;
-        totalUpdated += r.updated ?? 0;
-        totalFailed += r.failed ?? 0;
-        setBackfillProgress({
-          remaining,
-          updated: totalUpdated,
-          failed: totalFailed,
-          iterations,
-        });
-        if ((r.processed ?? 0) === 0) break; // safety: nothing moved
-      }
-      toast({
-        title: "Rétro-enrichissement terminé",
-        description: `${totalUpdated} consultations mises à jour, ${totalFailed} échecs, ${remaining} restantes`,
-      });
-    } catch (e) {
-      const err = e as Error;
-      toast({
-        title: "Erreur backfill Atexo",
-        description: err.message,
-        variant: "destructive",
-      });
+      const res = await classify.mutateAsync({ host, sample_url: url });
+      toast.success(`${host} → ${res.platform} (${Math.round(res.confidence * 100)}%)`);
+    } catch (e: any) {
+      toast.error(e.message ?? "Échec de la classification");
     } finally {
-      setBackfillRunning(false);
+      setPendingHost(null);
     }
   };
 
-  const platformCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const u of urls) counts[u.platform] = (counts[u.platform] ?? 0) + 1;
-    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [urls]);
-
-  const urlsByKind = useMemo(
-    () => urls.filter((u) => (((u as unknown) as { kind?: string }).kind ?? "tender") === kind),
-    [urls, kind],
-  );
-
-  const filteredUrls = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return urlsByKind.filter((u) => {
-      if (q) {
-        const hay = `${u.url} ${u.display_name ?? ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      if (platformFilter !== "all" && u.platform !== platformFilter) return false;
-      if (statusFilter !== "all") {
-        if (statusFilter === "never" && u.last_status) return false;
-        if (statusFilter === "success" && u.last_status !== "success") return false;
-        if (statusFilter === "error" && (u.last_status === "success" || !u.last_status)) return false;
-      }
-      if (activeFilter === "active" && !u.is_active) return false;
-      if (activeFilter === "inactive" && u.is_active) return false;
-      return true;
-    });
-  }, [urlsByKind, searchQuery, platformFilter, statusFilter, activeFilter]);
-
-  const filtersActive = searchQuery !== "" || platformFilter !== "all" || statusFilter !== "all" || activeFilter !== "all";
-
-  const resetFilters = () => {
-    setSearchQuery("");
-    setPlatformFilter("all");
-    setStatusFilter("all");
-    setActiveFilter("all");
-  };
-
-  useEffect(() => {
-    if (!highlightedId) return;
-    const el = document.getElementById(`row-${highlightedId}`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    const t = setTimeout(() => setHighlightedId(null), 3000);
-    return () => clearTimeout(t);
-  }, [highlightedId, urls]);
-
-  useEffect(() => {
-    if (!adminLoading && isAdmin === false) navigate("/dashboard");
-  }, [isAdmin, adminLoading, navigate]);
-
-  // load/refetch piloté par TanStack Query (cf. top of file)
-
-
-  const addUrl = async () => {
-    if (!form.url.trim()) return;
-    const platform = form.platform === "custom" ? detectPlatform(form.url) : form.platform;
-    const { error } = await supabase.from("sourcing_urls").insert({
-      url: form.url.trim(),
-      platform,
-      display_name: form.display_name || null,
-      frequency_hours: form.frequency_hours,
-      kind,
-    });
-    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    else {
-      toast({ title: "URL ajoutée" });
-      setOpen(false);
-      setForm({ url: "", platform: "custom", display_name: "", frequency_hours: 6 });
-      load();
+  const handleStartReclassify = async () => {
+    try {
+      const res = await startReclassify.mutateAsync();
+      toast.success(`Reclassification lancée sur ${res.total} hosts`);
+    } catch (e: any) {
+      toast.error(e.message ?? "Échec du lancement");
     }
   };
 
-  const normalizeUrl = (raw: string): string => {
-    const u = new URL(raw);
-    u.hostname = u.hostname.toLowerCase();
-    let s = u.toString();
-    // Retirer trailing slash si pathname == "/" et pas de query/hash
-    if (u.pathname === "/" && !u.search && !u.hash) {
-      s = s.replace(/\/$/, "");
-    }
-    return s;
-  };
-
-  const bulkImport = async () => {
-    if (bulkImporting) return;
-    const rawLines = bulkUrls.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (rawLines.length === 0) return;
-
-    setBulkImporting(true);
-
-    const invalid: { line: string; reason: string }[] = [];
-    const seen = new Set<string>();
-    const duplicatesInPaste: string[] = [];
-    const valid: string[] = [];
-
-    for (const line of rawLines) {
-      if (!/^https?:\/\//i.test(line)) {
-        invalid.push({ line, reason: "pas une URL (doit commencer par http:// ou https://)" });
-        continue;
-      }
-      let normalized: string;
-      try {
-        normalized = normalizeUrl(line);
-      } catch {
-        invalid.push({ line, reason: "URL malformée" });
-        continue;
-      }
-      if (seen.has(normalized)) {
-        duplicatesInPaste.push(normalized);
-        continue;
-      }
-      seen.add(normalized);
-      valid.push(normalized);
-    }
-
-    // Dédoublonnage contre la base
-    let alreadyExists: string[] = [];
-    let toInsert = valid;
-    if (valid.length > 0) {
-      const { data: existing } = await supabase
-        .from("sourcing_urls")
-        .select("url")
-        .in("url", valid);
-      const existingSet = new Set((existing || []).map((r: any) => r.url));
-      alreadyExists = valid.filter((u) => existingSet.has(u));
-      toInsert = valid.filter((u) => !existingSet.has(u));
-    }
-
-    // Insert ligne par ligne, tolérant aux erreurs
-    const inserted: string[] = [];
-    const failed: { url: string; reason: string }[] = [];
-    for (const url of toInsert) {
-      const { error } = await supabase.from("sourcing_urls").insert({
-        url,
-        platform: detectPlatform(url),
-        frequency_hours: 6,
-        kind,
-      });
-      if (error) {
-        failed.push({ url, reason: error.message });
-      } else {
-        inserted.push(url);
-      }
-    }
-
-    setBulkImporting(false);
-    setBulkResult({ inserted, alreadyExists, duplicatesInPaste, invalid, failed });
-    setBulkOpen(false);
-    setBulkUrls("");
-    load();
-  };
-
-  const copyInvalidLines = () => {
-    if (!bulkResult) return;
-    const text = bulkResult.invalid.map((i) => i.line).join("\n");
-    navigator.clipboard.writeText(text);
-    toast({ title: "Copié", description: `${bulkResult.invalid.length} ligne(s) invalide(s) copiée(s)` });
-  };
-
-  const toggleActive = async (id: string, is_active: boolean) => {
-    await supabase.from("sourcing_urls").update({ is_active }).eq("id", id);
-    load();
-  };
-
-  const remove = async (id: string) => {
-    if (!confirm("Supprimer cette URL ?")) return;
-    await supabase.from("sourcing_urls").delete().eq("id", id);
-    load();
-  };
-
-  const openEdit = (u: SourcingUrl) => {
-    setEditing(u);
-    setEditForm({
-      url: u.url,
-      platform: u.platform,
-      display_name: u.display_name ?? "",
-      frequency_hours: u.frequency_hours,
-      is_active: u.is_active,
-    });
-  };
-
-  const saveEdit = async () => {
-    if (!editing || saving) return;
-    const newUrl = editForm.url.trim();
-    if (!newUrl || !/^https?:\/\//i.test(newUrl)) {
-      toast({ title: "URL invalide", description: "L'URL doit commencer par http(s)://", variant: "destructive" });
-      return;
-    }
-    setSaving(true);
-    const urlChanged = newUrl !== editing.url;
-    const update: any = {
-      url: newUrl,
-      platform: editForm.platform,
-      display_name: editForm.display_name.trim() || null,
-      frequency_hours: editForm.frequency_hours,
-      is_active: editForm.is_active,
-    };
-    if (urlChanged) {
-      update.last_run_at = null;
-      update.last_status = null;
-      update.last_items_found = null;
-      update.last_items_inserted = null;
-      update.last_error = null;
-    }
-    const editedId = editing.id;
-    const { error } = await supabase.from("sourcing_urls").update(update).eq("id", editedId);
-    setSaving(false);
-    if (error) {
-      const msg = error.message.includes("duplicate") || error.message.includes("unique")
-        ? "Cette URL existe déjà sur une autre ligne."
-        : error.message;
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
-      return;
-    }
-    toast({ title: "URL mise à jour" });
-    setEditing(null);
-    setHighlightedId(editedId);
-    await load();
-  };
-
-  const fnForId = (id: string): "scrape-list" | "scrape-awards-list" => {
-    const u = urls.find((x) => x.id === id);
-    return (((u as unknown) as { kind?: string })?.kind === "award") ? "scrape-awards-list" : "scrape-list";
-  };
-
-  const runNow = async (id: string) => {
-    setRunning(id);
-    const { data, error } = await supabase.functions.invoke(fnForId(id), {
-      body: { sourcing_url_id: id },
-    });
-    setRunning(null);
-    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    else toast({ title: "Run terminé", description: `${data?.items_found ?? 0} trouvés, ${data?.inserted ?? 0} insérés` });
-    load();
-  };
-
-  const dryRun = async (id: string) => {
-    setRunning(id);
-    setTestResult(null);
-    const { data, error } = await supabase.functions.invoke(fnForId(id), {
-      body: { sourcing_url_id: id, dry_run: true },
-    });
-    setRunning(null);
-    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    else setTestResult(data);
-  };
-
-  const reclassifyOne = async (id: string) => {
-    setRunning(id);
-    const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
-      body: { sourcing_url_id: id, provider: aiProvider },
-    });
-    setRunning(null);
-    if (error) toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    else {
-      const r = data?.results?.[0];
-      let description = "ok";
-      if (r) {
-        const conf = typeof r.confidence === "number" ? ` ${r.confidence.toFixed(2)}` : "";
-        description = `${r.before} → ${r.after} (${r.source}${conf} · ${aiProvider})`;
-      }
-      toast({ title: "Plateforme re-détectée", description });
-      load();
-    }
-  };
-
-  const [reclassifyProgress, setReclassifyProgress] = useState<{ done: number; total: number; bySource: Record<string, number>; byPlatform: Record<string, number> } | null>(null);
-
-  const reclassifyAll = async (scope: "all" | "custom" | { platform: string } = "all") => {
-    let query = supabase
-      .from("sourcing_urls")
-      .select("id, platform")
-      .order("created_at", { ascending: false });
-    if (scope === "custom") {
-      query = query.in("platform", ["custom", "safetender"]);
-    } else if (typeof scope === "object" && scope.platform) {
-      query = query.eq("platform", scope.platform);
-    }
-    const { data: rows, error: fetchErr } = await query;
-    if (fetchErr || !rows) {
-      toast({ title: "Erreur", description: fetchErr?.message ?? "Impossible de charger les URLs", variant: "destructive" });
-      return;
-    }
-    const ids = rows.map((r: any) => r.id as string);
-    if (ids.length === 0) {
-      toast({ title: "Aucune URL à traiter" });
-      return;
-    }
-    const providerLabel = aiProvider === "anthropic" ? "Anthropic Haiku 4.5 + web_fetch" : "OpenRouter Opus 4.7";
-    const costPerUrl = aiProvider === "anthropic" ? 0.003 : 0.024;
-    const secPerUrl = aiProvider === "anthropic" ? 3 : 6;
-    const scopeLabel =
-      scope === "custom"
-        ? `${ids.length} URLs en custom/safetender`
-        : typeof scope === "object"
-        ? `${ids.length} URLs en ${scope.platform}`
-        : `les ${ids.length} URLs`;
-    if (!confirm(`Re-classifier ${scopeLabel} via ${providerLabel} ? Durée estimée : ~${Math.ceil(ids.length * secPerUrl / 60)} min, coût ~$${(ids.length * costPerUrl).toFixed(2)}.`)) return;
-
-    setRunning("__all__");
-    setReclassifyProgress({ done: 0, total: ids.length, bySource: {}, byPlatform: {} });
-
-    const CONCURRENCY = 3;
-    const bySource: Record<string, number> = {};
-    const byPlatform: Record<string, number> = {};
-    let done = 0;
-    let cursor = 0;
-
-    const worker = async () => {
-      while (cursor < ids.length) {
-        const idx = cursor++;
-        const id = ids[idx];
-        try {
-          const { data, error } = await supabase.functions.invoke("reclassify-sourcing-urls", {
-            body: { sourcing_url_id: id, provider: aiProvider },
-          });
-          if (!error) {
-            const r = data?.results?.[0];
-            if (r) {
-              bySource[r.source] = (bySource[r.source] ?? 0) + 1;
-              byPlatform[r.after] = (byPlatform[r.after] ?? 0) + 1;
-            }
-          }
-        } catch {
-          /* ignore single-URL failures, continue */
-        }
-        done++;
-        setReclassifyProgress({ done, total: ids.length, bySource: { ...bySource }, byPlatform: { ...byPlatform } });
-      }
-    };
-
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
-
-    setRunning(null);
-    const sourceSummary = Object.entries(bySource).map(([k, v]) => `${k}:${v}`).join(" · ");
-    const customLeft = byPlatform.custom ?? 0;
-    const recovered = scope === "custom" ? ids.length - customLeft : null;
-    toast({
-      title: "Reclassement IA terminé",
-      description: `${done}/${ids.length} traitées${sourceSummary ? ` (${sourceSummary})` : ""}${
-        recovered !== null ? ` — ${recovered} récupérées, ${customLeft} restent custom` : ` — ${customLeft} restent custom`
-      }`,
-    });
-    setTimeout(() => setReclassifyProgress(null), 5000);
-    load();
-  };
-
-  // ---- Relancer le scraping (background, survit à la fermeture de l'onglet) ----
-  const [rescrapeProgress, setRescrapeProgress] = useState<{ done: number; total: number; found: number; inserted: number; updated: number; errors: number } | null>(null);
-  const [rescrapeJobId, setRescrapeJobId] = useState<string | null>(null);
-
-  // Un job sans progrès depuis 3 min est considéré comme mort.
-  const STALE_MS = 3 * 60_000;
-
-  // Reprise au mount : si un job est encore "running" pour ce user, on s'y raccroche.
-  useEffect(() => {
-    if (!isAdmin) return;
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from("rescrape_jobs")
-        .select("id, total, done, found, inserted, updated, errors, updated_at")
-        .eq("created_by", user.id)
-        .eq("status", "running")
-        .order("started_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!data) return;
-      const isStale = data.updated_at && (Date.now() - new Date(data.updated_at).getTime() > STALE_MS);
-      if (isStale) {
-        toast({
-          title: "Ancien job de re-scraping bloqué",
-          description: `Le job précédent (${data.done}/${data.total}) ne répond plus. Relance pour repartir.`,
-          variant: "destructive",
-        });
-        return;
-      }
-      setRescrapeJobId(data.id);
-      setRescrapeProgress({
-        done: data.done, total: data.total, found: data.found,
-        inserted: data.inserted, updated: data.updated, errors: data.errors,
-      });
-      setRunning("__rescrape__");
-    })();
-  }, [isAdmin]);
-
-  // Polling tant qu'un job est suivi.
-  useEffect(() => {
-    if (!rescrapeJobId) return;
-    let cancelled = false;
-    const tick = async () => {
-      const { data } = await supabase
-        .from("rescrape_jobs")
-        .select("status, total, done, found, inserted, updated, errors, updated_at")
-        .eq("id", rescrapeJobId)
-        .maybeSingle();
-      if (cancelled || !data) return;
-      setRescrapeProgress({
-        done: data.done, total: data.total, found: data.found,
-        inserted: data.inserted, updated: data.updated, errors: data.errors,
-      });
-      const isStale = data.status === "running" && data.updated_at &&
-        (Date.now() - new Date(data.updated_at).getTime() > STALE_MS);
-      if (data.status !== "running" || isStale) {
-        setRunning(null);
-        setRescrapeJobId(null);
-        const finalStatus = isStale ? "stale" : data.status;
-        toast({
-          title: finalStatus === "done"
-            ? "Re-scraping terminé"
-            : finalStatus === "stale"
-              ? "Re-scraping bloqué (timeout)"
-              : "Re-scraping interrompu",
-          description: `${data.done}/${data.total} URLs · ${data.found} trouvés · ${data.inserted} insérés · ${data.updated} mis à jour${data.errors ? ` · ${data.errors} erreurs` : ""}`,
-          variant: finalStatus === "done" ? undefined : "destructive",
-        });
-        setTimeout(() => setRescrapeProgress(null), 8000);
-        load();
-      }
-    };
-    const interval = setInterval(tick, 2000);
-    tick();
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [rescrapeJobId]);
-
-  const rescrapeScope = async (scope: "all" | { platform: string }) => {
-    const count = scope === "all"
-      ? urls.filter(u => u.is_active).length
-      : urls.filter(u => u.is_active && u.platform === scope.platform).length;
-    if (count === 0) {
-      toast({ title: "Aucune URL active à relancer" });
-      return;
-    }
-    const label = typeof scope === "object" ? `${count} URLs ${scope.platform}` : `les ${count} URLs actives`;
-    const minutes = Math.ceil((count * 30) / 60);
-    if (!confirm(`Relancer le scraping de ${label} ? Durée estimée : ~${minutes} min. Le job tourne en arrière-plan : tu peux quitter la page.`)) return;
-
-    setRunning("__rescrape__");
-    setRescrapeProgress({ done: 0, total: count, found: 0, inserted: 0, updated: 0, errors: 0 });
-    const { data, error } = await supabase.functions.invoke("rescrape-batch", {
-      body: { scope: scope === "all" ? "all" : scope },
-    });
-    if (error || !data?.job_id) {
-      setRunning(null);
-      setRescrapeProgress(null);
-      toast({ title: "Erreur", description: error?.message ?? "Impossible de lancer le job", variant: "destructive" });
-      return;
-    }
-    setRescrapeJobId(data.job_id);
-    toast({ title: "Re-scraping lancé en arrière-plan", description: `${data.total} URLs en file. Tu peux fermer cette page.` });
-  };
-
-  if (adminLoading || loading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="animate-spin" /></div>;
+  if (adminLoading) return null;
+  if (!isAdmin) {
+    return (
+      <div className="container mx-auto py-12 text-center text-muted-foreground">
+        Accès réservé aux administrateurs.
+      </div>
+    );
   }
-  if (!isAdmin) return null;
 
   return (
-    <TooltipProvider>
-    <div className="space-y-6 p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="container mx-auto max-w-7xl py-8 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Sourcing</h1>
-          <p className="text-muted-foreground">
-            {kind === "tender"
-              ? "URLs d'appels d'offres scrapées périodiquement pour alimenter la base AO."
-              : "URLs d'avis d'attribution scrapées pour récupérer les marchés attribués."}
+          <h1 className="text-2xl font-semibold">Sourcing DCE</h1>
+          <p className="text-muted-foreground text-sm">
+            URLs DCE issues des appels d'offres BOAMP &amp; TED, regroupées par plateforme détectée.
           </p>
         </div>
-        <div className="inline-flex rounded-lg border border-border bg-card p-1 self-start">
-          <button
-            type="button"
-            onClick={() => setKind("tender")}
-            className={`px-3 py-1.5 text-sm rounded-md transition ${kind === "tender" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            Appels d'offres ({urls.filter((u) => (((u as unknown) as { kind?: string }).kind ?? "tender") === "tender").length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setKind("award")}
-            className={`px-3 py-1.5 text-sm rounded-md transition ${kind === "award" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            Avis d'attribution ({urls.filter((u) => ((u as unknown) as { kind?: string }).kind === "award").length})
-          </button>
-        </div>
-      </div>
-      <div className="flex items-center justify-between">
-        <div />
-
-        <div className="flex flex-wrap gap-2 items-center justify-end">
-          <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1">
-            <Wand2 className="h-4 w-4 text-primary" />
-            <span className="text-xs text-muted-foreground hidden md:inline">Provider IA :</span>
-            <Select value={aiProvider} onValueChange={(v) => setAiProvider(v as "anthropic" | "openrouter")}>
-              <SelectTrigger className="w-[230px] h-8 border-0 shadow-none focus:ring-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="anthropic">Haiku 4.5 + web_fetch (~$0.40)</SelectItem>
-                <SelectItem value="openrouter">Opus 4.7 deep (~$3.10)</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="flex">
-              <Button
-                size="sm"
-                onClick={() => reclassifyAll("custom")}
-                disabled={running === "__all__"}
-                className="rounded-r-none"
-              >
-                {running === "__all__" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-                Re-classifier custom ({urls.filter((u) => u.platform === "custom" || u.platform === "safetender").length})
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" disabled={running === "__all__"} className="rounded-l-none border-l border-primary-foreground/20 px-2">
-                    <ChevronDown className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="max-h-[400px] overflow-y-auto">
-                  <DropdownMenuItem onClick={() => reclassifyAll("custom")}>
-                    <Wand2 className="mr-2 h-4 w-4" />
-                    Relancer uniquement les custom ({urls.filter((u) => u.platform === "custom" || u.platform === "safetender").length})
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => reclassifyAll("all")}>
-                    <RefreshCcw className="mr-2 h-4 w-4" />
-                    Relancer toutes les URLs ({urls.length})
-                  </DropdownMenuItem>
-                  {(() => {
-                    const counts = urls.reduce<Record<string, number>>((acc, u) => {
-                      const p = u.platform || "custom";
-                      acc[p] = (acc[p] ?? 0) + 1;
-                      return acc;
-                    }, {});
-                    const entries = Object.entries(counts)
-                      .filter(([p]) => p !== "custom" && p !== "safetender")
-                      .sort((a, b) => b[1] - a[1]);
-                    if (entries.length === 0) return null;
-                    return (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">Par plateforme</DropdownMenuLabel>
-                        {entries.map(([platform, count]) => (
-                          <DropdownMenuItem key={platform} onClick={() => reclassifyAll({ platform })}>
-                            <Wand2 className="mr-2 h-4 w-4" />
-                            Relancer uniquement {platform} ({count})
-                          </DropdownMenuItem>
-                        ))}
-                      </>
-                    );
-                  })()}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-
-          {/* Relancer le scraping (différent de la re-classification) */}
-          <div className="flex">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => rescrapeScope({ platform: "mpi" })}
-              disabled={running === "__rescrape__"}
-              className="rounded-r-none"
-            >
-              {running === "__rescrape__"
-                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                : <RefreshCcw className="mr-2 h-4 w-4" />}
-              {rescrapeProgress
-                ? `Scrape : ${rescrapeProgress.done}/${rescrapeProgress.total} · ${rescrapeProgress.inserted}+${rescrapeProgress.updated}`
-                : `Relancer scraping mpi (${urls.filter((u) => u.platform === "mpi" && u.is_active).length})`}
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button disabled={jobRunning || startReclassify.isPending}>
+              {jobRunning ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  En cours…
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 mr-2" />
+                  Reclassifier tous ({kpis.totalHosts})
+                </>
+              )}
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="secondary" disabled={running === "__rescrape__"} className="rounded-l-none border-l border-border px-2">
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-[400px] overflow-y-auto">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">Relancer le scraping</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => rescrapeScope("all")}>
-                  <RefreshCcw className="mr-2 h-4 w-4" />
-                  Toutes les URLs actives ({urls.filter((u) => u.is_active).length})
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs text-muted-foreground">Par plateforme</DropdownMenuLabel>
-                {(() => {
-                  const counts = urls.filter((u) => u.is_active).reduce<Record<string, number>>((acc, u) => {
-                    const p = u.platform || "custom";
-                    acc[p] = (acc[p] ?? 0) + 1;
-                    return acc;
-                  }, {});
-                  return Object.entries(counts)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([platform, count]) => (
-                      <DropdownMenuItem key={platform} onClick={() => rescrapeScope({ platform })}>
-                        <Play className="mr-2 h-4 w-4" />
-                        {platform} ({count})
-                      </DropdownMenuItem>
-                    ));
-                })()}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                onClick={runAtexoBackfill}
-                disabled={backfillRunning}
-              >
-                {backfillRunning
-                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  : <RefreshCcw className="mr-2 h-4 w-4" />}
-                {backfillRunning && backfillProgress
-                  ? `Atexo : ${backfillProgress.updated} maj • ${backfillProgress.remaining} restantes`
-                  : "Rétro-enrichir Atexo"}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              Re-télécharge les fiches de chaque consultation Atexo placeholder en base et remplit titre/acheteur/deadline.
-            </TooltipContent>
-          </Tooltip>
-          <Button variant="outline" onClick={() => setBulkOpen(true)}><Plus className="mr-2 h-4 w-4" />Import en masse</Button>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button><Plus className="mr-2 h-4 w-4" />Ajouter une URL</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Nouvelle URL de sourcing</DialogTitle></DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label>URL</Label>
-                  <Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value, platform: detectPlatform(e.target.value) })} placeholder="https://..." />
-                </div>
-                <div>
-                  <Label>Plateforme</Label>
-                  <Select value={form.platform} onValueChange={(v) => setForm({ ...form, platform: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Nom affiché (optionnel)</Label>
-                  <Input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Fréquence (heures)</Label>
-                  <Input type="number" value={form.frequency_hours} onChange={(e) => setForm({ ...form, frequency_hours: parseInt(e.target.value) || 6 })} />
-                </div>
-              </div>
-              <DialogFooter><Button onClick={addUrl}>Ajouter</Button></DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reclassifier tous les hosts ?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Claude 3.5 Sonnet va analyser les {kpis.totalHosts} hosts et écraser
+                les fingerprints existants. Durée estimée : 6-10 min.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Annuler</AlertDialogCancel>
+              <AlertDialogAction onClick={handleStartReclassify}>
+                Lancer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
 
-      {reclassifyProgress && (
+      {lastJob && (jobRunning || jobPct < 100) && (
         <Card>
-          <CardContent className="pt-6 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium">
-                Reclassification IA en cours… {reclassifyProgress.done} / {reclassifyProgress.total}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {Math.round((reclassifyProgress.done / reclassifyProgress.total) * 100)}%
-              </div>
+          <CardContent className="pt-6 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="font-medium">
+                {jobRunning ? "Reclassification en cours…" : "Dernier job"}
+              </span>
+              <span className="tabular-nums text-muted-foreground">
+                {lastJob.processed} / {lastJob.total} ({jobPct}%) ·{" "}
+                {lastJob.classified} classés
+              </span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full bg-primary transition-all"
-                style={{ width: `${(reclassifyProgress.done / reclassifyProgress.total) * 100}%` }}
-              />
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs">
-              {Object.entries(reclassifyProgress.byPlatform)
-                .sort((a, b) => b[1] - a[1])
-                .map(([p, n]) => (
-                  <Badge key={p} variant={p === "custom" ? "outline" : "secondary"}>
-                    {p}: {n}
-                  </Badge>
-                ))}
-            </div>
+            <Progress value={jobPct} />
           </CardContent>
         </Card>
       )}
 
-      <Dialog open={bulkOpen} onOpenChange={(o) => { if (!bulkImporting) setBulkOpen(o); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Import en masse</DialogTitle>
-            <DialogDescription>Une URL par ligne. Les lignes vides, non-URL et doublons sont filtrés automatiquement.</DialogDescription>
-          </DialogHeader>
-          <Textarea rows={12} placeholder={"https://exemple.fr/marches\nhttps://autre-site.fr/consultations"} value={bulkUrls} onChange={(e) => setBulkUrls(e.target.value)} disabled={bulkImporting} />
-          <DialogFooter>
-            <Button onClick={bulkImport} disabled={bulkImporting}>
-              {bulkImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {bulkImporting ? "Import en cours…" : "Importer"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <KpiCard label="Hosts" value={kpis.totalHosts} />
+        <KpiCard label="Classés" value={kpis.classified} />
+        <KpiCard label="Inconnus" value={kpis.unknown} />
+        <KpiCard label="Tenders BOAMP" value={kpis.boamp} />
+        <KpiCard label="Tenders TED" value={kpis.ted} />
+      </div>
 
-      <Dialog open={!!bulkResult} onOpenChange={(o) => { if (!o) setBulkResult(null); }}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Résultat de l'import</DialogTitle>
-            <DialogDescription>Récapitulatif détaillé de chaque ligne traitée.</DialogDescription>
-          </DialogHeader>
-          {bulkResult && (
-            <div className="space-y-4 text-sm">
-              <div className="flex items-center gap-2 text-emerald-500">
-                <span className="font-mono">✓</span>
-                <span className="font-medium">{bulkResult.inserted.length} URL(s) importée(s)</span>
-              </div>
-
-              {bulkResult.alreadyExists.length > 0 && (
-                <details className="rounded border border-border p-3">
-                  <summary className="cursor-pointer text-amber-500 font-medium">
-                    ⚠ {bulkResult.alreadyExists.length} déjà présente(s) en base — ignorée(s)
-                  </summary>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground break-all">
-                    {bulkResult.alreadyExists.map((u) => <li key={u}>{u}</li>)}
-                  </ul>
-                </details>
-              )}
-
-              {bulkResult.duplicatesInPaste.length > 0 && (
-                <details className="rounded border border-border p-3">
-                  <summary className="cursor-pointer text-amber-500 font-medium">
-                    ⚠ {bulkResult.duplicatesInPaste.length} doublon(s) dans votre liste — 1re version gardée
-                  </summary>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground break-all">
-                    {bulkResult.duplicatesInPaste.map((u, i) => <li key={`${u}-${i}`}>{u}</li>)}
-                  </ul>
-                </details>
-              )}
-
-              {bulkResult.invalid.length > 0 && (
-                <details className="rounded border border-destructive/50 p-3" open>
-                  <summary className="cursor-pointer text-destructive font-medium flex items-center justify-between gap-2">
-                    <span>✗ {bulkResult.invalid.length} ligne(s) invalide(s)</span>
-                    <Button size="sm" variant="outline" onClick={(e) => { e.preventDefault(); copyInvalidLines(); }}>
-                      Copier
-                    </Button>
-                  </summary>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {bulkResult.invalid.map((i, idx) => (
-                      <li key={idx} className="break-all">
-                        <span className="text-foreground">"{i.line}"</span> — {i.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-
-              {bulkResult.failed.length > 0 && (
-                <details className="rounded border border-destructive/50 p-3" open>
-                  <summary className="cursor-pointer text-destructive font-medium">
-                    ✗ {bulkResult.failed.length} échec(s) d'insertion
-                  </summary>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {bulkResult.failed.map((f, idx) => (
-                      <li key={idx} className="break-all">
-                        <span className="text-foreground">{f.url}</span> — {f.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button onClick={() => setBulkResult(null)}>Fermer</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!editing} onOpenChange={(o) => { if (!o && !saving) setEditing(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Modifier l'URL de sourcing</DialogTitle>
-            {editing && (
-              <p className="text-xs text-muted-foreground break-all">
-                ancien : {editing.url} · #{editing.id.slice(0, 8)}
-              </p>
-            )}
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>URL</Label>
-              <Input
-                value={editForm.url}
-                onChange={(e) => setEditForm({ ...editForm, url: e.target.value })}
-                placeholder="https://..."
-              />
-            </div>
-            <div>
-              <Label>Plateforme</Label>
-              <div className="flex gap-2">
-                <Select value={editForm.platform} onValueChange={(v) => setEditForm({ ...editForm, platform: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setEditForm({ ...editForm, platform: detectPlatform(editForm.url) })}
-                  title="Auto-détecter depuis l'URL"
-                >
-                  <Wand2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div>
-              <Label>Nom affiché (optionnel)</Label>
-              <Input value={editForm.display_name} onChange={(e) => setEditForm({ ...editForm, display_name: e.target.value })} />
-            </div>
-            <div>
-              <Label>Fréquence (heures)</Label>
-              <Input
-                type="number"
-                value={editForm.frequency_hours}
-                onChange={(e) => setEditForm({ ...editForm, frequency_hours: parseInt(e.target.value) || 6 })}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label>Actif</Label>
-              <Switch checked={editForm.is_active} onCheckedChange={(v) => setEditForm({ ...editForm, is_active: v })} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Annuler</Button>
-            <Button onClick={saveEdit} disabled={saving}>
-              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Enregistrement…</> : "Enregistrer"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <div className="flex flex-wrap gap-1.5">
+        <CategoryPill
+          label="all"
+          count={kpis.totalHosts}
+          active={category === "all"}
+          onClick={() => setCategory("all")}
+        />
+        {KNOWN_CATEGORIES.filter((c) => counts.get(c)).map((c) => (
+          <CategoryPill
+            key={c}
+            label={c}
+            count={counts.get(c) ?? 0}
+            active={category === c}
+            onClick={() => setCategory(c)}
+          />
+        ))}
+      </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            URLs configurées ({filtersActive ? `${filteredUrls.length} / ${urls.length}` : urls.length})
-          </CardTitle>
-          <CardDescription>Le scheduler tourne automatiquement, ou utilisez les boutons pour tester / forcer.</CardDescription>
+          <CardTitle className="text-base">Filtres</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2 mb-4">
-            <div className="relative flex-1 min-w-[240px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Rechercher par URL ou nom…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8"
-              />
-            </div>
-            <Select value={platformFilter} onValueChange={setPlatformFilter}>
-              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Plateforme" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Toutes plateformes</SelectItem>
-                {platformCounts.map(([p, n]) => (
-                  <SelectItem key={p} value={p}>{p} ({n})</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Statut" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous statuts</SelectItem>
-                <SelectItem value="success">Succès</SelectItem>
-                <SelectItem value="error">Erreur</SelectItem>
-                <SelectItem value="never">Jamais lancé</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={activeFilter} onValueChange={setActiveFilter}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Actif" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous</SelectItem>
-                <SelectItem value="active">Actifs</SelectItem>
-                <SelectItem value="inactive">Inactifs</SelectItem>
-              </SelectContent>
-            </Select>
-            {filtersActive && (
-              <Button variant="ghost" size="sm" onClick={resetFilters}>
-                <X className="mr-1 h-4 w-4" /> Réinitialiser
-              </Button>
-            )}
-          </div>
+        <CardContent className="flex flex-col sm:flex-row gap-3">
+          <Input
+            placeholder="Rechercher un host…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="sm:max-w-sm"
+          />
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger className="sm:max-w-xs">
+              <SelectValue placeholder="Catégorie" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                Toutes les catégories ({kpis.totalHosts})
+              </SelectItem>
+              {KNOWN_CATEGORIES.filter((c) => counts.get(c)).map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c} ({counts.get(c)})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base">
+            Hosts ({visibleData.length})
+          </CardTitle>
+          {isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        </CardHeader>
+        <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>URL</TableHead>
-                <TableHead>Plateforme</TableHead>
-                <TableHead>Fréq.</TableHead>
-                <TableHead>Dernier run</TableHead>
-                <TableHead>Résultat</TableHead>
-                <TableHead>Actif</TableHead>
+                <TableHead>Host</TableHead>
+                <TableHead>Catégorie</TableHead>
+                <TableHead>Source FP</TableHead>
+                <TableHead className="text-right">BOAMP</TableHead>
+                <TableHead className="text-right">TED</TableHead>
+                <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUrls.map((u) => (
-                <TableRow
-                  key={u.id}
-                  id={`row-${u.id}`}
-                  data-row-id={u.id}
-                  className={highlightedId === u.id ? "bg-primary/10 ring-1 ring-primary/40 transition-colors duration-500" : "transition-colors duration-500"}
-                >
-                  <TableCell className="min-w-[360px] align-top">
-                    {u.display_name && <div className="font-medium mb-0.5">{u.display_name}</div>}
-                    <a
-                      href={u.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-muted-foreground hover:text-primary break-all"
+              {isLoading &&
+                Array.from({ length: 8 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell colSpan={7}>
+                      <Skeleton className="h-6 w-full" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              {!isLoading && visibleData.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    Aucun host trouvé.
+                  </TableCell>
+                </TableRow>
+              )}
+              {visibleData.map((row) => (
+                <TableRow key={row.host}>
+                  <TableCell className="font-mono text-xs">
+                    <Link
+                      to={`/sourcing/${encodeURIComponent(row.host)}`}
+                      className="hover:text-primary hover:underline"
+                      title="Voir tous les AO de ce host"
                     >
-                      {u.url}
-                    </a>
+                      {row.host}
+                    </Link>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Badge variant="secondary">{u.platform}</Badge>
-                      {u.metadata?.platform_evidence && Array.isArray(u.metadata.platform_evidence) && u.metadata.platform_evidence.length > 0 && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs">
-                            <div className="text-xs space-y-1">
-                              <div className="font-medium">Source : {u.metadata.platform_source ?? "?"} ({Math.round((u.metadata.platform_confidence ?? 0) * 100)}%)</div>
-                              <div className="text-muted-foreground break-all">{u.metadata.platform_evidence.join(" · ")}</div>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
+                    <Badge className={categoryColor(row.category)} variant="secondary">
+                      {row.category ?? "inconnu"}
+                    </Badge>
+                    {row.platform && row.platform !== row.category && (
+                      <span className="ml-2 text-xs text-muted-foreground">{row.platform}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {row.fingerprint_source ? (
+                      <Badge variant="outline" className="text-xs">
+                        {row.fingerprint_source}
+                        {row.confidence ? ` · ${Math.round(Number(row.confidence) * 100)}%` : ""}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{row.boamp_count}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.ted_count}</TableCell>
+                  <TableCell className="text-right tabular-nums font-medium">
+                    {row.total_count}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      {row.sample_dce_url && (
+                        <Button size="sm" variant="ghost" asChild>
+                          <a
+                            href={row.sample_dce_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Ouvrir la plateforme"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        </Button>
+                      )}
+                      {row.sample_tender_id && (
+                        <Button size="sm" variant="ghost" asChild>
+                          <Link
+                            to={`/tenders/${row.sample_tender_id}`}
+                            title="Voir un AO d'exemple"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                          </Link>
+                        </Button>
+                      )}
+                      {!row.platform && row.sample_dce_url && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pendingHost === row.host}
+                          onClick={() => handleClassify(row.host, row.sample_dce_url!)}
+                        >
+                          {pendingHost === row.host ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <>
+                              <Sparkles className="h-3.5 w-3.5 mr-1" />
+                              Classifier
+                            </>
+                          )}
+                        </Button>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>{u.frequency_hours}h</TableCell>
-                  <TableCell className="text-xs">{u.last_run_at ? new Date(u.last_run_at).toLocaleString("fr-FR") : "—"}</TableCell>
-                  <TableCell>
-                    {u.last_status ? (
-                      <Badge variant={u.last_status === "success" ? "default" : "destructive"}>
-                        {u.last_status} · {u.last_items_inserted ?? 0}/{u.last_items_found ?? 0}
-                      </Badge>
-                    ) : "—"}
-                  </TableCell>
-                  <TableCell><Switch checked={u.is_active} onCheckedChange={(v) => toggleActive(u.id, v)} /></TableCell>
-                  <TableCell className="text-right space-x-1">
-                    <Button size="sm" variant="ghost" onClick={() => reclassifyOne(u.id)} disabled={running === u.id} title="Re-détecter la plateforme">
-                      <Wand2 className="h-4 w-4" />
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => openEdit(u)} title="Modifier">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => dryRun(u.id)} disabled={running === u.id} title="Test (dry-run)">
-                      {running === u.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => runNow(u.id)} disabled={running === u.id} title="Lancer maintenant">
-                      <Play className="h-4 w-4" />
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => remove(u.id)} title="Supprimer">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {filteredUrls.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                  {urls.length === 0 ? "Aucune URL configurée. Ajoutez-en une pour commencer." : "Aucune URL ne correspond aux filtres."}
-                </TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {testResult && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Résultat du test ({testResult.items_found ?? 0} items)</CardTitle>
-            {testResult.error && <CardDescription className="text-destructive">{testResult.error}</CardDescription>}
-          </CardHeader>
-          <CardContent>
-            <pre className="text-xs bg-muted p-4 rounded max-h-96 overflow-auto">{JSON.stringify(testResult.items?.slice(0, 5), null, 2)}</pre>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Logs récents</CardTitle>
-            <Button size="sm" variant="ghost" onClick={load}><RefreshCcw className="h-4 w-4" /></Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Source</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead>Trouvés</TableHead>
-                <TableHead>Insérés</TableHead>
-                <TableHead>MAJ</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Erreur</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {logs.map((l) => (
-                <TableRow key={l.id}>
-                  <TableCell className="text-xs">{l.source}</TableCell>
-                  <TableCell><Badge variant={l.status === "success" ? "default" : "destructive"}>{l.status}</Badge></TableCell>
-                  <TableCell>{l.items_found ?? 0}</TableCell>
-                  <TableCell>{l.items_inserted ?? 0}</TableCell>
-                  <TableCell>{l.items_updated ?? 0}</TableCell>
-                  <TableCell className="text-xs">{new Date(l.started_at).toLocaleString("fr-FR")}</TableCell>
-                  <TableCell className="text-xs max-w-[200px] truncate text-destructive" title={l.errors || ""}>{l.errors || "—"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1141,10 +365,42 @@ const Sourcing = () => {
         </CardContent>
       </Card>
     </div>
-    </TooltipProvider>
   );
 };
 
+const KpiCard = ({ label, value }: { label: string; value: number }) => (
+  <Card>
+    <CardContent className="pt-6">
+      <div className="text-2xl font-semibold tabular-nums">{value.toLocaleString("fr-FR")}</div>
+      <div className="text-xs text-muted-foreground mt-1">{label}</div>
+    </CardContent>
+  </Card>
+);
+
+const CategoryPill = ({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) => (
+  <button
+    onClick={onClick}
+    className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+      active
+        ? "bg-primary text-primary-foreground border-primary"
+        : "bg-background hover:bg-muted border-border"
+    }`}
+  >
+    <span className="font-medium">{label}</span>
+    <span className={`ml-1.5 tabular-nums ${active ? "opacity-80" : "text-muted-foreground"}`}>
+      {count}
+    </span>
+  </button>
+);
+
 export default Sourcing;
-
-

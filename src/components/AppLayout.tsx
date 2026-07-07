@@ -22,7 +22,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/pricing": "Chiffrages (DIE)",
   "/groups": "Groupes",
   "/users": "Utilisateurs",
-  "/admin/prompts": "Prompts IA",
 };
 
 const AppLayout = () => {

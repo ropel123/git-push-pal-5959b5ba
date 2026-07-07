@@ -18,8 +18,6 @@ import SettingsPage from "./pages/SettingsPage";
 import Onboarding from "./pages/Onboarding";
 import BuyerDetail from "./pages/BuyerDetail";
 import Activity from "./pages/Activity";
-import AgentMonitor from "./pages/AgentMonitor";
-import Sourcing from "./pages/Sourcing";
 import TrackedTenders from "./pages/TrackedTenders";
 import AlertsPage from "./pages/AlertsPage";
 import DcePage from "./pages/DcePage";
@@ -28,7 +26,8 @@ import MemoirsPage from "./pages/MemoirsPage";
 import PricingPage from "./pages/PricingPage";
 import GroupsPage from "./pages/GroupsPage";
 import UsersPage from "./pages/UsersPage";
-import AdminPromptsPage from "./pages/AdminPromptsPage";
+import Sourcing from "./pages/Sourcing";
+import SourcingHostDetail from "./pages/SourcingHostDetail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -63,8 +62,6 @@ const App = () => (
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/buyers/:id" element={<BuyerDetail />} />
                 <Route path="/activity" element={<Activity />} />
-                <Route path="/agent-monitor" element={<AgentMonitor />} />
-                <Route path="/sourcing" element={<Sourcing />} />
                 <Route path="/tracked" element={<TrackedTenders />} />
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/dce" element={<DcePage />} />
@@ -72,7 +69,8 @@ const App = () => (
                 <Route path="/memoirs" element={<MemoirsPage />} />
                 <Route path="/groups" element={<GroupsPage />} />
                 <Route path="/users" element={<UsersPage />} />
-                <Route path="/admin/prompts" element={<AdminPromptsPage />} />
+                <Route path="/sourcing" element={<Sourcing />} />
+                <Route path="/sourcing/:host" element={<SourcingHostDetail />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

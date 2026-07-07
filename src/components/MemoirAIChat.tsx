@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -7,16 +8,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useSaveMemoir } from "@/hooks/mutations/useMemoir";
-import {
-  loadOrCreateConversation,
-  persistConversation,
-  type ChatMessage,
-  type Attachment,
-  type ConversationMode,
-} from "@/lib/memoirConversation";
-import { createStreamAccumulator } from "@/lib/aiStream";
-import { Bot, Send, Loader2, Save, Sparkles, Paperclip, X, FileText, RotateCcw, Globe } from "lucide-react";
+import { Bot, Send, Loader2, Save, Sparkles, Paperclip, X, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+
+type Attachment = { name: string; url: string };
+type Message = { role: "user" | "assistant"; content: string; attachments?: Attachment[] };
 
 interface MemoirData {
   company_name?: string;
@@ -37,7 +33,7 @@ interface MemoirData {
 
 interface MemoirAIChatProps {
   onMemoirSaved: () => void;
-  mode?: ConversationMode;
+  mode?: "dialog" | "onboarding";
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-memoir`;
@@ -47,13 +43,11 @@ const ACCEPTED_TYPES = ".pdf,.jpg,.jpeg,.png,.docx,.xlsx";
 export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirAIChatProps) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [analyzingWebsite, setAnalyzingWebsite] = useState(false);
   const [memoirData, setMemoirData] = useState<MemoirData | null>(null);
   const saveMemoirMutation = useSaveMemoir(user?.id);
   const saving = saveMemoirMutation.isPending;
@@ -62,9 +56,6 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const initRef = useRef(false);
-
-  const displayedMessages = messages.filter((m) => !m.hidden);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -72,78 +63,33 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     }
   }, [messages]);
 
-  const initConversation = useCallback(async () => {
-    if (!user) return;
-    setRestoring(true);
-    const conv = await loadOrCreateConversation(user.id, mode);
-    setRestoring(false);
-    if (!conv) {
-      toast({ title: "Erreur", description: "Impossible de charger la conversation.", variant: "destructive" });
-      return;
-    }
-    setConversationId(conv.id);
-    if (conv.messages.length > 0) {
-      // Reprise : on restaure l'historique et l'éventuel brouillon.
-      setMessages(conv.messages);
-      if (conv.memoir_draft) setMemoirData(conv.memoir_draft as MemoirData);
-      toast({ title: "Conversation restaurée", description: "Vous reprenez là où vous vous étiez arrêté." });
-    } else {
-      sendToAI([], conv.id);
-    }
-    // sendToAI/toast volontairement omis : initConversation ne doit se
-    // recréer qu'au changement d'utilisateur ou de mode.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, mode]);
-
-  // Démarrage automatique — initRef évite le double appel en StrictMode.
+  // Auto-start conversation
   useEffect(() => {
-    if (mode === "onboarding" && user && !initRef.current) {
-      initRef.current = true;
-      initConversation();
+    if (mode === "onboarding" && messages.length === 0) {
+      sendToAI([]);
     }
-  }, [mode, user, initConversation]);
+  }, [mode]);
 
   useEffect(() => {
-    if (mode === "dialog" && open && user && !initRef.current) {
-      initRef.current = true;
-      initConversation();
+    if (mode === "dialog" && open && messages.length === 0) {
+      sendToAI([]);
     }
-  }, [open, mode, user, initConversation]);
-
-  const restartConversation = async () => {
-    if (!user) return;
-    if (conversationId) {
-      await persistConversation(conversationId, { status: "abandoned" });
-    }
-    setMessages([]);
-    setMemoirData(null);
-    setConversationId(null);
-    const conv = await loadOrCreateConversation(user.id, mode);
-    if (conv) {
-      setConversationId(conv.id);
-      sendToAI([], conv.id);
-    }
-  };
-
-  const sanitizeFileName = (name: string) =>
-    name
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9._-]/g, "_")
-      .slice(-100);
+  }, [open]);
 
   const uploadFiles = async (files: File[]): Promise<Attachment[]> => {
     if (!user || files.length === 0) return [];
     const attachments: Attachment[] = [];
     for (const file of files) {
-      const path = `${user.id}/memoir-attachments/${Date.now()}_${sanitizeFileName(file.name)}`;
+      const path = `memoir-attachments/${user.id}/${Date.now()}_${file.name}`;
       const { error } = await supabase.storage.from("company-assets").upload(path, file);
       if (error) {
         toast({ title: "Erreur upload", description: `${file.name}: ${error.message}`, variant: "destructive" });
         continue;
       }
       const { data: urlData } = await supabase.storage.from("company-assets").createSignedUrl(path, 3600 * 24 * 7);
-      attachments.push({ name: file.name, url: urlData?.signedUrl ?? "", path });
+      if (urlData?.signedUrl) {
+        attachments.push({ name: file.name, url: urlData.signedUrl });
+      }
     }
     return attachments;
   };
@@ -165,52 +111,26 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const extractAttachments = async (attachments: Attachment[]): Promise<ChatMessage[]> => {
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
-    const results: ChatMessage[] = [];
-    for (const att of attachments) {
-      if (!att.path) continue;
-      try {
-        const resp = await fetch(CHAT_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ messages: [], extract_document_path: att.path }),
-        });
-        const data = await resp.json();
-        if (data.document_content) {
-          results.push({
-            role: "user",
-            content: `[Document joint « ${att.name} » — contenu extrait]\n\n${data.document_content}`,
-            hidden: true,
-          });
-        }
-      } catch (e) {
-        console.error("[memoir] extraction attachment failed:", att.name, e);
-      }
-    }
-    return results;
-  };
-
-  const toApiMessages = (history: ChatMessage[]) =>
-    history.map((m) => {
-      if (m.attachments?.length) {
-        const attachmentText = m.attachments.map((a) => `\n[Pièce jointe : ${a.name}]`).join("");
-        return { role: m.role, content: m.content + attachmentText };
-      }
-      return { role: m.role, content: m.content };
-    });
-
-  const sendToAI = async (history: ChatMessage[], convId: string | null = conversationId) => {
+  const sendToAI = async (msgs: Message[]) => {
     setIsLoading(true);
+    let assistantContent = "";
 
     try {
+      const apiMessages = msgs.map((m) => {
+        if (m.attachments?.length) {
+          const attachmentText = m.attachments.map((a) => `\n[Pièce jointe : ${a.name}]`).join("");
+          return { role: m.role, content: m.content + attachmentText };
+        }
+        return { role: m.role, content: m.content };
+      });
+
       const resp = await fetch(CHAT_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
-        body: JSON.stringify({ messages: toApiMessages(history) }),
+        body: JSON.stringify({ messages: apiMessages }),
       });
 
       if (!resp.ok) {
@@ -221,89 +141,143 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
       }
 
       const reader = resp.body?.getReader();
-      if (!reader) {
-        setIsLoading(false);
-        return;
-      }
+      if (!reader) { setIsLoading(false); return; }
 
       const decoder = new TextDecoder();
-      const acc = createStreamAccumulator();
-
-      const renderPartial = () => {
-        const partial = acc.content;
-        if (!partial) return;
-        setMessages([...history, { role: "assistant", content: partial }]);
-      };
+      let buffer = "";
+      let toolCallArgs = "";
+      let toolCallName = "";
+      let hasToolCall = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        acc.push(decoder.decode(value, { stream: true }));
-        renderPartial();
-      }
-      acc.flush();
-      renderPartial();
+        buffer += decoder.decode(value, { stream: true });
 
-      // Historique final du tour : le texte de l'assistant en fait partie,
-      // y compris quand un tool call suit (sinon l'IA perd son propre fil).
-      let finalHistory = history;
-      if (acc.content) {
-        finalHistory = [...history, { role: "assistant" as const, content: acc.content }];
-      }
-      setMessages(finalHistory);
-      if (convId) persistConversation(convId, { messages: finalHistory });
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
 
-      for (const toolCall of acc.getToolCalls()) {
-        let args: Record<string, unknown>;
-        try {
-          args = JSON.parse(toolCall.arguments || "{}");
-        } catch (e) {
-          console.error("[memoir] tool call args invalides:", toolCall.name, e);
-          continue;
-        }
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (line.startsWith(":") || line.trim() === "") continue;
+          if (!line.startsWith("data: ")) continue;
 
-        if (toolCall.name === "analyze_website" && typeof args.url === "string" && args.url) {
-          setAnalyzingWebsite(true);
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") break;
+
           try {
-            const websiteResp = await fetch(CHAT_URL, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-              },
-              body: JSON.stringify({ messages: [], analyze_website_url: args.url }),
-            });
-            const websiteData = await websiteResp.json();
-            setAnalyzingWebsite(false);
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed.choices?.[0]?.delta;
 
-            if (websiteData.website_content) {
-              // Message de contexte masqué mais persisté : l'analyse reste
-              // disponible pour toute la suite de l'entretien.
-              const contextMsg: ChatMessage = {
-                role: "user",
-                content: `[Contenu du site web ${args.url} analysé automatiquement]\n\n${websiteData.website_content}`,
-                hidden: true,
-              };
-              const nextHistory = [...finalHistory, contextMsg];
-              setMessages(nextHistory);
-              if (convId) persistConversation(convId, { messages: nextHistory });
-              await sendToAI(nextHistory, convId);
-              return;
+            const content = delta?.content;
+            if (content) {
+              assistantContent += content;
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant") {
+                  return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantContent } : m));
+                }
+                return [...prev, { role: "assistant", content: assistantContent }];
+              });
             }
-            toast({
-              title: "Analyse du site échouée",
-              description: websiteData.error || "Le site n'a pas pu être analysé, l'entretien continue.",
-              variant: "destructive",
-            });
-          } catch (e) {
-            setAnalyzingWebsite(false);
-            console.error("Website analysis failed:", e);
-            toast({ title: "Analyse du site échouée", description: "Le site n'a pas pu être analysé, l'entretien continue.", variant: "destructive" });
+
+            if (delta?.tool_calls) {
+              hasToolCall = true;
+              for (const tc of delta.tool_calls) {
+                if (tc.function?.name) toolCallName = tc.function.name;
+                if (tc.function?.arguments) toolCallArgs += tc.function.arguments;
+              }
+            }
+          } catch {
+            buffer = line + "\n" + buffer;
+            break;
           }
-        } else if (toolCall.name === "save_memoir") {
-          setMemoirData(args as MemoirData);
-          if (convId) persistConversation(convId, { messages: finalHistory, memoir_draft: args });
-          toast({ title: "Mémoire technique prêt", description: "Vérifiez le résumé et sauvegardez." });
+        }
+      }
+
+      // Flush remaining buffer
+      if (buffer.trim()) {
+        for (let raw of buffer.split("\n")) {
+          if (!raw) continue;
+          if (raw.endsWith("\r")) raw = raw.slice(0, -1);
+          if (!raw.startsWith("data: ")) continue;
+          const jsonStr = raw.slice(6).trim();
+          if (jsonStr === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              assistantContent += content;
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant") {
+                  return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantContent } : m));
+                }
+                return [...prev, { role: "assistant", content: assistantContent }];
+              });
+            }
+            if (parsed.choices?.[0]?.delta?.tool_calls) {
+              hasToolCall = true;
+              for (const tc of parsed.choices[0].delta.tool_calls) {
+                if (tc.function?.name) toolCallName = tc.function.name;
+                if (tc.function?.arguments) toolCallArgs += tc.function.arguments;
+              }
+            }
+          } catch { /* ignore */ }
+        }
+      }
+
+      if (hasToolCall && toolCallArgs) {
+        try {
+          const data = JSON.parse(toolCallArgs);
+
+          if (toolCallName === "analyze_website") {
+            // Handle website analysis tool call
+            const websiteUrl = data.url;
+            if (websiteUrl) {
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                const analyzing = "\n\n🔍 *Analyse du site web en cours...*";
+                if (last?.role === "assistant") {
+                  return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: m.content + analyzing } : m));
+                }
+                return [...prev, { role: "assistant", content: analyzing }];
+              });
+
+              try {
+                const websiteResp = await fetch(CHAT_URL, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+                  },
+                  body: JSON.stringify({ messages: [], analyze_website_url: websiteUrl }),
+                });
+                const websiteData = await websiteResp.json();
+
+                if (websiteData.website_content) {
+                  const contextMsg: Message = {
+                    role: "user",
+                    content: `[Contenu du site web ${websiteUrl} analysé automatiquement]\n\n${websiteData.website_content}`,
+                  };
+                  const updatedMsgs = [...msgs, contextMsg];
+                  setMessages((prev) => [...prev.filter(m => !m.content.includes("Analyse du site web en cours"))]);
+                  // Continue conversation with website context
+                  await sendToAI(updatedMsgs);
+                  return;
+                }
+              } catch (e) {
+                console.error("Website analysis failed:", e);
+                toast({ title: "Analyse du site échouée", description: "Le site n'a pas pu être analysé, l'entretien continue.", variant: "destructive" });
+              }
+            }
+          } else if (toolCallName === "save_memoir" || !toolCallName) {
+            setMemoirData(data as MemoirData);
+            toast({ title: "Mémoire technique prêt", description: "Vérifiez le résumé et sauvegardez." });
+          }
+        } catch (e) {
+          console.error("Failed to parse tool call:", e);
         }
       }
     } catch (e) {
@@ -318,27 +292,21 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     if ((!input.trim() && pendingFiles.length === 0) || isLoading) return;
 
     let attachments: Attachment[] = [];
-    let contextMsgs: ChatMessage[] = [];
     if (pendingFiles.length > 0) {
       setUploading(true);
       attachments = await uploadFiles(pendingFiles);
-      setPendingFiles([]);
-      // Extraction du contenu des pièces jointes → messages de contexte cachés,
-      // pour que l'IA lise réellement les documents et pas seulement leur nom.
-      const extractable = attachments.filter((a) => a.path);
-      if (extractable.length > 0) contextMsgs = await extractAttachments(extractable);
       setUploading(false);
+      setPendingFiles([]);
     }
 
-    const userMsg: ChatMessage = {
+    const userMsg: Message = {
       role: "user",
       content: input.trim() || (attachments.length > 0 ? "Voici mes documents." : ""),
       attachments: attachments.length > 0 ? attachments : undefined,
     };
-    const newMessages = [...messages, userMsg, ...contextMsgs];
+    const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
-    if (conversationId) persistConversation(conversationId, { messages: newMessages });
     sendToAI(newMessages);
   };
 
@@ -368,14 +336,11 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     saveMemoirMutation.mutate(updateData, {
       onSuccess: () => {
         toast({ title: "Mémoire technique sauvegardé ✓" });
-        if (conversationId) persistConversation(conversationId, { status: "completed" });
         onMemoirSaved();
         if (mode === "dialog") {
           setOpen(false);
           setMessages([]);
           setMemoirData(null);
-          setConversationId(null);
-          initRef.current = false;
         }
       },
       onError: (err) => {
@@ -389,12 +354,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     <>
       <ScrollArea className="flex-1 px-6" ref={scrollRef}>
         <div className="space-y-4 pb-4 pt-2">
-          {restoring && (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
-          {displayedMessages.map((msg, i) => (
+          {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
                 className={`max-w-[85%] rounded-lg px-4 py-3 text-sm ${
@@ -431,15 +391,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
               </div>
             </div>
           ))}
-          {analyzingWebsite && (
-            <div className="flex justify-start">
-              <div className="bg-muted rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-muted-foreground">
-                <Globe className="h-4 w-4 animate-pulse" />
-                Analyse du site web en cours...
-              </div>
-            </div>
-          )}
-          {isLoading && !analyzingWebsite && displayedMessages[displayedMessages.length - 1]?.role !== "assistant" && (
+          {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
             <div className="flex justify-start">
               <div className="bg-muted rounded-lg px-4 py-3">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -455,7 +407,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
             <p className="text-sm font-medium text-foreground">Mémoire technique prêt !</p>
             <p className="text-xs text-muted-foreground">
               {memoirData.company_name && `${memoirData.company_name} · `}
-              {memoirData.company_certifications?.length || 0} certifications ·
+              {memoirData.company_certifications?.length || 0} certifications · 
               {memoirData.company_references?.length || 0} références
             </p>
           </div>
@@ -511,10 +463,10 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Votre réponse..."
-            disabled={isLoading || uploading || restoring}
+            disabled={isLoading || uploading}
             autoFocus
           />
-          <Button type="submit" size="icon" disabled={isLoading || uploading || restoring || (!input.trim() && pendingFiles.length === 0)}>
+          <Button type="submit" size="icon" disabled={isLoading || uploading || (!input.trim() && pendingFiles.length === 0)}>
             {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </form>
@@ -522,26 +474,12 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
     </>
   );
 
-  const headerActions = displayedMessages.length > 0 && !isLoading && (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="gap-1.5 text-muted-foreground"
-      onClick={restartConversation}
-      title="Recommencer l'entretien depuis le début"
-    >
-      <RotateCcw className="h-3.5 w-3.5" />
-      Recommencer
-    </Button>
-  );
-
   if (mode === "onboarding") {
     return (
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b border-border flex items-center gap-2">
           <Bot className="h-5 w-5 text-primary" />
-          <h2 className="font-semibold text-foreground flex-1">Assistant Mémoire Technique</h2>
-          {headerActions}
+          <h2 className="font-semibold text-foreground">Assistant Mémoire Technique</h2>
         </div>
         {chatContent}
       </div>
@@ -560,8 +498,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
         <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-primary" />
-            <span className="flex-1">Assistant Mémoire Technique</span>
-            {headerActions}
+            Assistant Mémoire Technique
           </DialogTitle>
         </DialogHeader>
         {chatContent}

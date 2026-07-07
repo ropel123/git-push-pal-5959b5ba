@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.fetch-boamp]
 verify_jwt = false
+
+[functions.run-matching]
+verify_jwt = false

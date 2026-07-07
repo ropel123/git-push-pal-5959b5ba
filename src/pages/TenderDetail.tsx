@@ -15,8 +15,8 @@ import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import BuyerFollowButton from "@/components/BuyerFollowButton";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
-import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { effectiveTenderStatus, tenderStatusLabel, tenderStatusColor } from "@/lib/tenderStatus";
+import { AwardDetailDialog, type AwardDetail } from "@/components/awards/AwardDetailDialog";
+import { ChevronRight } from "lucide-react";
 
 interface Tender {
   id: string;
@@ -61,14 +61,24 @@ interface AwardNotice {
   contract_duration: string | null;
 }
 
-const statusLabel = tenderStatusLabel;
-const statusColor = tenderStatusColor;
+const statusLabel: Record<string, string> = {
+  open: "Ouvert",
+  closed: "Clôturé",
+  awarded: "Attribué",
+  cancelled: "Annulé",
+};
+
+const statusColor: Record<string, string> = {
+  open: "bg-green-500/20 text-green-400 border-green-500/30",
+  closed: "bg-red-500/20 text-red-400 border-red-500/30",
+  awarded: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  cancelled: "bg-muted text-muted-foreground",
+};
 
 const TenderDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { isAdmin } = useIsAdmin();
   const { toast } = useToast();
 
   const tenderQuery = useTender(id);
@@ -81,6 +91,7 @@ const TenderDetail = () => {
   const [dceUploads, setDceUploads] = useState<any[]>([]);
   const [analyses, setAnalyses] = useState<any[]>([]);
   const [pipelineItem, setPipelineItem] = useState<any>(null);
+  const [selectedAward, setSelectedAward] = useState<AwardDetail | null>(null);
 
   const fetchDceAndAnalyses = () => {
     if (!id || !user) return;
@@ -179,7 +190,7 @@ const TenderDetail = () => {
     return /(boamp\.fr|ted\.europa\.eu)/i.test(u);
   };
 
-  // Bouton DCE direct : uniquement si l'URL pointe vers une vraie plateforme de retrait.
+  // Bouton DCE : uniquement si l'URL pointe vers une vraie plateforme de retrait.
   const dceUrl = tender.dce_url && !isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url)
     ? tender.dce_url
     : null;
@@ -196,21 +207,9 @@ const TenderDetail = () => {
     (!isGenericLink(tender.source_url) && !isPublisherUrl(tender.source_url) ? tender.source_url : null) ||
     (!isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url) ? tender.dce_url : null);
 
-  // Filet garanti : l'avis officiel BOAMP/TED (source_url) résout toujours, même si
-  // c'est une URL éditeur. On ne le jette donc PAS de la cascade de repli — sinon un
-  // tender BOAMP (source_url = boamp.fr, dce_url = null) se retrouve sans aucun lien
-  // cliquable. Objectif : garantir un lien qui marche à chaque fois.
-  const noticeUrl: string | null =
-    (!isGenericLink(tender.source_url) ? tender.source_url : null) || fallbackListing || null;
-
-  const officialUrl = primaryUrl || noticeUrl;
-  const officialLabel = primaryUrl ? "Voir l'avis original" : "Voir l'avis officiel";
+  const officialUrl = primaryUrl || (fallbackListing && !isPublisherUrl(fallbackListing) ? fallbackListing : null);
+  const officialLabel = primaryUrl ? "Voir l'avis original" : "Voir sur la plateforme acheteur";
   const isFallbackOnly = !primaryUrl && !!officialUrl;
-
-  // Lien de récupération du DCE présenté à l'utilisateur : la plateforme de retrait
-  // directe si on l'a, sinon l'avis officiel (toujours disponible pour BOAMP/TED).
-  const dceAccessUrl = dceUrl || noticeUrl;
-  const dceAccessViaNotice = !dceUrl && !!noticeUrl;
 
 
   return (
@@ -224,14 +223,11 @@ const TenderDetail = () => {
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-foreground">{tender.title}</h1>
-            {tender.status && (() => {
-              const displayStatus = effectiveTenderStatus(tender.status, tender.deadline)!;
-              return (
-                <Badge variant="outline" className={statusColor[displayStatus] ?? ""}>
-                  {statusLabel[displayStatus] ?? displayStatus}
-                </Badge>
-              );
-            })()}
+            {tender.status && (
+              <Badge variant="outline" className={statusColor[tender.status] ?? ""}>
+                {statusLabel[tender.status] ?? tender.status}
+              </Badge>
+            )}
             {tender.contract_type && (
               <Badge variant="secondary">
                 <Briefcase className="h-3 w-3 mr-1" />
@@ -254,11 +250,10 @@ const TenderDetail = () => {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          {dceAccessUrl && (
+          {dceUrl && (
             <Button asChild variant="outline">
-              <a href={dceAccessUrl} target="_blank" rel="noopener noreferrer">
-                <FileDown className="h-4 w-4 mr-1" />
-                {dceAccessViaNotice ? "Accéder au DCE (avis officiel)" : "Accéder au DCE"}
+              <a href={dceUrl} target="_blank" rel="noopener noreferrer">
+                <FileDown className="h-4 w-4 mr-1" /> Accéder au DCE
               </a>
             </Button>
           )}
@@ -502,7 +497,7 @@ const TenderDetail = () => {
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            {isAdmin && tender.dce_url && (
+            {tender.dce_url && (
               <DceAgentFetchButton
                 tenderId={id}
                 dceUrl={tender.dce_url}
@@ -549,19 +544,33 @@ const TenderDetail = () => {
           </CardHeader>
           <CardContent className="space-y-3">
             {awards.map((award) => (
-              <div key={award.id} className="p-3 rounded-md bg-secondary/50 text-sm space-y-1">
-                {award.winner_name && <p className="font-medium text-foreground">{award.winner_name}</p>}
-                <div className="flex flex-wrap gap-4 text-muted-foreground text-xs">
-                  {award.awarded_amount && <span>{new Intl.NumberFormat("fr-FR").format(award.awarded_amount)} €</span>}
-                  {award.num_candidates && <span>{award.num_candidates} candidat(s)</span>}
-                  {award.award_date && <span>{format(new Date(award.award_date), "dd MMM yyyy", { locale: fr })}</span>}
-                  {award.contract_duration && <span>Durée : {award.contract_duration}</span>}
+              <button
+                key={award.id}
+                type="button"
+                onClick={() => setSelectedAward(award as AwardDetail)}
+                className="w-full text-left p-3 rounded-md bg-secondary/50 hover:bg-secondary transition-colors text-sm space-y-1 group flex items-start justify-between gap-3"
+              >
+                <div className="flex-1 min-w-0 space-y-1">
+                  {award.winner_name && <p className="font-medium text-foreground">{award.winner_name}</p>}
+                  <div className="flex flex-wrap gap-4 text-muted-foreground text-xs">
+                    {award.awarded_amount && <span>{new Intl.NumberFormat("fr-FR").format(award.awarded_amount)} €</span>}
+                    {award.num_candidates && <span>{award.num_candidates} candidat(s)</span>}
+                    {award.award_date && <span>{format(new Date(award.award_date), "dd MMM yyyy", { locale: fr })}</span>}
+                    {award.contract_duration && <span>Durée : {award.contract_duration}</span>}
+                  </div>
                 </div>
-              </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors mt-0.5 shrink-0" />
+              </button>
             ))}
           </CardContent>
         </Card>
       )}
+
+      <AwardDetailDialog
+        award={selectedAward}
+        open={!!selectedAward}
+        onOpenChange={(o) => !o && setSelectedAward(null)}
+      />
     </div>
   );
 };

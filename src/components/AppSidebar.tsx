@@ -70,11 +70,9 @@ const NAV: Entry[] = [
 ];
 
 const ADMIN: Entry[] = [
-  { title: "Agent IA", to: "/agent-monitor", icon: Bot },
   { title: "Sourcing", to: "/sourcing", icon: Globe },
   { title: "Groupes", to: "/groups", icon: Users2 },
   { title: "Utilisateurs", to: "/users", icon: UserCog },
-  { title: "Prompts IA", to: "/admin/prompts", icon: Bot },
   { title: "Paramètres", to: "/settings", icon: Settings },
 ];
 

@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { loadPromptConfig, resolveProviderChain } from "../_shared/promptStore.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -111,20 +110,11 @@ ${analysisTexts || "Aucune analyse disponible"}
 
 ${dceTexts ? `DONNÉES DCE ENRICHIES :\n${dceTexts}` : ""}`;
 
-    // Configuration éditable depuis l'admin (system prompt + modèles).
-    const promptConfig = await loadPromptConfig("generate-pricing-strategy", {
-      systemPrompt,
-      provider: "lovable",
-      model: "google/gemini-3-flash-preview",
-      fallbackProvider: "openrouter",
-      fallbackModel: "anthropic/claude-3.5-sonnet",
-      temperature: null,
-    });
-    const providers = resolveProviderChain(promptConfig);
-    if (providers.length === 0) throw new Error("Aucune clé API configurée");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY non configurée");
 
     const aiMessages = [
-      { role: "system", content: promptConfig.systemPrompt + "\n\n" + contextPrompt },
+      { role: "system", content: systemPrompt + "\n\n" + contextPrompt },
       ...(messages || []),
     ];
 
@@ -136,10 +126,16 @@ ${dceTexts ? `DONNÉES DCE ENRICHIES :\n${dceTexts}` : ""}`;
       });
     }
 
-    const requestBody = {
+    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
         messages: aiMessages,
         stream: true,
-        ...(promptConfig.temperature !== null ? { temperature: promptConfig.temperature } : {}),
         tools: [
           {
             type: "function",
@@ -188,43 +184,23 @@ ${dceTexts ? `DONNÉES DCE ENRICHIES :\n${dceTexts}` : ""}`;
             },
           },
         ],
-    };
+      }),
+    });
 
-    // Tentative sur chaque provider (principal puis secours) : toute erreur
-    // bascule sur le suivant.
-    let aiResponse: Response | null = null;
-    let lastStatus = 0;
-    for (const provider of providers) {
-      try {
-        const resp = await fetch(provider.url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${provider.key}`,
-            "Content-Type": "application/json",
-            ...provider.extraHeaders,
-          },
-          body: JSON.stringify({ model: provider.model, ...requestBody }),
+    if (!aiResponse.ok) {
+      if (aiResponse.status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-        if (resp.ok) {
-          aiResponse = resp;
-          break;
-        }
-        lastStatus = resp.status;
-        const errText = await resp.text().catch(() => "");
-        console.warn(`[pricing] ${provider.name} failed (${resp.status}): ${errText.slice(0, 300)}. Trying next provider.`);
-      } catch (e) {
-        console.warn(`[pricing] ${provider.name} network error:`, e);
       }
-    }
-
-    if (!aiResponse) {
-      const message = lastStatus === 429
-        ? "Le service IA est momentanément saturé, réessayez dans quelques instants."
-        : "Le service IA est momentanément indisponible, réessayez dans quelques instants.";
-      return new Response(JSON.stringify({ error: message }), {
-        status: lastStatus === 429 ? 429 : 503,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      if (aiResponse.status === 402) {
+        return new Response(JSON.stringify({ error: "Payment required" }), {
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const errText = await aiResponse.text();
+      console.error("AI error:", aiResponse.status, errText);
+      throw new Error("Erreur IA");
     }
 
     // Stream response back
