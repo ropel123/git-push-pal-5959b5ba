@@ -14,172 +14,19 @@ export type Database = {
   }
   public: {
     Tables: {
-      ai_prompts: {
-        Row: {
-          created_at: string
-          description: string | null
-          fallback_model: string | null
-          fallback_provider: string | null
-          id: string
-          is_active: boolean
-          key: string
-          label: string
-          model: string
-          provider: string
-          system_prompt: string
-          temperature: number | null
-          updated_at: string
-          updated_by: string | null
-          version: number
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          fallback_model?: string | null
-          fallback_provider?: string | null
-          id?: string
-          is_active?: boolean
-          key: string
-          label: string
-          model: string
-          provider?: string
-          system_prompt: string
-          temperature?: number | null
-          updated_at?: string
-          updated_by?: string | null
-          version?: number
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          fallback_model?: string | null
-          fallback_provider?: string | null
-          id?: string
-          is_active?: boolean
-          key?: string
-          label?: string
-          model?: string
-          provider?: string
-          system_prompt?: string
-          temperature?: number | null
-          updated_at?: string
-          updated_by?: string | null
-          version?: number
-        }
-        Relationships: []
-      }
-      ai_prompt_versions: {
-        Row: {
-          created_at: string
-          created_by: string | null
-          fallback_model: string | null
-          fallback_provider: string | null
-          id: string
-          model: string
-          note: string | null
-          prompt_id: string
-          provider: string
-          system_prompt: string
-          temperature: number | null
-          version: number
-        }
-        Insert: {
-          created_at?: string
-          created_by?: string | null
-          fallback_model?: string | null
-          fallback_provider?: string | null
-          id?: string
-          model: string
-          note?: string | null
-          prompt_id: string
-          provider: string
-          system_prompt: string
-          temperature?: number | null
-          version: number
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
-          fallback_model?: string | null
-          fallback_provider?: string | null
-          id?: string
-          model?: string
-          note?: string | null
-          prompt_id?: string
-          provider?: string
-          system_prompt?: string
-          temperature?: number | null
-          version?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ai_prompt_versions_prompt_id_fkey"
-            columns: ["prompt_id"]
-            isOneToOne: false
-            referencedRelation: "ai_prompts"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-      agent_anonymous_identity: {
-        Row: {
-          company_name: string
-          created_at: string | null
-          email: string
-          first_name: string
-          id: string
-          is_default: boolean | null
-          last_name: string
-          phone: string | null
-          siret: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          company_name: string
-          created_at?: string | null
-          email: string
-          first_name: string
-          id?: string
-          is_default?: boolean | null
-          last_name: string
-          phone?: string | null
-          siret?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          company_name?: string
-          created_at?: string | null
-          email?: string
-          first_name?: string
-          id?: string
-          is_default?: boolean | null
-          last_name?: string
-          phone?: string | null
-          siret?: string | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
       agent_playbooks: {
         Row: {
-          confidence: number
           config: Json
           created_at: string | null
           display_name: string
           evidence: string | null
-          fail_count: number
           id: string
           is_active: boolean | null
-          last_error_type: string | null
-          last_validated_at: string | null
-          list_strategy: string | null
-          pagination_hint: string | null
           platform: string
           requires_auth: boolean | null
           requires_captcha: boolean | null
           scout_model: string | null
           scout_tokens_used: number | null
-          sourcing_url_id: string | null
           steps: Json
           success_rate: number | null
           updated_at: string | null
@@ -187,24 +34,17 @@ export type Database = {
           version: number
         }
         Insert: {
-          confidence?: number
           config?: Json
           created_at?: string | null
           display_name: string
           evidence?: string | null
-          fail_count?: number
           id?: string
           is_active?: boolean | null
-          last_error_type?: string | null
-          last_validated_at?: string | null
-          list_strategy?: string | null
-          pagination_hint?: string | null
           platform: string
           requires_auth?: boolean | null
           requires_captcha?: boolean | null
           scout_model?: string | null
           scout_tokens_used?: number | null
-          sourcing_url_id?: string | null
           steps?: Json
           success_rate?: number | null
           updated_at?: string | null
@@ -212,39 +52,24 @@ export type Database = {
           version?: number
         }
         Update: {
-          confidence?: number
           config?: Json
           created_at?: string | null
           display_name?: string
           evidence?: string | null
-          fail_count?: number
           id?: string
           is_active?: boolean | null
-          last_error_type?: string | null
-          last_validated_at?: string | null
-          list_strategy?: string | null
-          pagination_hint?: string | null
           platform?: string
           requires_auth?: boolean | null
           requires_captcha?: boolean | null
           scout_model?: string | null
           scout_tokens_used?: number | null
-          sourcing_url_id?: string | null
           steps?: Json
           success_rate?: number | null
           updated_at?: string | null
           url_pattern?: string
           version?: number
         }
-        Relationships: [
-          {
-            foreignKeyName: "agent_playbooks_sourcing_url_id_fkey"
-            columns: ["sourcing_url_id"]
-            isOneToOne: false
-            referencedRelation: "sourcing_urls"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       agent_runs: {
         Row: {
@@ -338,65 +163,101 @@ export type Database = {
       }
       award_notices: {
         Row: {
+          award_criteria: Json | null
           award_date: string | null
           awarded_amount: number | null
           buyer_name: string | null
           buyer_siret: string | null
           contract_duration: string | null
+          cpv_codes: string[] | null
           created_at: string | null
           id: string
           lots_awarded: Json | null
+          notice_url: string | null
+          notification_date: string | null
           num_candidates: number | null
+          offers_admitted: number | null
+          offers_received: number | null
+          offers_rejected: number | null
+          place_of_performance: string | null
           raw: Json
           reference: string | null
           source: string | null
           source_url: string | null
           sourcing_url_id: string | null
+          subcontracting_share: number | null
           tender_id: string | null
           title: string | null
           updated_at: string
+          winner_address: string | null
+          winner_country: string | null
+          winner_legal_form: string | null
           winner_name: string | null
           winner_siren: string | null
         }
         Insert: {
+          award_criteria?: Json | null
           award_date?: string | null
           awarded_amount?: number | null
           buyer_name?: string | null
           buyer_siret?: string | null
           contract_duration?: string | null
+          cpv_codes?: string[] | null
           created_at?: string | null
           id?: string
           lots_awarded?: Json | null
+          notice_url?: string | null
+          notification_date?: string | null
           num_candidates?: number | null
+          offers_admitted?: number | null
+          offers_received?: number | null
+          offers_rejected?: number | null
+          place_of_performance?: string | null
           raw?: Json
           reference?: string | null
           source?: string | null
           source_url?: string | null
           sourcing_url_id?: string | null
+          subcontracting_share?: number | null
           tender_id?: string | null
           title?: string | null
           updated_at?: string
+          winner_address?: string | null
+          winner_country?: string | null
+          winner_legal_form?: string | null
           winner_name?: string | null
           winner_siren?: string | null
         }
         Update: {
+          award_criteria?: Json | null
           award_date?: string | null
           awarded_amount?: number | null
           buyer_name?: string | null
           buyer_siret?: string | null
           contract_duration?: string | null
+          cpv_codes?: string[] | null
           created_at?: string | null
           id?: string
           lots_awarded?: Json | null
+          notice_url?: string | null
+          notification_date?: string | null
           num_candidates?: number | null
+          offers_admitted?: number | null
+          offers_received?: number | null
+          offers_rejected?: number | null
+          place_of_performance?: string | null
           raw?: Json
           reference?: string | null
           source?: string | null
           source_url?: string | null
           sourcing_url_id?: string | null
+          subcontracting_share?: number | null
           tender_id?: string | null
           title?: string | null
           updated_at?: string
+          winner_address?: string | null
+          winner_country?: string | null
+          winner_legal_form?: string | null
           winner_name?: string | null
           winner_siren?: string | null
         }
@@ -558,47 +419,6 @@ export type Database = {
           sourcing_url_id?: string | null
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "ingest_cursors_sourcing_url_id_fkey"
-            columns: ["sourcing_url_id"]
-            isOneToOne: false
-            referencedRelation: "sourcing_urls"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      memoir_conversations: {
-        Row: {
-          created_at: string
-          id: string
-          memoir_draft: Json | null
-          messages: Json
-          mode: string
-          status: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          memoir_draft?: Json | null
-          messages?: Json
-          mode?: string
-          status?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          memoir_draft?: Json | null
-          messages?: Json
-          mode?: string
-          status?: string
-          updated_at?: string
-          user_id?: string
-        }
         Relationships: []
       }
       pipeline_comments: {
@@ -713,81 +533,6 @@ export type Database = {
         }
         Relationships: []
       }
-      platform_robots: {
-        Row: {
-          created_at: string | null
-          failure_count: number | null
-          id: string
-          is_active: boolean | null
-          last_used_at: string | null
-          login: string
-          notes: string | null
-          password_encrypted: string
-          platform: string
-          success_count: number | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          failure_count?: number | null
-          id?: string
-          is_active?: boolean | null
-          last_used_at?: string | null
-          login: string
-          notes?: string | null
-          password_encrypted: string
-          platform: string
-          success_count?: number | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          failure_count?: number | null
-          id?: string
-          is_active?: boolean | null
-          last_used_at?: string | null
-          login?: string
-          notes?: string | null
-          password_encrypted?: string
-          platform?: string
-          success_count?: number | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
-      platform_sessions: {
-        Row: {
-          cookies: Json
-          created_at: string
-          expires_at: string
-          id: string
-          last_used_at: string | null
-          login_count: number
-          platform: string
-          updated_at: string
-        }
-        Insert: {
-          cookies?: Json
-          created_at?: string
-          expires_at?: string
-          id?: string
-          last_used_at?: string | null
-          login_count?: number
-          platform: string
-          updated_at?: string
-        }
-        Update: {
-          cookies?: Json
-          created_at?: string
-          expires_at?: string
-          id?: string
-          last_used_at?: string | null
-          login_count?: number
-          platform?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       profiles: {
         Row: {
           company_certifications: string[] | null
@@ -860,59 +605,41 @@ export type Database = {
         }
         Relationships: []
       }
-      rescrape_jobs: {
+      reclassify_jobs: {
         Row: {
+          classified: number
           created_at: string
-          created_by: string
-          done: number
-          error_message: string | null
-          errors: number
+          errors: Json
           finished_at: string | null
-          found: number
           id: string
-          inserted: number
-          last_url: string | null
-          scope: Json
+          processed: number
           started_at: string
           status: string
           total: number
-          updated: number
           updated_at: string
         }
         Insert: {
+          classified?: number
           created_at?: string
-          created_by: string
-          done?: number
-          error_message?: string | null
-          errors?: number
+          errors?: Json
           finished_at?: string | null
-          found?: number
           id?: string
-          inserted?: number
-          last_url?: string | null
-          scope?: Json
+          processed?: number
           started_at?: string
           status?: string
           total?: number
-          updated?: number
           updated_at?: string
         }
         Update: {
+          classified?: number
           created_at?: string
-          created_by?: string
-          done?: number
-          error_message?: string | null
-          errors?: number
+          errors?: Json
           finished_at?: string | null
-          found?: number
           id?: string
-          inserted?: number
-          last_url?: string | null
-          scope?: Json
+          processed?: number
           started_at?: string
           status?: string
           total?: number
-          updated?: number
           updated_at?: string
         }
         Relationships: []
@@ -938,148 +665,6 @@ export type Database = {
           id?: string
           name?: string
           user_id?: string
-        }
-        Relationships: []
-      }
-      scrape_logs: {
-        Row: {
-          errors: string | null
-          finished_at: string | null
-          id: string
-          items_found: number | null
-          items_inserted: number | null
-          items_skipped: number | null
-          items_updated: number | null
-          metadata: Json
-          source: string
-          sourcing_url_id: string | null
-          started_at: string
-          status: string
-        }
-        Insert: {
-          errors?: string | null
-          finished_at?: string | null
-          id?: string
-          items_found?: number | null
-          items_inserted?: number | null
-          items_skipped?: number | null
-          items_updated?: number | null
-          metadata?: Json
-          source: string
-          sourcing_url_id?: string | null
-          started_at?: string
-          status?: string
-        }
-        Update: {
-          errors?: string | null
-          finished_at?: string | null
-          id?: string
-          items_found?: number | null
-          items_inserted?: number | null
-          items_skipped?: number | null
-          items_updated?: number | null
-          metadata?: Json
-          source?: string
-          sourcing_url_id?: string | null
-          started_at?: string
-          status?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "scrape_logs_sourcing_url_id_fkey"
-            columns: ["sourcing_url_id"]
-            isOneToOne: false
-            referencedRelation: "sourcing_urls"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      sourcing_seen_urls: {
-        Row: {
-          first_seen_at: string
-          last_seen_at: string
-          sourcing_url_id: string
-          url_hash: string
-        }
-        Insert: {
-          first_seen_at?: string
-          last_seen_at?: string
-          sourcing_url_id: string
-          url_hash: string
-        }
-        Update: {
-          first_seen_at?: string
-          last_seen_at?: string
-          sourcing_url_id?: string
-          url_hash?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "sourcing_seen_urls_sourcing_url_id_fkey"
-            columns: ["sourcing_url_id"]
-            isOneToOne: false
-            referencedRelation: "sourcing_urls"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      sourcing_urls: {
-        Row: {
-          created_at: string
-          display_name: string | null
-          frequency_hours: number
-          id: string
-          is_active: boolean
-          kind: string
-          last_error: string | null
-          last_items_found: number | null
-          last_items_inserted: number | null
-          last_run_at: string | null
-          last_status: string | null
-          metadata: Json
-          parser_type: string
-          platform: string
-          selectors: Json
-          updated_at: string
-          url: string
-        }
-        Insert: {
-          created_at?: string
-          display_name?: string | null
-          frequency_hours?: number
-          id?: string
-          is_active?: boolean
-          kind?: string
-          last_error?: string | null
-          last_items_found?: number | null
-          last_items_inserted?: number | null
-          last_run_at?: string | null
-          last_status?: string | null
-          metadata?: Json
-          parser_type?: string
-          platform?: string
-          selectors?: Json
-          updated_at?: string
-          url: string
-        }
-        Update: {
-          created_at?: string
-          display_name?: string | null
-          frequency_hours?: number
-          id?: string
-          is_active?: boolean
-          kind?: string
-          last_error?: string | null
-          last_items_found?: number | null
-          last_items_inserted?: number | null
-          last_run_at?: string | null
-          last_status?: string | null
-          metadata?: Json
-          parser_type?: string
-          platform?: string
-          selectors?: Json
-          updated_at?: string
-          url?: string
         }
         Relationships: []
       }
@@ -1176,6 +761,7 @@ export type Database = {
           buyer_address: string | null
           buyer_contact: Json | null
           buyer_name: string | null
+          buyer_norm: string | null
           buyer_siret: string | null
           contract_type: string | null
           cpv_codes: string[] | null
@@ -1201,6 +787,7 @@ export type Database = {
           status: Database["public"]["Enums"]["tender_status"] | null
           submission_url: string | null
           title: string
+          title_norm: string | null
           updated_at: string | null
         }
         Insert: {
@@ -1209,6 +796,7 @@ export type Database = {
           buyer_address?: string | null
           buyer_contact?: Json | null
           buyer_name?: string | null
+          buyer_norm?: string | null
           buyer_siret?: string | null
           contract_type?: string | null
           cpv_codes?: string[] | null
@@ -1234,6 +822,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["tender_status"] | null
           submission_url?: string | null
           title: string
+          title_norm?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -1242,6 +831,7 @@ export type Database = {
           buyer_address?: string | null
           buyer_contact?: Json | null
           buyer_name?: string | null
+          buyer_norm?: string | null
           buyer_siret?: string | null
           contract_type?: string | null
           cpv_codes?: string[] | null
@@ -1267,6 +857,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["tender_status"] | null
           submission_url?: string | null
           title?: string
+          title_norm?: string | null
           updated_at?: string | null
         }
         Relationships: []
@@ -1294,11 +885,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      get_distinct_listing_hosts: {
-        Args: { _source: string }
+      get_dce_sourcing_by_fingerprint: {
+        Args: { _category?: string; _search?: string }
         Returns: {
-          count: number
+          boamp_count: number
+          category: string
+          confidence: number
+          fingerprint_source: string
           host: string
+          platform: string
+          sample_dce_url: string
+          sample_tender_id: string
+          ted_count: number
+          total_count: number
         }[]
       }
       get_distinct_tender_procedures: {
@@ -1313,6 +912,44 @@ export type Database = {
           source: string
         }[]
       }
+      get_platform_coverage:
+        | {
+            Args: {
+              _filter?: string
+              _limit?: number
+              _offset?: number
+              _search?: string
+            }
+            Returns: {
+              boamp_count: number
+              category: string
+              host: string
+              is_scraped: boolean
+              sample_dce_url: string
+              scraped_urls: number
+              ted_count: number
+              total_count: number
+            }[]
+          }
+        | {
+            Args: {
+              _category?: string
+              _filter?: string
+              _limit?: number
+              _offset?: number
+              _search?: string
+            }
+            Returns: {
+              boamp_count: number
+              category: string
+              host: string
+              is_scraped: boolean
+              sample_dce_url: string
+              scraped_urls: number
+              ted_count: number
+              total_count: number
+            }[]
+          }
       get_unprocessed_tenders: {
         Args: { _limit?: number; _platform_filter?: string }
         Returns: {
@@ -1328,6 +965,13 @@ export type Database = {
         }
         Returns: boolean
       }
+      match_norm: { Args: { _txt: string }; Returns: string }
+      platform_category: { Args: { _host: string }; Returns: string }
+      platform_host_norm: { Args: { _url: string }; Returns: string }
+      platform_ts_to_category: { Args: { _p: string }; Returns: string }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
+      unaccent: { Args: { "": string }; Returns: string }
     }
     Enums: {
       app_role: "admin" | "user" | "viewer"
