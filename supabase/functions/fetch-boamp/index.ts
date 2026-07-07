@@ -57,7 +57,10 @@ function mapRecord(r: BoampRecord) {
     contract_type: r.nature_libelle ? String(r.nature_libelle) : null,
     description: descripteurs ? String(descripteurs) : null,
     status: "open" as const,
-    enriched_data: { raw: r, _source: "boamp_api" },
+    // On expose explicitement l'URL de l'avis BOAMP comme listing de repli : elle
+    // résout toujours et sert de lien DCE garanti côté UI quand aucun lien de
+    // plateforme de retrait direct n'est disponible.
+    enriched_data: { raw: r, _source: "boamp_api", listing_url: r.urlboamp ? String(r.urlboamp) : null },
   };
 }
 

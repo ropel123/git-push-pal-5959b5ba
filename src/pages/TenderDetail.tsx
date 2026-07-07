@@ -15,6 +15,7 @@ import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import BuyerFollowButton from "@/components/BuyerFollowButton";
 import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 
 interface Tender {
   id: string;
@@ -77,6 +78,7 @@ const TenderDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isAdmin } = useIsAdmin();
   const { toast } = useToast();
 
   const tenderQuery = useTender(id);
@@ -187,7 +189,7 @@ const TenderDetail = () => {
     return /(boamp\.fr|ted\.europa\.eu)/i.test(u);
   };
 
-  // Bouton DCE : uniquement si l'URL pointe vers une vraie plateforme de retrait.
+  // Bouton DCE direct : uniquement si l'URL pointe vers une vraie plateforme de retrait.
   const dceUrl = tender.dce_url && !isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url)
     ? tender.dce_url
     : null;
@@ -204,9 +206,21 @@ const TenderDetail = () => {
     (!isGenericLink(tender.source_url) && !isPublisherUrl(tender.source_url) ? tender.source_url : null) ||
     (!isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url) ? tender.dce_url : null);
 
-  const officialUrl = primaryUrl || (fallbackListing && !isPublisherUrl(fallbackListing) ? fallbackListing : null);
-  const officialLabel = primaryUrl ? "Voir l'avis original" : "Voir sur la plateforme acheteur";
+  // Filet garanti : l'avis officiel BOAMP/TED (source_url) résout toujours, même si
+  // c'est une URL éditeur. On ne le jette donc PAS de la cascade de repli — sinon un
+  // tender BOAMP (source_url = boamp.fr, dce_url = null) se retrouve sans aucun lien
+  // cliquable. Objectif : garantir un lien qui marche à chaque fois.
+  const noticeUrl: string | null =
+    (!isGenericLink(tender.source_url) ? tender.source_url : null) || fallbackListing || null;
+
+  const officialUrl = primaryUrl || noticeUrl;
+  const officialLabel = primaryUrl ? "Voir l'avis original" : "Voir l'avis officiel";
   const isFallbackOnly = !primaryUrl && !!officialUrl;
+
+  // Lien de récupération du DCE présenté à l'utilisateur : la plateforme de retrait
+  // directe si on l'a, sinon l'avis officiel (toujours disponible pour BOAMP/TED).
+  const dceAccessUrl = dceUrl || noticeUrl;
+  const dceAccessViaNotice = !dceUrl && !!noticeUrl;
 
 
   return (
@@ -247,10 +261,11 @@ const TenderDetail = () => {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          {dceUrl && (
+          {dceAccessUrl && (
             <Button asChild variant="outline">
-              <a href={dceUrl} target="_blank" rel="noopener noreferrer">
-                <FileDown className="h-4 w-4 mr-1" /> Accéder au DCE
+              <a href={dceAccessUrl} target="_blank" rel="noopener noreferrer">
+                <FileDown className="h-4 w-4 mr-1" />
+                {dceAccessViaNotice ? "Accéder au DCE (avis officiel)" : "Accéder au DCE"}
               </a>
             </Button>
           )}
@@ -494,7 +509,7 @@ const TenderDetail = () => {
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            {tender.dce_url && (
+            {isAdmin && tender.dce_url && (
               <DceAgentFetchButton
                 tenderId={id}
                 dceUrl={tender.dce_url}
