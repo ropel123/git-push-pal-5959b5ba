@@ -2,7 +2,8 @@ export const KNOWN_CATEGORIES = [
   "atexo", "place", "mpi", "dematis", "achatpublic",
   "marches-securises", "klekoon", "xmarches", "safetender",
   "aws", "synapse", "centrale-marches", "francemarches", "aji",
-  "eu-supply", "domino", "bravo", "autre-mp", "anjou", "inconnu",
+  "eu-supply", "domino", "bravo", "adullact", "marchesonline",
+  "medialex", "autre-mp", "anjou", "inconnu",
 ];
 
 export const normalizeCat = (c: string | null | undefined) => {
