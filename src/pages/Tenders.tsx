@@ -29,7 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { computeScore, getScoreColor } from "@/lib/scoring";
+import { computeScore, getScoreColor, hasScorableProfile } from "@/lib/scoring";
 import { useTenders, type TenderStatus } from "@/hooks/queries/useTenders";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useDceUploadedTenderIds } from "@/hooks/queries/useDceUploads";
@@ -72,6 +72,9 @@ const Tenders = () => {
   const [procedureFilter, setProcedureFilter] = useState<string>(DEFAULT_PROCEDURE);
   const [dceFilter, setDceFilter] = useState(false);
   const [dceReadyFilter, setDceReadyFilter] = useState(false);
+  const [pubDateFrom, setPubDateFrom] = useState("");
+  const [pubDateTo, setPubDateTo] = useState("");
+  const [includeUndatedPub, setIncludeUndatedPub] = useState(true);
   const [smartFilter, setSmartFilter] = useState(true);
   const [profile, setProfile] = useState<any>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
@@ -127,6 +130,9 @@ const Tenders = () => {
     procedures: procedureList,
     dceOnly: dceFilter,
     idsIn: dceReadyFilter ? dceReadyIds : null,
+    publicationFrom: pubDateFrom || undefined,
+    publicationTo: pubDateTo || undefined,
+    includeUndatedPublication: includeUndatedPub,
     smart: smartFilter && profile ? { regions: profile.regions, keywords: profile.keywords } : null,
     enabled: profileLoaded && (!dceReadyFilter || !dceReadyQuery.isLoading),
   });
@@ -135,7 +141,7 @@ const Tenders = () => {
   const totalCount = tendersQuery.data?.count ?? 0;
   const tenders = useMemo(() => {
     const items = tendersQuery.data?.items ?? [];
-    if (smartFilter && profile && items.length > 0) {
+    if (smartFilter && profile && hasScorableProfile(profile) && items.length > 0) {
       return [...items]
         .map((t) => ({ ...t, _score: computeScore(t, profile) }))
         .sort((a, b) => b._score - a._score);
@@ -157,6 +163,9 @@ const Tenders = () => {
     setProcedureFilter(f.procedureFilter ?? DEFAULT_PROCEDURE);
     setDceFilter(f.dceFilter ?? false);
     setDceReadyFilter(f.dceReadyFilter ?? false);
+    setPubDateFrom(f.pubDateFrom ?? "");
+    setPubDateTo(f.pubDateTo ?? "");
+    if (typeof f.includeUndatedPub === "boolean") setIncludeUndatedPub(f.includeUndatedPub);
     if (typeof f.smartFilter === "boolean") setSmartFilter(f.smartFilter);
     setPage(0);
     toast({ title: `Profil de veille "${s.name}" appliqué` });
@@ -187,7 +196,7 @@ const Tenders = () => {
   const saveSearch = async () => {
     if (!user || !searchName.trim()) return;
     setSavingSearch(true);
-    const filters = { search, regionFilter, statusFilter, procedureFilter, dceFilter, dceReadyFilter, smartFilter };
+    const filters = { search, regionFilter, statusFilter, procedureFilter, dceFilter, dceReadyFilter, pubDateFrom, pubDateTo, includeUndatedPub, smartFilter };
     const { error } = await supabase
       .from("saved_searches")
       .insert({ user_id: user.id, name: searchName.trim(), filters });
@@ -240,6 +249,9 @@ const Tenders = () => {
     setProcedureFilter(DEFAULT_PROCEDURE);
     setDceFilter(false);
     setDceReadyFilter(false);
+    setPubDateFrom("");
+    setPubDateTo("");
+    setIncludeUndatedPub(true);
     setSearch("");
     setPage(0);
   };
@@ -299,6 +311,18 @@ const Tenders = () => {
                       {PROCEDURES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Date de publication</Label>
+                  <div className="flex gap-2">
+                    <Input type="date" aria-label="Publié à partir du" className="h-9 text-xs" value={pubDateFrom} onChange={(e) => { setPubDateFrom(e.target.value); setPage(0); }} />
+                    <Input type="date" aria-label="Publié jusqu'au" className="h-9 text-xs" value={pubDateTo} onChange={(e) => { setPubDateTo(e.target.value); setPage(0); }} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch id="undated-pub" checked={includeUndatedPub} onCheckedChange={(v) => { setIncludeUndatedPub(v); setPage(0); }} />
+                    <Label htmlFor="undated-pub" className="text-xs cursor-pointer">Inclure les AO sans date</Label>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 pt-2">
@@ -379,6 +403,18 @@ const Tenders = () => {
             </div>
           )}
 
+          {profileLoaded && profile && !hasScorableProfile(profile) && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 border border-border rounded-lg px-3 py-2">
+              <Sparkles className="h-4 w-4 shrink-0" />
+              <span className="flex-1">
+                Le score de pertinence s'activera une fois votre profil renseigné (mots-clés, régions, secteurs).
+              </span>
+              <Button variant="link" size="sm" className="h-auto p-0" onClick={() => navigate("/settings")}>
+                Compléter mon profil
+              </Button>
+            </div>
+          )}
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -402,7 +438,7 @@ const Tenders = () => {
           ) : (
             <div className="space-y-3">
               {tenders.map((tender) => {
-                const score = profile ? computeScore(tender, profile) : null;
+                const score = profile && hasScorableProfile(profile) ? computeScore(tender, profile) : null;
                 return (
                   <Card key={tender.id} className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer" onClick={() => navigate(`/tenders/${tender.id}`)}>
                     <CardContent className="p-3 sm:p-4">
@@ -437,7 +473,7 @@ const Tenders = () => {
                           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                             {tender.buyer_name && <span className="font-medium">{tender.buyer_name}</span>}
                             {tender.region && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {tender.region}</span>}
-                            {tender.estimated_amount && <span className="flex items-center gap-1"><Euro className="h-3 w-3" /> {new Intl.NumberFormat("fr-FR").format(tender.estimated_amount)} €</span>}
+                            {tender.estimated_amount != null && tender.estimated_amount > 0 && <span className="flex items-center gap-1"><Euro className="h-3 w-3" /> {new Intl.NumberFormat("fr-FR").format(tender.estimated_amount)} €</span>}
                             {tender.deadline && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {format(new Date(tender.deadline), "dd MMM yyyy", { locale: fr })}</span>}
                           </div>
                         </div>

@@ -1,4 +1,4 @@
-interface TenderForScoring {
+export interface TenderForScoring {
   title: string;
   object: string | null;
   region: string | null;
@@ -10,7 +10,7 @@ interface TenderForScoring {
   description?: string | null;
 }
 
-interface ProfileForScoring {
+export interface ProfileForScoring {
   keywords: string[] | null;
   regions: string[] | null;
   sectors: string[] | null;
@@ -18,6 +18,24 @@ interface ProfileForScoring {
   company_certifications?: string[] | null;
   company_skills?: string | null;
   company_references?: any[] | null;
+}
+
+/**
+ * Le scoring n'a de sens que si le profil entreprise porte au moins une donnée
+ * de matching. Sinon computeScore retombe sur ses valeurs neutres et renvoie une
+ * constante (44) identique pour tous les AO — un faux score à ne pas afficher.
+ */
+export function hasScorableProfile(profile: ProfileForScoring | null | undefined): boolean {
+  if (!profile) return false;
+  return Boolean(
+    (profile.keywords && profile.keywords.length > 0) ||
+      (profile.regions && profile.regions.length > 0) ||
+      (profile.sectors && profile.sectors.length > 0) ||
+      profile.company_size ||
+      (profile.company_certifications && profile.company_certifications.length > 0) ||
+      (profile.company_skills && profile.company_skills.trim()) ||
+      (Array.isArray(profile.company_references) && profile.company_references.length > 0),
+  );
 }
 
 export function computeScore(tender: TenderForScoring, profile: ProfileForScoring): number {
