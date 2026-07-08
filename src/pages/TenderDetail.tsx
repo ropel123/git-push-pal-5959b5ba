@@ -13,7 +13,7 @@ import DceUploadSection from "@/components/DceUploadSection";
 import DceAgentFetchButton from "@/components/DceAgentFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import BuyerFollowButton from "@/components/BuyerFollowButton";
-import { computeScore, getScoreColor, getScoreLabel } from "@/lib/scoring";
+import { computeScore, getScoreColor, getScoreLabel, hasScorableProfile } from "@/lib/scoring";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
 import { AwardDetailDialog, type AwardDetail } from "@/components/awards/AwardDetailDialog";
 import { ChevronRight } from "lucide-react";
@@ -154,7 +154,7 @@ const TenderDetail = () => {
     );
   }
 
-  const score = profile ? computeScore(tender, profile) : null;
+  const score = profile && hasScorableProfile(profile) ? computeScore(tender, profile) : null;
   const contact = tender.buyer_contact && typeof tender.buyer_contact === "object" ? tender.buyer_contact : null;
   const cpvCodes = tender.cpv_codes ? [...new Set(tender.cpv_codes)] : [];
 
@@ -178,8 +178,9 @@ const TenderDetail = () => {
   // sans identifiant de consultation exploitable.
   const isGenericLink = (u?: string | null): boolean => {
     if (!u) return true;
-    // affPublication SANS refPub/refConsult/refCons = listing MPI générique
-    if (/fuseaction=pub\.affPublication/i.test(u) && !/[?&]ref(Pub|Cons|Consult)=/i.test(u)) return true;
+    // affPublication SANS identifiant de consultation = listing MPI générique.
+    // Un identifiant valide = refPub/refCons/refConsultation… ou IDS=/IDM=.
+    if (/fuseaction=pub\.affPublication/i.test(u) && !/[?&](ref(Pub|Cons|Consult)\w*|IDS|IDM)=/i.test(u)) return true;
     return /(fuseaction=pub\.affResultats|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche|fuseaction=marchesP\.rechM(?![^#]*[?&]IDS=\d))/i.test(u);
   };
   // BOAMP et TED ont été retirés de la stratégie data : on garde la garde par
@@ -348,7 +349,7 @@ const TenderDetail = () => {
             <CardTitle className="text-sm text-muted-foreground">Détails</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            {tender.estimated_amount && tender.estimated_amount > 0 && (
+            {tender.estimated_amount != null && tender.estimated_amount > 0 && (
               <div className="flex items-center gap-2">
                 <Euro className="h-4 w-4 text-muted-foreground" />
                 <span>{new Intl.NumberFormat("fr-FR").format(tender.estimated_amount)} €</span>
@@ -463,7 +464,7 @@ const TenderDetail = () => {
                 <div key={i} className="p-3 rounded-md bg-secondary/50 text-sm space-y-1">
                   <div className="flex justify-between items-start">
                     <span className="text-foreground font-medium">{lot.title ?? `Lot ${lot.numero || i + 1}`}</span>
-                    {lot.amount && <span className="text-muted-foreground">{new Intl.NumberFormat("fr-FR").format(lot.amount)} €</span>}
+                    {lot.amount != null && lot.amount > 0 && <span className="text-muted-foreground">{new Intl.NumberFormat("fr-FR").format(lot.amount)} €</span>}
                   </div>
                   {lot.description && <p className="text-muted-foreground text-xs">{lot.description}</p>}
                   {lot.cpv && <Badge variant="secondary" className="text-xs mt-1">{lot.cpv}</Badge>}
@@ -497,10 +498,10 @@ const TenderDetail = () => {
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            {tender.dce_url && (
+            {dceUrl && (
               <DceAgentFetchButton
                 tenderId={id}
-                dceUrl={tender.dce_url}
+                dceUrl={dceUrl}
                 onSuccess={fetchDceAndAnalyses}
               />
             )}
@@ -553,8 +554,8 @@ const TenderDetail = () => {
                 <div className="flex-1 min-w-0 space-y-1">
                   {award.winner_name && <p className="font-medium text-foreground">{award.winner_name}</p>}
                   <div className="flex flex-wrap gap-4 text-muted-foreground text-xs">
-                    {award.awarded_amount && <span>{new Intl.NumberFormat("fr-FR").format(award.awarded_amount)} €</span>}
-                    {award.num_candidates && <span>{award.num_candidates} candidat(s)</span>}
+                    {award.awarded_amount != null && award.awarded_amount > 0 && <span>{new Intl.NumberFormat("fr-FR").format(award.awarded_amount)} €</span>}
+                    {award.num_candidates != null && award.num_candidates > 0 && <span>{award.num_candidates} candidat(s)</span>}
                     {award.award_date && <span>{format(new Date(award.award_date), "dd MMM yyyy", { locale: fr })}</span>}
                     {award.contract_duration && <span>Durée : {award.contract_duration}</span>}
                   </div>

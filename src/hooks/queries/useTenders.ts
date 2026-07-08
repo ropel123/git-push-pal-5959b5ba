@@ -24,6 +24,11 @@ export type TendersFilters = {
   dceOnly?: boolean;
   /** Restrict results to this set of tender IDs (server-side `.in('id', ...)`). When provided as empty array, returns no rows. */
   idsIn?: string[] | null;
+  /** Bornes de date de publication au format 'YYYY-MM-DD'. */
+  publicationFrom?: string | null;
+  publicationTo?: string | null;
+  /** Inclure les AO dont publication_date est NULL (~95% des AO scrapés). Défaut true. */
+  includeUndatedPublication?: boolean;
   smart?: SmartProfile;
   /** Désactive temporairement la query (ex: profil pas encore chargé). */
   enabled?: boolean;
@@ -42,6 +47,9 @@ export function useTenders(filters: TendersFilters = {}) {
     listingHost = "",
     dceOnly = false,
     idsIn = null,
+    publicationFrom = null,
+    publicationTo = null,
+    includeUndatedPublication = true,
     smart = null,
     enabled = true,
   } = filters;
@@ -49,7 +57,7 @@ export function useTenders(filters: TendersFilters = {}) {
   return useQuery({
     enabled,
     placeholderData: keepPreviousData,
-    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, procedures, platform, listingHost, dceOnly, idsIn, smart }],
+    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, procedures, platform, listingHost, dceOnly, idsIn, publicationFrom, publicationTo, includeUndatedPublication, smart }],
     queryFn: async () => {
       // Short-circuit: caller requested filtering by an empty ID set.
       if (idsIn && idsIn.length === 0) {
@@ -87,6 +95,27 @@ export function useTenders(filters: TendersFilters = {}) {
       }
 
       if (dceOnly) query = query.not("dce_url", "is", null).neq("dce_url", "");
+
+      // Filtre date de publication. Une comparaison SQL sur une colonne NULL est
+      // toujours fausse : un .gte/.lte strict exclurait les ~95% d'AO scrapés sans
+      // date. Par défaut on les inclut via une clause OR (…is.null).
+      if (publicationFrom || publicationTo) {
+        if (includeUndatedPublication) {
+          const parts: string[] = [];
+          if (publicationFrom && publicationTo) {
+            parts.push(`and(publication_date.gte.${publicationFrom},publication_date.lte.${publicationTo})`);
+          } else if (publicationFrom) {
+            parts.push(`publication_date.gte.${publicationFrom}`);
+          } else if (publicationTo) {
+            parts.push(`publication_date.lte.${publicationTo}`);
+          }
+          parts.push("publication_date.is.null");
+          query = query.or(parts.join(","));
+        } else {
+          if (publicationFrom) query = query.gte("publication_date", publicationFrom);
+          if (publicationTo) query = query.lte("publication_date", publicationTo);
+        }
+      }
 
       const term = sanitize(search);
       if (term) {
