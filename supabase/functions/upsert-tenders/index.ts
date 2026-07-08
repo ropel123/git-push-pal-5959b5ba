@@ -27,9 +27,12 @@ function makeReference(item: any): string {
   return `auto-${Math.abs(h).toString(36)}`;
 }
 
+// Identifiant de consultation valide = refPub/refCons/refConsultation… ou IDS=/IDM=.
+// (Aligné avec isGenericLink côté front — TenderDetail.tsx.)
 const GENERIC_LINK_PATTERNS: RegExp[] = [
-  /fuseaction=pub\.affResultats(?![^#]*[?&]ref(Pub|Cons|Consult)=)/i,
-  /fuseaction=pub\.affPublication(?![^#]*[?&]ref(Pub|Cons|Consult)=)/i,
+  /fuseaction=pub\.affResultats(?![^#]*[?&](ref(Pub|Cons|Consult)\w*|IDS|IDM)=)/i,
+  /fuseaction=pub\.affPublication(?![^#]*[?&](ref(Pub|Cons|Consult)\w*|IDS|IDM)=)/i,
+  /fuseaction=marchesP\.rechM(?![^#]*[?&]IDS=\d)/i,
   /EntrepriseAdvancedSearch/i,
   /[?&]AllCons\b/i,
   /page=recherche/i,

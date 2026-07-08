@@ -40,6 +40,26 @@ export function deptToRegion(dept?: string | null): string | null {
   return DEPT_TO_REGION[dept.trim()] ?? null;
 }
 
+// Mois français → numéro (insensible à la casse/aux accents, variantes abrégées incluses).
+const FR_MONTHS: Record<string, string> = {
+  janvier: "01", janv: "01", jan: "01",
+  fevrier: "02", fevr: "02", fev: "02",
+  mars: "03", mar: "03",
+  avril: "04", avr: "04",
+  mai: "05",
+  juin: "06",
+  juillet: "07", juil: "07", juill: "07",
+  aout: "08",
+  septembre: "09", sept: "09", sep: "09",
+  octobre: "10", oct: "10",
+  novembre: "11", nov: "11",
+  decembre: "12", dec: "12",
+};
+
+function stripAccents(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
 export function parseFrenchDate(s?: string | null): string | null {
   if (!s) return null;
   const t = String(s).trim();
@@ -57,6 +77,19 @@ export function parseFrenchDate(s?: string | null): string | null {
     const d = new Date(iso);
     return isNaN(d.getTime()) ? null : d.toISOString();
   }
+  // DD MoisFR YYYY [HH:mm] ou [HHhMM] — ex: "08 Juin 2026 11:00", "3 décembre 2026 12h30"
+  const fm = stripAccents(t.toLowerCase()).match(
+    /^(\d{1,2})\s+([a-z]+)\.?\s+(\d{4})(?:\s+(\d{1,2})[:h](\d{2}))?/,
+  );
+  if (fm) {
+    const [, dd, monthName, yyyy, hh = "23", mi = "59"] = fm;
+    const mm = FR_MONTHS[monthName];
+    if (mm) {
+      const iso = `${yyyy}-${mm}-${dd.padStart(2, "0")}T${hh.padStart(2, "0")}:${mi}:00`;
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    }
+  }
   return null;
 }
 
@@ -67,14 +100,66 @@ export function parseAmount(s?: string | number | null): number | null {
     .replace(/[€$£\s\u00A0]/g, "")
     .replace(/\.(?=\d{3}(\D|$))/g, "")
     .replace(",", ".");
+  // Chaîne vide (montant non publié) : Number("") === 0 renverrait un faux 0.
+  if (!cleaned || !/\d/.test(cleaned)) return null;
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
 }
 
+// Noms de département → code (essayés avant le regex numérique, car les listes
+// scrapées fournissent souvent "Seine-Maritime" plutôt que "76").
+const DEPT_NAME_TO_CODE: Record<string, string> = {
+  "alpes-de-haute-provence": "04", "hautes-alpes": "05", "alpes-maritimes": "06",
+  "charente-maritime": "17", "corse-du-sud": "2A", "haute-corse": "2B",
+  "cote-d'or": "21", "cotes-d'armor": "22", "eure-et-loir": "28",
+  "haute-garonne": "31", "ille-et-vilaine": "35", "indre-et-loire": "37",
+  "loir-et-cher": "41", "haute-loire": "43", "loire-atlantique": "44",
+  "lot-et-garonne": "47", "maine-et-loire": "49", "haute-marne": "52",
+  "meurthe-et-moselle": "54", "pas-de-calais": "62", "puy-de-dome": "63",
+  "pyrenees-atlantiques": "64", "hautes-pyrenees": "65", "pyrenees-orientales": "66",
+  "bas-rhin": "67", "haut-rhin": "68", "haute-saone": "70", "saone-et-loire": "71",
+  "haute-savoie": "74", "seine-maritime": "76", "seine-et-marne": "77",
+  "deux-sevres": "79", "tarn-et-garonne": "82", "haute-vienne": "87",
+  "territoire de belfort": "90", "hauts-de-seine": "92", "seine-saint-denis": "93",
+  "val-de-marne": "94", "val-d'oise": "95",
+  "ain": "01", "aisne": "02", "allier": "03", "ardeche": "07", "ardennes": "08",
+  "ariege": "09", "aube": "10", "aude": "11", "aveyron": "12", "bouches-du-rhone": "13",
+  "calvados": "14", "cantal": "15", "charente": "16", "cher": "18", "correze": "19",
+  "creuse": "23", "dordogne": "24", "doubs": "25", "drome": "26", "eure": "27",
+  "finistere": "29", "gard": "30", "gers": "32", "gironde": "33", "herault": "34",
+  "indre": "36", "isere": "38", "jura": "39", "landes": "40", "loiret": "45", "lot": "46",
+  "lozere": "48", "manche": "50", "marne": "51", "mayenne": "53", "meuse": "55",
+  "morbihan": "56", "moselle": "57", "nievre": "58", "nord": "59", "oise": "60",
+  "orne": "61", "rhone": "69", "sarthe": "72", "savoie": "73", "paris": "75",
+  "yvelines": "78", "somme": "80", "tarn": "81", "var": "83", "vaucluse": "84",
+  "vendee": "85", "vienne": "86", "vosges": "88", "yonne": "89", "essonne": "91",
+  "guadeloupe": "971", "martinique": "972", "guyane": "973",
+  "la reunion": "974", "mayotte": "976",
+};
+
+// Regex précompilées, frontière de mot : le nom doit être délimité par un
+// non-alphanumérique (ou début/fin) pour éviter que "ain" matche "Saint-Nazaire"
+// ou "var" matche "Varennes". L'ordre (composés d'abord) est préservé par Object.entries.
+const DEPT_NAME_MATCHERS: Array<[RegExp, string]> = Object.entries(DEPT_NAME_TO_CODE).map(
+  ([name, code]) => [
+    new RegExp(`(^|[^a-z0-9])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`),
+    code,
+  ],
+);
+
 export function detectDeptFromText(s?: string | null): string | null {
   if (!s) return null;
+  // 1. Code numérique isolé (haute précision) — gagne sur le nom pour éviter
+  //    qu'un mot courant type "Lot 44" soit lu comme le département Lot (46).
   const m = s.match(/\b(2A|2B|97[1-6]|0[1-9]|[1-8]\d|9[0-5])\b/);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  // 2. Nom de département explicite (ex: "Seine-Maritime"), typiquement le champ
+  //    "location" des listes scrapées. Composés testés avant les simples.
+  const normalized = stripAccents(s.toLowerCase());
+  for (const [re, code] of DEPT_NAME_MATCHERS) {
+    if (re.test(normalized)) return code;
+  }
+  return null;
 }
 
 export function detectContractType(s?: string | null): string | null {
