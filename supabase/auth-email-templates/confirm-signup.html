@@ -1,0 +1,96 @@
+<!--
+  HackAO — Email de confirmation d'inscription
+  À coller dans Supabase → Authentication → Emails → "Confirm signup".
+  Variables Supabase disponibles : {{ .ConfirmationURL }}, {{ .Token }}, {{ .SiteURL }}, {{ .Email }}.
+  HTML en tableaux (compatibilité Outlook / Gmail / Apple Mail), styles inline.
+-->
+<!DOCTYPE html>
+<html lang="fr" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="color-scheme" content="light">
+  <title>Confirmez votre compte HackAO</title>
+</head>
+<body style="margin:0; padding:0; background-color:#F1F5F9; -webkit-font-smoothing:antialiased; font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <!-- Préheader masqué -->
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+    Il ne reste qu'une étape pour activer votre compte HackAO.
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F1F5F9;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px; width:100%; background-color:#FFFFFF; border-radius:20px; overflow:hidden; box-shadow:0 10px 40px rgba(17,24,39,0.08);">
+
+          <!-- Bandeau dégradé de marque -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#2563EB 0%,#4F46E5 50%,#7C3AED 100%); padding:36px 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="width:40px; height:40px; background-color:rgba(255,255,255,0.16); border-radius:11px; text-align:center; vertical-align:middle; font-size:20px; color:#FFFFFF; font-weight:800;">✦</td>
+                  <td style="padding-left:12px; font-size:20px; font-weight:800; color:#FFFFFF; letter-spacing:-0.02em;">HackAO</td>
+                </tr>
+              </table>
+              <h1 style="margin:22px 0 0; font-size:23px; line-height:1.25; font-weight:800; color:#FFFFFF; letter-spacing:-0.02em;">
+                Confirmez votre adresse email
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Corps -->
+          <tr>
+            <td style="padding:32px 40px 8px;">
+              <p style="margin:0 0 18px; font-size:15px; line-height:1.6; color:#374151;">
+                Bienvenue&nbsp;! Il ne reste qu'une étape pour activer votre compte et laisser
+                l'IA de HackAO préparer vos réponses aux marchés publics.
+              </p>
+
+              <!-- Bouton principal (bulletproof) -->
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;">
+                <tr>
+                  <td align="center" bgcolor="#2563EB" style="border-radius:12px; background:linear-gradient(135deg,#2563EB,#4F46E5);">
+                    <a href="{{ .ConfirmationURL }}"
+                       style="display:inline-block; padding:14px 32px; font-size:15px; font-weight:700; color:#FFFFFF; text-decoration:none; border-radius:12px;">
+                      Confirmer mon compte&nbsp;&rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 8px; font-size:13px; line-height:1.6; color:#6B7280;">
+                Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur&nbsp;:
+              </p>
+              <p style="margin:0 0 22px; font-size:12px; line-height:1.5; word-break:break-all;">
+                <a href="{{ .ConfirmationURL }}" style="color:#2563EB; text-decoration:underline;">{{ .ConfirmationURL }}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Séparateur -->
+          <tr>
+            <td style="padding:0 40px;">
+              <div style="height:1px; background-color:#EAECF0; line-height:1px;">&nbsp;</div>
+            </td>
+          </tr>
+
+          <!-- Pied -->
+          <tr>
+            <td style="padding:20px 40px 32px;">
+              <p style="margin:0; font-size:12px; line-height:1.6; color:#9CA3AF;">
+                Vous n'êtes pas à l'origine de cette demande&nbsp;? Vous pouvez ignorer cet email en toute sécurité, aucun compte ne sera créé.
+              </p>
+              <p style="margin:14px 0 0; font-size:12px; color:#9CA3AF;">
+                — L'équipe HackAO · IA &amp; expertise pour vos appels d'offres publics
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="margin:20px 0 0; font-size:11px; color:#9CA3AF;">© HackAO</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
