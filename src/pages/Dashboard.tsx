@@ -333,9 +333,8 @@ const Dashboard = () => {
 function Panel({ children, delay }: { children: React.ReactNode; delay: string }) {
   return (
     <section
-      className="hao-anim-in rounded-[20px] border border-black/[0.06] bg-white p-[22px_24px]"
+      className="hao-anim-in rounded-[20px] border border-border bg-card p-[22px_24px] shadow-sm"
       style={{
-        boxShadow: "0 2px 8px rgba(17,24,39,0.04)",
         animation: `hao-in 0.6s cubic-bezier(0.22,1,0.36,1) ${delay} both`,
       }}
     >
@@ -361,17 +360,18 @@ function PanelHeader({
         <span className="inline-flex h-7 w-7 items-center justify-center rounded-[9px]" style={{ background: iconBg }}>
           {icon}
         </span>
-        <span className="text-[15px] font-bold">{title}</span>
+        <span className="text-[15px] font-bold text-foreground">{title}</span>
       </div>
       <button
         onClick={onExpand}
         aria-label={title}
-        className="text-[#9CA3AF] transition-colors hover:text-[#2563EB]"
+        className="text-muted-foreground transition-colors hover:text-accent"
       >
         <ArrowUpRight className="h-4 w-4" />
       </button>
     </div>
   );
 }
+
 
 export default Dashboard;
