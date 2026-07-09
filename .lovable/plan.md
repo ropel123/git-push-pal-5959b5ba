@@ -1,19 +1,29 @@
-## Problème
+## Ce que tu veux
 
-Le symbole du logo dans la sidebar apparaît cassé : les 4 « pétales » du path SVG ne forment pas un vrai moulinet équilibré. Le path actuel dessine des rectangles avec un coin arrondi + une courbe interne, ce qui produit des formes irrégulières et mal alignées au centre.
+Le logo de la **photo 1** partout dans l'app (sidebar dashboard, navbar landing, footer, favicon, etc.) :
+- Symbole : carré à coins très arrondis, rempli d'un **dégradé bleu → violet**, avec un petit **carré blanc arrondi centré** (effet "bouton app iOS"), et une ombre douce diffuse derrière.
+- Wordmark : **Hack** en navy + **AO** en bleu vif, gras, à droite du symbole.
 
-## Correction
+## Ce que je vais faire
 
-Refaire uniquement le symbole dans `src/components/brand/HackaoLogo.tsx` — ne pas toucher au wordmark, à la sidebar, ou au reste du layout.
+Refaire uniquement `src/components/brand/HackaoLogo.tsx` — l'API du composant (`variant`, `tone`, `size`, `className`) reste identique, donc **aucun autre fichier ne change** et le nouveau logo apparaît automatiquement partout où `<HackaoLogo />` est utilisé : sidebar (`AppSidebar`), navbar landing (`Navbar`), footer, page auth, onboarding, etc.
 
-Nouvelle géométrie du pinwheel :
-- 4 pétales identiques disposées à 0°, 90°, 180°, 270° autour du centre
-- Chaque pétale = quart de disque (rayon extérieur ~22) avec un coin interne carré et un coin externe arrondi, laissant un petit vide au centre (~4px) pour l'effet moulinet
-- Path unique propre basé sur `M` + arc `A` + lignes droites, sans mélange rect/arc bricolé
-- Épaisseur régulière, angles nets, symétrie parfaite après rotation
+Détails du nouveau symbole :
+- SVG carré, ratio 1:1, `rx` ~28% pour les coins très arrondis (style squircle iOS)
+- Dégradé linéaire diagonal : `#3B5BFF` (bleu) → `#6D3BFF` (violet), défini dans `<defs>`
+- Carré blanc intérieur centré, ~40% de la taille, `rx` ~25%
+- Ombre douce : `<filter>` SVG avec `feGaussianBlur` teintée bleu/violet à faible opacité, débordant légèrement du viewBox
+- `tone="white"` et `tone="currentColor"` conservés (variantes plates sans dégradé) pour les fonds sombres
 
-Le gradient (`hackao-gradient`) et l'API du composant (`variant`, `tone`, `size`, `className`) restent inchangés — donc aucun autre fichier ne bouge (AppSidebar, Navbar, etc. continuent de marcher).
+Wordmark : inchangé dans sa structure (`Hack` primary + `AO` accent), juste garder la cohérence de graisse et de taille avec la photo 1.
 
-## Fichier modifié
+### Favicon
 
-- `src/components/brand/HackaoLogo.tsx` — remplacer la fonction `Petal` et son path par une géométrie de moulinet correcte.
+Le favicon actuel (`public/favicon.png` + `<link>` dans `index.html`) est déjà basé sur l'ancien symbole. Je le régénère à partir du nouveau symbole (export PNG 512×512) et je remplace `public/favicon.png` — pas de changement dans `index.html`.
+
+## Fichiers touchés
+
+- `src/components/brand/HackaoLogo.tsx` — nouveau symbole squircle + gradient + carré blanc + shadow
+- `public/favicon.png` — régénéré depuis le nouveau symbole
+
+Aucun autre fichier n'a besoin d'être modifié : tous les usages passent déjà par `<HackaoLogo />`.
