@@ -14,6 +14,19 @@ export interface BoampParsed {
   participation_conditions?: string;
   additional_info?: string;
   description?: string;
+  /** URL de la plateforme de retrait du DCE (profil acheteur), extraite de l'eForms. */
+  dce_url?: string;
+}
+
+// Domaines d'éditeurs/plateformes de dématérialisation connus. Une URL pointant
+// vers l'un d'eux est un lien de retrait DCE exploitable (vs. le site propre de
+// l'acheteur, qu'on ignore).
+const KNOWN_PLATFORM_RE =
+  /(marches-publics|marches-securises|achatpublic|atexo|dematis|e-marchespublics|megalis|xmarches|synapse-entreprises|maximilien|aws-achat|klekoon|safetender|ternum|local-trust|bravosolution|ivalua|aji-france|centraledesmarches|medialex|marchesonline|eu-supply|adullact|demat)/i;
+
+/** Ajoute https:// à une URL sans schéma (ex. "www.plateforme.fr"). */
+function ensureScheme(u: string): string {
+  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
 }
 
 function asStr(v: unknown): string | undefined {
@@ -133,6 +146,19 @@ export function parseBoampDonnees(raw: unknown): BoampParsed {
   if (email || tel || url || nom || ville) {
     out.buyer_contact = { email, tel, url, nom, ville, pays };
   }
+
+  // === URL de retrait DCE (profil acheteur) ===
+  // On rassemble tous les candidats d'URL (eForms + national) et on retient la
+  // première qui pointe vers une plateforme de dématérialisation connue — ce qui
+  // exclut le site propre de l'acheteur (ex. mairie.fr) présent en EndpointID.
+  const urlCandidates = collect(root, [
+    "buyerprofileuri", "urlprofilacheteur", "url_profil_acheteur",
+    "websiteuri", "accessurl", "uri", "url",
+  ])
+    .map((v) => asStr(v))
+    .filter((s): s is string => !!s && /^(https?:\/\/|www\.)/i.test(s))
+    .map(ensureScheme);
+  out.dce_url = urlCandidates.find((u) => KNOWN_PLATFORM_RE.test(u));
 
   // === Buyer address ===
   // national: organisme.adr.{voie.nomvoie, cp, ville}

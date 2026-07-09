@@ -96,6 +96,7 @@ function mapRecord(r: BoampRecord) {
     publication_date: toDateOnly(r.dateparution),
     procedure_type: r.procedure_libelle ? String(r.procedure_libelle) : (r.type_avis ? String(r.type_avis) : null),
     source_url: r.url_avis ? String(r.url_avis) : null,
+    dce_url: parsed.dce_url ?? null,
     department: departmentStr,
     region,
     nuts_code: parsed.nuts_code ?? null,
