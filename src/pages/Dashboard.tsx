@@ -165,7 +165,7 @@ const Dashboard = () => {
             onExpand={() => navigate("/alerts")}
           />
           {recentAlerts.length === 0 ? (
-            <p className="py-8 text-center text-sm text-[#6B7280]">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               Aucune alerte configurée. Créez-en une depuis vos paramètres.
             </p>
           ) : (
@@ -174,24 +174,23 @@ const Dashboard = () => {
                 <button
                   key={a.id}
                   onClick={() => navigate("/tenders")}
-                  className="group rounded-[14px] border border-black/[0.06] bg-[#F8FAFC] p-[13px_14px] text-left transition-all [transition-duration:250ms] hover:-translate-y-[3px] hover:border-[#2563EB]/25"
+                  className="group rounded-[14px] border border-border bg-muted/40 p-[13px_14px] text-left transition-all [transition-duration:250ms] hover:-translate-y-[3px] hover:border-accent/40 hover:shadow-md"
                   style={{ transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 10px 24px rgba(17,24,39,0.08)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}
                 >
-                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#9CA3AF]">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                     {a.frequency ?? "—"}
                   </div>
-                  <div className="mb-[9px] line-clamp-2 text-[13px] font-semibold leading-[1.35]">
+                  <div className="mb-[9px] line-clamp-2 text-[13px] font-semibold leading-[1.35] text-foreground">
                     {a.name}
                   </div>
-                  <span className="inline-block rounded-full bg-[#F3F4F6] px-[9px] py-[3px] text-[11px] font-bold text-[#6B7280]">
+                  <span className="inline-block rounded-full bg-muted px-[9px] py-[3px] text-[11px] font-bold text-muted-foreground">
                     0 non lu
                   </span>
                 </button>
               ))}
             </div>
           )}
+
         </Panel>
 
         {/* Favoris */}
