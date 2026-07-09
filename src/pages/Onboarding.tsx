@@ -11,8 +11,9 @@ import MemoirAIChat from "@/components/MemoirAIChat";
 
 const Onboarding = () => {
   const [phase, setPhase] = useState<"chat" | "branding">("chat");
-  const [primaryColor, setPrimaryColor] = useState("#F97316");
-  const [secondaryColor, setSecondaryColor] = useState("#1E293B");
+  // Défauts alignés sur la DA HackAO (l'utilisateur les remplace par ses propres couleurs).
+  const [primaryColor, setPrimaryColor] = useState("#2563EB");
+  const [secondaryColor, setSecondaryColor] = useState("#7C3AED");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -135,7 +136,7 @@ const Onboarding = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <div className="text-center py-6 space-y-1">
-        <h1 className="text-2xl font-bold text-foreground">Bienvenue ! Notre IA va construire votre profil</h1>
+        <h1 className="text-2xl font-bold text-foreground">Bienvenue ! <span className="text-gradient-brand">Notre IA construit votre profil</span></h1>
         <p className="text-muted-foreground">Répondez aux questions pour configurer votre compte et mémoire technique</p>
       </div>
 
