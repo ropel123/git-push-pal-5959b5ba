@@ -94,8 +94,8 @@ const Dashboard = () => {
     <div className="mx-auto flex max-w-[1200px] flex-col gap-5">
       {/* ═════ Greeting ═════ */}
       <section
-        className="hao-anim-in relative overflow-hidden rounded-[20px] border border-black/[0.06] bg-white px-8 py-8 md:px-9"
-        style={{ boxShadow: "0 2px 8px rgba(17,24,39,0.04)", animation: "hao-in 0.6s cubic-bezier(0.22,1,0.36,1) both" }}
+        className="hao-anim-in relative overflow-hidden rounded-[20px] border border-border bg-card px-8 py-8 md:px-9 shadow-sm"
+        style={{ animation: "hao-in 0.6s cubic-bezier(0.22,1,0.36,1) both" }}
       >
         <span
           className="hao-anim-blob pointer-events-none absolute -right-16 -top-24 h-[280px] w-[280px] rounded-full"
@@ -111,7 +111,7 @@ const Dashboard = () => {
         />
         <div className="relative flex flex-wrap items-center justify-between gap-6">
           <div>
-            <h1 className="text-[30px] font-extrabold leading-tight" style={{ letterSpacing: "-0.03em" }}>
+            <h1 className="text-[30px] font-extrabold leading-tight text-foreground" style={{ letterSpacing: "-0.03em" }}>
               Bonjour{" "}
               <span
                 style={{
@@ -126,19 +126,18 @@ const Dashboard = () => {
               </span>
               &nbsp;!
             </h1>
-            <p className="mt-1.5 text-[14.5px] text-[#6B7280]">
+            <p className="mt-1.5 text-[14.5px] text-muted-foreground">
               Voici un aperçu de votre activité sur HackAO.
             </p>
           </div>
 
           <form onSubmit={submitSearch} className="relative w-full max-w-full md:w-[400px]">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-[#9CA3AF]" />
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-muted-foreground" />
             <input
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               placeholder="Rechercher un appel d'offres…"
-              className="h-12 w-full rounded-[13px] border border-black/[0.08] bg-white pl-[42px] pr-[130px] text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/40"
-              style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}
+              className="h-12 w-full rounded-[13px] border border-border bg-background pl-[42px] pr-[130px] text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
             <button
               type="submit"
@@ -154,6 +153,7 @@ const Dashboard = () => {
         </div>
       </section>
 
+
       {/* ═════ Alertes + Favoris ═════ */}
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
         {/* Alertes */}
@@ -165,7 +165,7 @@ const Dashboard = () => {
             onExpand={() => navigate("/alerts")}
           />
           {recentAlerts.length === 0 ? (
-            <p className="py-8 text-center text-sm text-[#6B7280]">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               Aucune alerte configurée. Créez-en une depuis vos paramètres.
             </p>
           ) : (
@@ -174,24 +174,23 @@ const Dashboard = () => {
                 <button
                   key={a.id}
                   onClick={() => navigate("/tenders")}
-                  className="group rounded-[14px] border border-black/[0.06] bg-[#F8FAFC] p-[13px_14px] text-left transition-all [transition-duration:250ms] hover:-translate-y-[3px] hover:border-[#2563EB]/25"
+                  className="group rounded-[14px] border border-border bg-muted/40 p-[13px_14px] text-left transition-all [transition-duration:250ms] hover:-translate-y-[3px] hover:border-accent/40 hover:shadow-md"
                   style={{ transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 10px 24px rgba(17,24,39,0.08)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}
                 >
-                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#9CA3AF]">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                     {a.frequency ?? "—"}
                   </div>
-                  <div className="mb-[9px] line-clamp-2 text-[13px] font-semibold leading-[1.35]">
+                  <div className="mb-[9px] line-clamp-2 text-[13px] font-semibold leading-[1.35] text-foreground">
                     {a.name}
                   </div>
-                  <span className="inline-block rounded-full bg-[#F3F4F6] px-[9px] py-[3px] text-[11px] font-bold text-[#6B7280]">
+                  <span className="inline-block rounded-full bg-muted px-[9px] py-[3px] text-[11px] font-bold text-muted-foreground">
                     0 non lu
                   </span>
                 </button>
               ))}
             </div>
           )}
+
         </Panel>
 
         {/* Favoris */}
@@ -203,12 +202,12 @@ const Dashboard = () => {
             onExpand={() => navigate("/pipeline")}
           />
           {totalFav === 0 ? (
-            <p className="py-8 text-center text-sm text-[#6B7280]">Ajoutez des AO à votre pipeline.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">Ajoutez des AO à votre pipeline.</p>
           ) : (
             <div className="flex items-center gap-[18px]">
               <div className="relative h-[124px] w-[124px] flex-shrink-0">
                 <svg width="124" height="124" viewBox="0 0 124 124" style={{ transform: "rotate(-90deg)" }}>
-                  <circle cx="62" cy="62" r={R} fill="none" stroke="#EEF2F7" strokeWidth="16" />
+                  <circle cx="62" cy="62" r={R} fill="none" stroke="hsl(var(--muted))" strokeWidth="16" />
                   {segments.map((s, i) => (
                     <circle
                       key={i}
@@ -225,13 +224,13 @@ const Dashboard = () => {
                   ))}
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-2xl font-extrabold leading-none">{totalFav}</span>
-                  <span className="mt-[3px] text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#9CA3AF]">
+                  <span className="text-2xl font-extrabold leading-none text-foreground">{totalFav}</span>
+                  <span className="mt-[3px] text-[9.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     favoris
                   </span>
                 </div>
               </div>
-              <ul className="flex flex-1 flex-col gap-[7px] text-[13px]">
+              <ul className="flex flex-1 flex-col gap-[7px] text-[13px] text-foreground">
                 {distribution
                   .filter((d) => d.value > 0)
                   .map((d) => {
@@ -240,7 +239,7 @@ const Dashboard = () => {
                       <li key={d.key} className="flex items-center gap-2">
                         <span className="h-[9px] w-[9px] flex-shrink-0 rounded-full" style={{ background: d.donut }} />
                         <span className="flex-1 truncate">{d.name}</span>
-                        <span className="tabular-nums text-[#6B7280]">
+                        <span className="tabular-nums text-muted-foreground">
                           {d.value} · {pct}%
                         </span>
                       </li>
@@ -249,6 +248,7 @@ const Dashboard = () => {
               </ul>
             </div>
           )}
+
         </Panel>
       </div>
 
@@ -263,7 +263,7 @@ const Dashboard = () => {
             onExpand={() => navigate("/pipeline")}
           />
           {totalFav === 0 ? (
-            <p className="py-8 text-center text-sm text-[#6B7280]">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               Aucun AO dans votre pipeline. Ajoutez-en depuis la recherche.
             </p>
           ) : (
@@ -273,7 +273,7 @@ const Dashboard = () => {
                 return (
                   <div
                     key={s.key}
-                    className="flex min-h-[150px] flex-col gap-2 rounded-xl border border-black/[0.06] bg-[#F8FAFC] p-2.5"
+                    className="flex min-h-[150px] flex-col gap-2 rounded-xl border border-border bg-muted/40 p-2.5"
                   >
                     <div className="flex items-center justify-between">
                       <span
@@ -282,13 +282,13 @@ const Dashboard = () => {
                       >
                         {s.name}
                       </span>
-                      <span className="text-[10px] tabular-nums text-[#9CA3AF]">{s.value}</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">{s.value}</span>
                     </div>
                     {items.slice(0, 2).map((item) => (
                       <button
                         key={item.id}
                         onClick={() => navigate(`/tenders/${item.tender_id}`)}
-                        className="rounded-[9px] border border-black/[0.07] bg-white p-[8px_9px] text-left text-[11px] font-medium leading-[1.35] transition-all duration-200 hover:-translate-y-px hover:border-[#2563EB]/40"
+                        className="rounded-[9px] border border-border bg-card p-[8px_9px] text-left text-[11px] font-medium leading-[1.35] text-foreground transition-all duration-200 hover:-translate-y-px hover:border-accent/50"
                       >
                         <span className="line-clamp-2">{item.tenders?.title ?? "AO"}</span>
                       </button>
@@ -309,20 +309,21 @@ const Dashboard = () => {
             >
               <Newspaper className="h-[14px] w-[14px]" style={{ color: "#4F46E5" }} />
             </span>
-            <span className="text-[15px] font-bold">L'actualité des marchés publics</span>
+            <span className="text-[15px] font-bold text-foreground">L'actualité des marchés publics</span>
           </div>
           <div className="flex flex-col">
             {NEWS.map((n) => (
-              <div key={n.title} className="cursor-pointer border-b border-black/[0.05] px-0.5 py-[13px] last:border-b-0">
-                <div className="text-[13.5px] font-semibold leading-[1.4] transition-colors hover:text-[#2563EB]">
+              <div key={n.title} className="cursor-pointer border-b border-border px-0.5 py-[13px] last:border-b-0">
+                <div className="text-[13.5px] font-semibold leading-[1.4] text-foreground transition-colors hover:text-accent">
                   {n.title}
                 </div>
-                <div className="mt-1 line-clamp-2 text-xs leading-[1.55] text-[#6B7280]">{n.excerpt}</div>
-                <div className="mt-1.5 text-[11px] text-[#9CA3AF]">{n.date}</div>
+                <div className="mt-1 line-clamp-2 text-xs leading-[1.55] text-muted-foreground">{n.excerpt}</div>
+                <div className="mt-1.5 text-[11px] text-muted-foreground/70">{n.date}</div>
               </div>
             ))}
           </div>
         </Panel>
+
       </div>
     </div>
   );
@@ -332,9 +333,8 @@ const Dashboard = () => {
 function Panel({ children, delay }: { children: React.ReactNode; delay: string }) {
   return (
     <section
-      className="hao-anim-in rounded-[20px] border border-black/[0.06] bg-white p-[22px_24px]"
+      className="hao-anim-in rounded-[20px] border border-border bg-card p-[22px_24px] shadow-sm"
       style={{
-        boxShadow: "0 2px 8px rgba(17,24,39,0.04)",
         animation: `hao-in 0.6s cubic-bezier(0.22,1,0.36,1) ${delay} both`,
       }}
     >
@@ -360,17 +360,18 @@ function PanelHeader({
         <span className="inline-flex h-7 w-7 items-center justify-center rounded-[9px]" style={{ background: iconBg }}>
           {icon}
         </span>
-        <span className="text-[15px] font-bold">{title}</span>
+        <span className="text-[15px] font-bold text-foreground">{title}</span>
       </div>
       <button
         onClick={onExpand}
         aria-label={title}
-        className="text-[#9CA3AF] transition-colors hover:text-[#2563EB]"
+        className="text-muted-foreground transition-colors hover:text-accent"
       >
         <ArrowUpRight className="h-4 w-4" />
       </button>
     </div>
   );
 }
+
 
 export default Dashboard;
