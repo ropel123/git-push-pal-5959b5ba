@@ -263,7 +263,7 @@ const Dashboard = () => {
             onExpand={() => navigate("/pipeline")}
           />
           {totalFav === 0 ? (
-            <p className="py-8 text-center text-sm text-[#6B7280]">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               Aucun AO dans votre pipeline. Ajoutez-en depuis la recherche.
             </p>
           ) : (
@@ -273,7 +273,7 @@ const Dashboard = () => {
                 return (
                   <div
                     key={s.key}
-                    className="flex min-h-[150px] flex-col gap-2 rounded-xl border border-black/[0.06] bg-[#F8FAFC] p-2.5"
+                    className="flex min-h-[150px] flex-col gap-2 rounded-xl border border-border bg-muted/40 p-2.5"
                   >
                     <div className="flex items-center justify-between">
                       <span
@@ -282,13 +282,13 @@ const Dashboard = () => {
                       >
                         {s.name}
                       </span>
-                      <span className="text-[10px] tabular-nums text-[#9CA3AF]">{s.value}</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">{s.value}</span>
                     </div>
                     {items.slice(0, 2).map((item) => (
                       <button
                         key={item.id}
                         onClick={() => navigate(`/tenders/${item.tender_id}`)}
-                        className="rounded-[9px] border border-black/[0.07] bg-white p-[8px_9px] text-left text-[11px] font-medium leading-[1.35] transition-all duration-200 hover:-translate-y-px hover:border-[#2563EB]/40"
+                        className="rounded-[9px] border border-border bg-card p-[8px_9px] text-left text-[11px] font-medium leading-[1.35] text-foreground transition-all duration-200 hover:-translate-y-px hover:border-accent/50"
                       >
                         <span className="line-clamp-2">{item.tenders?.title ?? "AO"}</span>
                       </button>
@@ -309,20 +309,21 @@ const Dashboard = () => {
             >
               <Newspaper className="h-[14px] w-[14px]" style={{ color: "#4F46E5" }} />
             </span>
-            <span className="text-[15px] font-bold">L'actualité des marchés publics</span>
+            <span className="text-[15px] font-bold text-foreground">L'actualité des marchés publics</span>
           </div>
           <div className="flex flex-col">
             {NEWS.map((n) => (
-              <div key={n.title} className="cursor-pointer border-b border-black/[0.05] px-0.5 py-[13px] last:border-b-0">
-                <div className="text-[13.5px] font-semibold leading-[1.4] transition-colors hover:text-[#2563EB]">
+              <div key={n.title} className="cursor-pointer border-b border-border px-0.5 py-[13px] last:border-b-0">
+                <div className="text-[13.5px] font-semibold leading-[1.4] text-foreground transition-colors hover:text-accent">
                   {n.title}
                 </div>
-                <div className="mt-1 line-clamp-2 text-xs leading-[1.55] text-[#6B7280]">{n.excerpt}</div>
-                <div className="mt-1.5 text-[11px] text-[#9CA3AF]">{n.date}</div>
+                <div className="mt-1 line-clamp-2 text-xs leading-[1.55] text-muted-foreground">{n.excerpt}</div>
+                <div className="mt-1.5 text-[11px] text-muted-foreground/70">{n.date}</div>
               </div>
             ))}
           </div>
         </Panel>
+
       </div>
     </div>
   );
