@@ -94,8 +94,8 @@ const Dashboard = () => {
     <div className="mx-auto flex max-w-[1200px] flex-col gap-5">
       {/* ═════ Greeting ═════ */}
       <section
-        className="hao-anim-in relative overflow-hidden rounded-[20px] border border-black/[0.06] bg-white px-8 py-8 md:px-9"
-        style={{ boxShadow: "0 2px 8px rgba(17,24,39,0.04)", animation: "hao-in 0.6s cubic-bezier(0.22,1,0.36,1) both" }}
+        className="hao-anim-in relative overflow-hidden rounded-[20px] border border-border bg-card px-8 py-8 md:px-9 shadow-sm"
+        style={{ animation: "hao-in 0.6s cubic-bezier(0.22,1,0.36,1) both" }}
       >
         <span
           className="hao-anim-blob pointer-events-none absolute -right-16 -top-24 h-[280px] w-[280px] rounded-full"
@@ -111,7 +111,7 @@ const Dashboard = () => {
         />
         <div className="relative flex flex-wrap items-center justify-between gap-6">
           <div>
-            <h1 className="text-[30px] font-extrabold leading-tight" style={{ letterSpacing: "-0.03em" }}>
+            <h1 className="text-[30px] font-extrabold leading-tight text-foreground" style={{ letterSpacing: "-0.03em" }}>
               Bonjour{" "}
               <span
                 style={{
@@ -126,19 +126,18 @@ const Dashboard = () => {
               </span>
               &nbsp;!
             </h1>
-            <p className="mt-1.5 text-[14.5px] text-[#6B7280]">
+            <p className="mt-1.5 text-[14.5px] text-muted-foreground">
               Voici un aperçu de votre activité sur HackAO.
             </p>
           </div>
 
           <form onSubmit={submitSearch} className="relative w-full max-w-full md:w-[400px]">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-[#9CA3AF]" />
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-muted-foreground" />
             <input
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               placeholder="Rechercher un appel d'offres…"
-              className="h-12 w-full rounded-[13px] border border-black/[0.08] bg-white pl-[42px] pr-[130px] text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/40"
-              style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}
+              className="h-12 w-full rounded-[13px] border border-border bg-background pl-[42px] pr-[130px] text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
             <button
               type="submit"
@@ -153,6 +152,7 @@ const Dashboard = () => {
           </form>
         </div>
       </section>
+
 
       {/* ═════ Alertes + Favoris ═════ */}
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
