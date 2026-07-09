@@ -1,29 +1,39 @@
-## Ce que tu veux
+## Problème
 
-Le logo de la **photo 1** partout dans l'app (sidebar dashboard, navbar landing, footer, favicon, etc.) :
-- Symbole : carré à coins très arrondis, rempli d'un **dégradé bleu → violet**, avec un petit **carré blanc arrondi centré** (effet "bouton app iOS"), et une ombre douce diffuse derrière.
-- Wordmark : **Hack** en navy + **AO** en bleu vif, gras, à droite du symbole.
+Sur le dashboard, en mode sombre :
+- Les **cartes restent blanches** (fond `bg-white` codé en dur) alors que le fond de page est noir → contraste cassé
+- Les **titres de cartes** ("Mes dernières alertes reçues", "Mon pipeline", "L'actualité des marchés publics") deviennent invisibles car ils utilisent une couleur claire qui, sur fond blanc, disparaît
+- Bordures `border-black/[0.06]`, fonds `bg-[#F8FAFC]`, `bg-white`, textes `text-[#111827]`, `text-[#6B7280]` → toutes ces valeurs sont hardcodées et ne réagissent pas au thème
 
-## Ce que je vais faire
+Cause racine : `src/pages/Dashboard.tsx` bypasse le design system (tokens sémantiques `bg-card`, `text-foreground`, `text-muted-foreground`, `border-border`, etc.) et utilise des couleurs brutes en dur.
 
-Refaire uniquement `src/components/brand/HackaoLogo.tsx` — l'API du composant (`variant`, `tone`, `size`, `className`) reste identique, donc **aucun autre fichier ne change** et le nouveau logo apparaît automatiquement partout où `<HackaoLogo />` est utilisé : sidebar (`AppSidebar`), navbar landing (`Navbar`), footer, page auth, onboarding, etc.
+## Correction
 
-Détails du nouveau symbole :
-- SVG carré, ratio 1:1, `rx` ~28% pour les coins très arrondis (style squircle iOS)
-- Dégradé linéaire diagonal : `#3B5BFF` (bleu) → `#6D3BFF` (violet), défini dans `<defs>`
-- Carré blanc intérieur centré, ~40% de la taille, `rx` ~25%
-- Ombre douce : `<filter>` SVG avec `feGaussianBlur` teintée bleu/violet à faible opacité, débordant légèrement du viewBox
-- `tone="white"` et `tone="currentColor"` conservés (variantes plates sans dégradé) pour les fonds sombres
+Refactoriser **uniquement `src/pages/Dashboard.tsx`** pour remplacer les couleurs hardcodées par les tokens sémantiques déjà définis dans `src/index.css` / `tailwind.config.ts`. Aucun changement de layout, de contenu, ni de logique.
 
-Wordmark : inchangé dans sa structure (`Hack` primary + `AO` accent), juste garder la cohérence de graisse et de taille avec la photo 1.
+Table de correspondance appliquée :
 
-### Favicon
+| Hardcodé | Token sémantique |
+|---|---|
+| `bg-white` (carte) | `bg-card` |
+| `bg-[#F8FAFC]` (sous-carte) | `bg-muted/40` |
+| `bg-[#F3F4F6]` (badge) | `bg-muted` |
+| `border-black/[0.06]`, `border-black/[0.07]`, `border-black/[0.08]` | `border-border` |
+| `text-[#111827]` | `text-foreground` |
+| `text-[#6B7280]`, `text-[#9CA3AF]` (placeholder) | `text-muted-foreground` / `placeholder:text-muted-foreground` |
+| `text-[#2563EB]`, `bg-[#2563EB]` (accents) | `text-accent` / `bg-accent` (déjà HSL 224 76% 56%) |
+| Titres de cartes | ajouter/garder `text-foreground` explicite |
 
-Le favicon actuel (`public/favicon.png` + `<link>` dans `index.html`) est déjà basé sur l'ancien symbole. Je le régénère à partir du nouveau symbole (export PNG 512×512) et je remplace `public/favicon.png` — pas de changement dans `index.html`.
+## Vérification
 
-## Fichiers touchés
+Après changement :
+- Passer en mode sombre depuis le ThemeToggle et vérifier visuellement le dashboard
+- Vérifier que le mode clair reste identique à aujourd'hui (les tokens `card`, `foreground`, `muted` sont déjà thémés dans les deux modes)
 
-- `src/components/brand/HackaoLogo.tsx` — nouveau symbole squircle + gradient + carré blanc + shadow
-- `public/favicon.png` — régénéré depuis le nouveau symbole
+## Fichier modifié
 
-Aucun autre fichier n'a besoin d'être modifié : tous les usages passent déjà par `<HackaoLogo />`.
+- `src/pages/Dashboard.tsx` — remplacement chirurgical des couleurs hardcodées par les tokens sémantiques
+
+## Hors scope
+
+- Les autres pages qui pourraient avoir le même problème (Tenders, Pipeline, etc.) — à traiter séparément si tu le confirmes. Dis-moi si tu veux que j'audite tout le codebase en même temps ou juste le dashboard pour l'instant.
