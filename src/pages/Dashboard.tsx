@@ -1,42 +1,21 @@
 import { useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-  Search,
-  Bell,
-  ArrowUpRight,
-  Bookmark,
-  Kanban,
-  Newspaper,
-} from "lucide-react";
+import { Search, Bell, ArrowUpRight, Bookmark, BarChart3, Newspaper } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import {
   usePipelineDistribution,
   useRecentPipeline,
 } from "@/hooks/queries/useDashboard";
 import { useAlerts } from "@/hooks/queries/useAlerts";
 
-const STAGE_LABELS: Record<string, string> = {
-  spotted: "Repéré",
-  analyzing: "En analyse",
-  no_go: "No Go",
-  responding: "En réponse",
-  won: "Gagné",
-  lost: "Perdu",
-};
-
-const STAGE_ORDER = ["spotted", "analyzing", "responding", "won", "lost"];
-
-const STAGE_COLOR_VARS = [
-  "hsl(var(--accent))",
-  "hsl(var(--accent-soft))",
-  "hsl(var(--primary))",
-  "hsl(142 55% 45%)",
-  "hsl(var(--muted-foreground))",
-];
+/* ── Étapes du pipeline (ordre + couleurs du prototype « nouveau design ») ── */
+const STAGES = [
+  { key: "spotted", name: "Repéré", donut: "#2563EB", col: "#2563EB" },
+  { key: "analyzing", name: "En analyse", donut: "#818CF8", col: "#818CF8" },
+  { key: "responding", name: "En réponse", donut: "#7C3AED", col: "#7C3AED" },
+  { key: "won", name: "Gagné", donut: "#16A34A", col: "#16A34A" },
+  { key: "lost", name: "Perdu", donut: "#D1D5DB", col: "#9CA3AF" },
+] as const;
 
 const NEWS = [
   {
@@ -52,12 +31,22 @@ const NEWS = [
     date: "26/10/2025",
   },
   {
-    title: "L'impact de la crise sur les marchés publics français : analyse sectorielle",
+    title: "L'impact de la crise sur les marchés publics : analyse sectorielle",
     excerpt:
       "En tant qu'expert en marchés publics, il est essentiel d'examiner les répercussions géopolitiques majeures sur les appels d'offres.",
     date: "20/10/2025",
   },
 ];
+
+const R = 48;
+const CIRC = 2 * Math.PI * R; // ≈ 301.6
+
+type PipeItem = {
+  id: string;
+  stage?: string | null;
+  tender_id?: string | null;
+  tenders?: { title?: string | null } | null;
+};
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -71,180 +60,187 @@ const Dashboard = () => {
   const firstName = useMemo(() => {
     const meta = (user?.user_metadata?.full_name as string | undefined)?.split(" ")[0];
     if (meta) return meta;
-    return user?.email?.split("@")[0] ?? "";
+    return user?.email?.split("@")[0] ?? "Romain";
   }, [user]);
 
-  const pipelineDistribution = useMemo(() => {
+  const distribution = useMemo(() => {
     const raw = distributionRaw ?? {};
-    return STAGE_ORDER.map((k) => ({
-      key: k,
-      name: STAGE_LABELS[k] ?? k,
-      value: (raw[k] as number) ?? 0,
-    }));
+    return STAGES.map((s) => ({ ...s, value: (raw[s.key] as number) ?? 0 }));
   }, [distributionRaw]);
 
-  const totalFav = pipelineDistribution.reduce((s, d) => s + d.value, 0);
+  const totalFav = distribution.reduce((s, d) => s + d.value, 0);
+
+  /* Segments du donut calculés à partir des vraies données */
+  const segments = useMemo(() => {
+    let offset = 0;
+    return distribution
+      .filter((d) => d.value > 0)
+      .map((d) => {
+        const dash = totalFav ? (d.value / totalFav) * CIRC : 0;
+        const seg = { color: d.donut, dash, offset: -offset };
+        offset += dash;
+        return seg;
+      });
+  }, [distribution, totalFav]);
 
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault();
     navigate(`/tenders${searchQ ? `?q=${encodeURIComponent(searchQ)}` : ""}`);
   };
 
-  const recentAlerts = alerts.slice(0, 7);
+  const recentAlerts = alerts.slice(0, 4);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto p-4 md:p-6">
-      {/* Hero greeting */}
-      <Card
-        className="relative overflow-hidden border-border rounded-2xl p-6 md:p-10"
-        style={{ boxShadow: "var(--shadow-soft)" }}
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-5">
+      {/* ═════ Greeting ═════ */}
+      <section
+        className="hao-anim-in relative overflow-hidden rounded-[20px] border border-black/[0.06] bg-white px-8 py-8 md:px-9"
+        style={{ boxShadow: "0 2px 8px rgba(17,24,39,0.04)", animation: "hao-in 0.6s cubic-bezier(0.22,1,0.36,1) both" }}
       >
-        <div
-          className="absolute inset-0 opacity-[0.10] pointer-events-none"
-          style={{ background: "var(--gradient-brand)" }}
+        <span
+          className="hao-anim-blob pointer-events-none absolute -right-16 -top-24 h-[280px] w-[280px] rounded-full"
+          style={{
+            background: "radial-gradient(circle, rgba(37,99,235,0.12), transparent 65%)",
+            filter: "blur(20px)",
+            animation: "hao-blob 14s ease-in-out infinite",
+          }}
         />
-        <div
-          className="absolute -top-20 -right-16 w-72 h-72 rounded-full opacity-20 blur-3xl"
-          style={{ background: "hsl(var(--accent))" }}
+        <span
+          className="pointer-events-none absolute -bottom-28 -left-20 h-[280px] w-[280px] rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(124,58,237,0.09), transparent 65%)", filter: "blur(20px)" }}
         />
-        <div
-          className="absolute -bottom-24 -left-20 w-72 h-72 rounded-full opacity-15 blur-3xl"
-          style={{ background: "hsl(var(--accent-soft))" }}
-        />
-
-        <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+        <div className="relative flex flex-wrap items-center justify-between gap-6">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-foreground tracking-tight">
-              Bonjour <span className="text-gradient-brand">{firstName}</span>&nbsp;!
+            <h1 className="text-[30px] font-extrabold leading-tight" style={{ letterSpacing: "-0.03em" }}>
+              Bonjour{" "}
+              <span
+                style={{
+                  background: "linear-gradient(100deg, #2563EB, #4F46E5 50%, #7C3AED)",
+                  WebkitBackgroundClip: "text",
+                  backgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  color: "transparent",
+                }}
+              >
+                {firstName}
+              </span>
+              &nbsp;!
             </h1>
-            <p className="mt-2 text-muted-foreground">
+            <p className="mt-1.5 text-[14.5px] text-[#6B7280]">
               Voici un aperçu de votre activité sur HackAO.
             </p>
           </div>
 
-          <form onSubmit={submitSearch} className="w-full md:w-[420px] relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
+          <form onSubmit={submitSearch} className="relative w-full max-w-full md:w-[400px]">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-[#9CA3AF]" />
+            <input
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               placeholder="Rechercher un appel d'offres…"
-              className="pl-11 pr-24 h-12 rounded-xl bg-card border-border"
+              className="h-12 w-full rounded-[13px] border border-black/[0.08] bg-white pl-[42px] pr-[130px] text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/40"
+              style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}
             />
-            <Button
+            <button
               type="submit"
-              size="sm"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[9px] px-[18px] py-2 text-[13px] font-semibold text-white transition-transform hover:-translate-y-[calc(50%+1px)]"
+              style={{
+                background: "linear-gradient(135deg, #2563EB, #4F46E5)",
+                boxShadow: "0 4px 12px rgba(37,99,235,0.3)",
+              }}
             >
               Chercher
-            </Button>
+            </button>
           </form>
         </div>
-      </Card>
+      </section>
 
-      {/* Alertes + Favoris */}
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <Card className="rounded-2xl border-border p-6" style={{ boxShadow: "var(--shadow-soft)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Bell className="h-4 w-4 text-accent" />
-              <h2 className="text-base font-semibold text-foreground">Mes dernières alertes reçues</h2>
-            </div>
-            <button
-              onClick={() => navigate("/alerts")}
-              className="text-muted-foreground hover:text-accent transition-colors"
-              aria-label="Voir toutes les alertes"
-            >
-              <ArrowUpRight className="h-4 w-4" />
-            </button>
-          </div>
-
+      {/* ═════ Alertes + Favoris ═════ */}
+      <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
+        {/* Alertes */}
+        <Panel delay="0.08s">
+          <PanelHeader
+            icon={<Bell className="h-[14px] w-[14px]" style={{ color: "#2563EB" }} />}
+            iconBg="rgba(37,99,235,0.08)"
+            title="Mes dernières alertes reçues"
+            onExpand={() => navigate("/alerts")}
+          />
           {recentAlerts.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
+            <p className="py-8 text-center text-sm text-[#6B7280]">
               Aucune alerte configurée. Créez-en une depuis vos paramètres.
             </p>
           ) : (
-            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {recentAlerts.map((a) => (
                 <button
                   key={a.id}
                   onClick={() => navigate("/tenders")}
-                  className="text-left rounded-xl border border-border bg-background hover:bg-muted transition-colors p-3 group"
+                  className="group rounded-[14px] border border-black/[0.06] bg-[#F8FAFC] p-[13px_14px] text-left transition-all [transition-duration:250ms] hover:-translate-y-[3px] hover:border-[#2563EB]/25"
+                  style={{ transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 10px 24px rgba(17,24,39,0.08)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}
                 >
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#9CA3AF]">
                     {a.frequency ?? "—"}
                   </div>
-                  <div className="text-sm font-medium text-foreground line-clamp-2 mb-2">
+                  <div className="mb-[9px] line-clamp-2 text-[13px] font-semibold leading-[1.35]">
                     {a.name}
                   </div>
-                  <span className="inline-block text-[11px] font-medium text-accent bg-accent/10 rounded-full px-2 py-0.5">
-                    0 non lus
+                  <span className="inline-block rounded-full bg-[#F3F4F6] px-[9px] py-[3px] text-[11px] font-bold text-[#6B7280]">
+                    0 non lu
                   </span>
                 </button>
               ))}
             </div>
           )}
-        </Card>
+        </Panel>
 
-        <Card className="rounded-2xl border-border p-6" style={{ boxShadow: "var(--shadow-soft)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Bookmark className="h-4 w-4 text-accent" />
-              <h2 className="text-base font-semibold text-foreground">Mes favoris</h2>
-            </div>
-            <button
-              onClick={() => navigate("/pipeline")}
-              className="text-muted-foreground hover:text-accent transition-colors"
-              aria-label="Voir le pipeline"
-            >
-              <ArrowUpRight className="h-4 w-4" />
-            </button>
-          </div>
-
+        {/* Favoris */}
+        <Panel delay="0.16s">
+          <PanelHeader
+            icon={<Bookmark className="h-[14px] w-[14px]" style={{ color: "#7C3AED" }} />}
+            iconBg="rgba(124,58,237,0.08)"
+            title="Mes favoris"
+            onExpand={() => navigate("/pipeline")}
+          />
           {totalFav === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
-              Ajoutez des AO à votre pipeline.
-            </p>
+            <p className="py-8 text-center text-sm text-[#6B7280]">Ajoutez des AO à votre pipeline.</p>
           ) : (
-            <div className="flex items-center gap-4">
-              <div className="relative w-32 h-32 shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pipelineDistribution.filter((d) => d.value > 0)}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={42}
-                      outerRadius={62}
-                      paddingAngle={2}
-                      stroke="hsl(var(--card))"
-                    >
-                      {pipelineDistribution.map((_, i) => (
-                        <Cell key={i} fill={STAGE_COLOR_VARS[i % STAGE_COLOR_VARS.length]} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-2xl font-bold text-foreground leading-none">{totalFav}</span>
-                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground mt-1">favoris</span>
+            <div className="flex items-center gap-[18px]">
+              <div className="relative h-[124px] w-[124px] flex-shrink-0">
+                <svg width="124" height="124" viewBox="0 0 124 124" style={{ transform: "rotate(-90deg)" }}>
+                  <circle cx="62" cy="62" r={R} fill="none" stroke="#EEF2F7" strokeWidth="16" />
+                  {segments.map((s, i) => (
+                    <circle
+                      key={i}
+                      cx="62"
+                      cy="62"
+                      r={R}
+                      fill="none"
+                      stroke={s.color}
+                      strokeWidth="16"
+                      strokeDasharray={`${s.dash} ${CIRC}`}
+                      strokeDashoffset={s.offset}
+                      style={{ animation: "hao-donut 1.4s cubic-bezier(0.22,1,0.36,1)" }}
+                    />
+                  ))}
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-extrabold leading-none">{totalFav}</span>
+                  <span className="mt-[3px] text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#9CA3AF]">
+                    favoris
+                  </span>
                 </div>
               </div>
-
-              <ul className="flex-1 space-y-1.5 text-sm">
-                {pipelineDistribution
+              <ul className="flex flex-1 flex-col gap-[7px] text-[13px]">
+                {distribution
                   .filter((d) => d.value > 0)
-                  .map((d, i) => {
+                  .map((d) => {
                     const pct = totalFav ? Math.round((d.value / totalFav) * 100) : 0;
                     return (
-                      <li key={d.name} className="flex items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full shrink-0"
-                          style={{ background: STAGE_COLOR_VARS[i % STAGE_COLOR_VARS.length] }}
-                        />
-                        <span className="text-foreground truncate flex-1">{d.name}</span>
-                        <span className="text-muted-foreground tabular-nums">
+                      <li key={d.key} className="flex items-center gap-2">
+                        <span className="h-[9px] w-[9px] flex-shrink-0 rounded-full" style={{ background: d.donut }} />
+                        <span className="flex-1 truncate">{d.name}</span>
+                        <span className="tabular-nums text-[#6B7280]">
                           {d.value} · {pct}%
                         </span>
                       </li>
@@ -253,88 +249,128 @@ const Dashboard = () => {
               </ul>
             </div>
           )}
-        </Card>
+        </Panel>
       </div>
 
-      {/* Pipe condensé + Actualité */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="rounded-2xl border-border p-6" style={{ boxShadow: "var(--shadow-soft)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Kanban className="h-4 w-4 text-accent" />
-              <h2 className="text-base font-semibold text-foreground">Mon pipeline</h2>
-            </div>
-            <button
-              onClick={() => navigate("/pipeline")}
-              className="text-muted-foreground hover:text-accent transition-colors"
-              aria-label="Voir le pipeline complet"
-            >
-              <ArrowUpRight className="h-4 w-4" />
-            </button>
-          </div>
-
+      {/* ═════ Pipeline + Actualité ═════ */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* Pipeline */}
+        <Panel delay="0.24s">
+          <PanelHeader
+            icon={<BarChart3 className="h-[14px] w-[14px]" style={{ color: "#2563EB" }} />}
+            iconBg="rgba(37,99,235,0.08)"
+            title="Mon pipeline"
+            onExpand={() => navigate("/pipeline")}
+          />
           {totalFav === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
+            <p className="py-8 text-center text-sm text-[#6B7280]">
               Aucun AO dans votre pipeline. Ajoutez-en depuis la recherche.
             </p>
           ) : (
-            <div className="grid grid-cols-5 gap-2">
-              {pipelineDistribution.map((s, i) => {
-                const items = recentPipeline.filter((p: any) => (p.stage ?? "spotted") === s.key);
+            <div className="grid grid-cols-5 gap-2.5">
+              {distribution.map((s) => {
+                const items = (recentPipeline as PipeItem[]).filter((p) => (p.stage ?? "spotted") === s.key);
                 return (
                   <div
                     key={s.key}
-                    className="rounded-lg border border-border bg-background/50 p-2 flex flex-col gap-2 min-h-[160px]"
+                    className="flex min-h-[150px] flex-col gap-2 rounded-xl border border-black/[0.06] bg-[#F8FAFC] p-2.5"
                   >
                     <div className="flex items-center justify-between">
                       <span
-                        className="text-[10px] uppercase tracking-wider font-semibold truncate"
-                        style={{ color: STAGE_COLOR_VARS[i % STAGE_COLOR_VARS.length] }}
+                        className="text-[9.5px] font-bold uppercase tracking-[0.07em]"
+                        style={{ color: s.col }}
                       >
                         {s.name}
                       </span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground">{s.value}</span>
+                      <span className="text-[10px] tabular-nums text-[#9CA3AF]">{s.value}</span>
                     </div>
-                    <div className="space-y-1.5 flex-1">
-                      {items.slice(0, 2).map((item: any) => (
-                        <button
-                          key={item.id}
-                          onClick={() => navigate(`/tenders/${item.tender_id}`)}
-                          className="w-full text-left rounded-md bg-card border border-border p-1.5 hover:border-accent/50 transition-colors"
-                        >
-                          <p className="text-[11px] font-medium text-foreground line-clamp-2 leading-tight">
-                            {item.tenders?.title ?? "AO"}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
+                    {items.slice(0, 2).map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => navigate(`/tenders/${item.tender_id}`)}
+                        className="rounded-[9px] border border-black/[0.07] bg-white p-[8px_9px] text-left text-[11px] font-medium leading-[1.35] transition-all duration-200 hover:-translate-y-px hover:border-[#2563EB]/40"
+                      >
+                        <span className="line-clamp-2">{item.tenders?.title ?? "AO"}</span>
+                      </button>
+                    ))}
                   </div>
                 );
               })}
             </div>
           )}
-        </Card>
+        </Panel>
 
-        <Card className="rounded-2xl border-border p-6" style={{ boxShadow: "var(--shadow-soft)" }}>
-          <div className="flex items-center gap-2 mb-4">
-            <Newspaper className="h-4 w-4 text-accent" />
-            <h2 className="text-base font-semibold text-foreground">L'actualité des marchés publics</h2>
+        {/* Actualité */}
+        <Panel delay="0.32s">
+          <div className="mb-4 flex items-center gap-[9px]">
+            <span
+              className="inline-flex h-7 w-7 items-center justify-center rounded-[9px]"
+              style={{ background: "rgba(79,70,229,0.08)" }}
+            >
+              <Newspaper className="h-[14px] w-[14px]" style={{ color: "#4F46E5" }} />
+            </span>
+            <span className="text-[15px] font-bold">L'actualité des marchés publics</span>
           </div>
-          <ul className="space-y-4 max-h-[420px] overflow-y-auto pr-1">
+          <div className="flex flex-col">
             {NEWS.map((n) => (
-              <li key={n.title} className="border-b border-border last:border-b-0 pb-4 last:pb-0">
-                <h3 className="text-sm font-semibold text-foreground hover:text-accent transition-colors cursor-pointer">
+              <div key={n.title} className="cursor-pointer border-b border-black/[0.05] px-0.5 py-[13px] last:border-b-0">
+                <div className="text-[13.5px] font-semibold leading-[1.4] transition-colors hover:text-[#2563EB]">
                   {n.title}
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{n.excerpt}</p>
-                <div className="text-[11px] text-muted-foreground mt-2">{n.date}</div>
-              </li>
+                </div>
+                <div className="mt-1 line-clamp-2 text-xs leading-[1.55] text-[#6B7280]">{n.excerpt}</div>
+                <div className="mt-1.5 text-[11px] text-[#9CA3AF]">{n.date}</div>
+              </div>
             ))}
-          </ul>
-        </Card>
+          </div>
+        </Panel>
       </div>
     </div>
   );
 };
+
+/* ── Carte blanche réutilisable (radius 20, ombre douce, entrée animée) ── */
+function Panel({ children, delay }: { children: React.ReactNode; delay: string }) {
+  return (
+    <section
+      className="hao-anim-in rounded-[20px] border border-black/[0.06] bg-white p-[22px_24px]"
+      style={{
+        boxShadow: "0 2px 8px rgba(17,24,39,0.04)",
+        animation: `hao-in 0.6s cubic-bezier(0.22,1,0.36,1) ${delay} both`,
+      }}
+    >
+      {children}
+    </section>
+  );
+}
+
+function PanelHeader({
+  icon,
+  iconBg,
+  title,
+  onExpand,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  title: string;
+  onExpand: () => void;
+}) {
+  return (
+    <div className="mb-4 flex items-center justify-between">
+      <div className="flex items-center gap-[9px]">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-[9px]" style={{ background: iconBg }}>
+          {icon}
+        </span>
+        <span className="text-[15px] font-bold">{title}</span>
+      </div>
+      <button
+        onClick={onExpand}
+        aria-label={title}
+        className="text-[#9CA3AF] transition-colors hover:text-[#2563EB]"
+      >
+        <ArrowUpRight className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
 
 export default Dashboard;
