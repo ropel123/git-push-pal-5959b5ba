@@ -2,100 +2,107 @@
 @tailwind components;
 @tailwind utilities;
 
-/* HackAO design tokens — light default (crème + navy), dark alt (navy + crème). */
+/* ═══════════════════════════════════════════════════════════════
+   HackAO design tokens — v2 "Premium SaaS"
+   Blanc pur + bleu profond #2563EB, gradient #2563EB→#4F46E5→#7C3AED
+   Remplace l'ancien thème crème/navy. Toute l'app (shadcn inclus)
+   hérite de ces variables.
+   ═══════════════════════════════════════════════════════════════ */
 @layer base {
   :root {
-    --background: 42 60% 96%;        /* crème #FBF5E5 */
-    --foreground: 224 71% 12%;       /* navy #0B1437 */
+    --background: 0 0% 100%;          /* blanc pur #FFFFFF */
+    --foreground: 221 39% 11%;        /* #111827 */
 
     --card: 0 0% 100%;
-    --card-foreground: 224 71% 12%;
+    --card-foreground: 221 39% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 224 71% 12%;
+    --popover-foreground: 221 39% 11%;
 
-    --primary: 224 71% 18%;          /* deep navy */
-    --primary-foreground: 42 60% 96%;
+    --primary: 217 91% 60%;           /* #2563EB */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 42 40% 92%;
-    --secondary-foreground: 224 71% 12%;
+    --secondary: 210 40% 98%;         /* #F8FAFC */
+    --secondary-foreground: 221 39% 11%;
 
-    --muted: 42 30% 92%;
-    --muted-foreground: 224 15% 38%;
+    --muted: 210 40% 98%;
+    --muted-foreground: 220 9% 46%;   /* #6B7280 */
 
-    --accent: 224 76% 56%;           /* bleu vif #3B5CE6 */
+    --accent: 243 75% 59%;            /* #4F46E5 */
     --accent-foreground: 0 0% 100%;
 
-    --accent-soft: 42 90% 80%;       /* crème jaune */
-    --accent-soft-foreground: 224 71% 12%;
+    --accent-soft: 217 91% 95%;
+    --accent-soft-foreground: 217 91% 40%;
 
     --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 224 20% 88%;
-    --input: 224 20% 88%;
-    --ring: 224 76% 56%;
+    --border: 0 0% 0% / 0.06;         /* rgba(0,0,0,0.06) */
+    --input: 220 13% 91%;
+    --ring: 217 91% 60%;
 
     --radius: 1rem;
 
-    --gradient-brand: linear-gradient(135deg, hsl(224 76% 56%) 0%, hsl(42 90% 70%) 100%);
-    --shadow-soft: 0 1px 2px hsl(224 71% 12% / 0.04), 0 4px 16px hsl(224 71% 12% / 0.06);
-    --shadow-elevated: 0 8px 30px hsl(224 71% 12% / 0.10);
+    --gradient-brand: linear-gradient(135deg, #2563EB 0%, #4F46E5 50%, #7C3AED 100%);
+    --shadow-soft: 0 2px 8px hsl(221 39% 11% / 0.04);
+    --shadow-elevated: 0 24px 48px -12px hsl(221 39% 11% / 0.12);
+    --shadow-glow: 0 8px 24px rgb(37 99 235 / 0.35);
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 224 71% 12%;
-    --sidebar-primary: 224 76% 56%;
+    --sidebar-foreground: 221 39% 11%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 42 60% 94%;
-    --sidebar-accent-foreground: 224 71% 18%;
-    --sidebar-border: 224 20% 90%;
-    --sidebar-ring: 224 76% 56%;
+    --sidebar-accent: 210 40% 98%;
+    --sidebar-accent-foreground: 221 39% 11%;
+    --sidebar-border: 220 13% 92%;
+    --sidebar-ring: 217 91% 60%;
   }
 
   .dark {
-    --background: 224 71% 8%;        /* navy profond */
-    --foreground: 42 60% 96%;
+    --background: 222 47% 8%;         /* #0B1220 — navy de la section Sécurité */
+    --foreground: 210 40% 98%;
 
-    --card: 224 50% 13%;
-    --card-foreground: 42 60% 96%;
+    --card: 222 40% 12%;
+    --card-foreground: 210 40% 98%;
 
-    --popover: 224 50% 13%;
-    --popover-foreground: 42 60% 96%;
+    --popover: 222 40% 12%;
+    --popover-foreground: 210 40% 98%;
 
-    --primary: 42 60% 96%;
-    --primary-foreground: 224 71% 12%;
+    --primary: 217 91% 65%;           /* #60A5FA-ish */
+    --primary-foreground: 222 47% 8%;
 
-    --secondary: 224 40% 18%;
-    --secondary-foreground: 42 60% 96%;
+    --secondary: 222 35% 16%;
+    --secondary-foreground: 210 40% 98%;
 
-    --muted: 224 40% 18%;
-    --muted-foreground: 42 20% 70%;
+    --muted: 222 35% 16%;
+    --muted-foreground: 215 16% 65%;
 
-    --accent: 224 90% 65%;
-    --accent-foreground: 224 71% 8%;
+    --accent: 243 80% 68%;
+    --accent-foreground: 222 47% 8%;
 
-    --accent-soft: 42 90% 72%;
-    --accent-soft-foreground: 224 71% 12%;
+    --accent-soft: 217 60% 20%;
+    --accent-soft-foreground: 217 91% 75%;
 
     --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 224 30% 22%;
-    --input: 224 30% 22%;
-    --ring: 224 90% 65%;
+    --border: 0 0% 100% / 0.1;
+    --input: 222 30% 22%;
+    --ring: 217 91% 65%;
 
-    --gradient-brand: linear-gradient(135deg, hsl(224 90% 65%) 0%, hsl(42 90% 70%) 100%);
+    --gradient-brand: linear-gradient(135deg, #3B82F6 0%, #6366F1 50%, #8B5CF6 100%);
     --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.3), 0 4px 16px hsl(0 0% 0% / 0.25);
     --shadow-elevated: 0 8px 30px hsl(0 0% 0% / 0.45);
+    --shadow-glow: 0 8px 24px rgb(59 130 246 / 0.4);
 
-    --sidebar-background: 224 60% 10%;
-    --sidebar-foreground: 42 60% 96%;
-    --sidebar-primary: 224 90% 65%;
+    --sidebar-background: 222 47% 10%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217 91% 65%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 224 40% 16%;
-    --sidebar-accent-foreground: 42 60% 96%;
-    --sidebar-border: 224 30% 20%;
-    --sidebar-ring: 224 90% 65%;
+    --sidebar-accent: 222 35% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 222 30% 18%;
+    --sidebar-ring: 217 91% 65%;
   }
 }
 
@@ -104,15 +111,30 @@
     @apply border-border;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-feature-settings: "ss01", "cv11";
+    letter-spacing: -0.011em;
   }
 }
 
+/* ═════════ Composants réutilisables ═════════ */
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center gap-2 bg-primary text-primary-foreground font-semibold py-3 px-8 rounded-xl hover:opacity-90 transition-all duration-300;
+    @apply relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-br from-[#2563EB] to-[#4F46E5] px-8 py-3 font-semibold text-white transition-all duration-300 hover:-translate-y-0.5;
+    box-shadow: var(--shadow-glow), inset 0 1px 0 rgb(255 255 255 / 0.2);
+  }
+  .btn-primary:hover {
+    box-shadow: 0 14px 32px rgb(37 99 235 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.2);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-8 py-3 font-semibold text-foreground shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg;
   }
 
   .text-gradient-brand {
@@ -127,30 +149,135 @@
   }
 
   .section-padding {
-    @apply py-16 md:py-24;
+    @apply py-20 md:py-32;
   }
 
   .section-container {
-    @apply max-w-7xl mx-auto px-4 md:px-6;
+    @apply mx-auto max-w-6xl px-5 md:px-12;
   }
 
   .headline-lg {
-    @apply text-3xl md:text-4xl lg:text-5xl font-bold leading-tight tracking-tight text-foreground;
+    @apply text-3xl font-extrabold leading-tight tracking-tight text-foreground md:text-4xl lg:text-5xl;
+  }
+
+  .eyebrow {
+    @apply text-[13px] font-bold uppercase tracking-[0.1em] text-[#2563EB];
   }
 
   .body-lg {
-    @apply text-lg text-muted-foreground leading-relaxed;
+    @apply text-lg leading-relaxed text-muted-foreground;
   }
 
   .body-md {
-    @apply text-base text-muted-foreground leading-relaxed;
+    @apply text-base leading-relaxed text-muted-foreground;
   }
 
   .card-premium {
-    @apply bg-card border border-border rounded-2xl p-8 transition-all duration-300;
+    @apply rounded-3xl border border-black/[0.06] bg-card p-8 transition-all duration-300;
     box-shadow: var(--shadow-soft);
   }
   .card-premium:hover {
     box-shadow: var(--shadow-elevated);
+    transform: translateY(-6px);
   }
+
+  /* Grille de fond subtile (hero, sections sombres) */
+  .bg-grid-light {
+    background-image: linear-gradient(rgb(0 0 0 / 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(0 0 0 / 0.03) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 75%);
+  }
+  .bg-grid-dark {
+    background-image: linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+    background-size: 52px 52px;
+    mask-image: radial-gradient(ellipse 75% 75% at 50% 40%, black 20%, transparent 78%);
+  }
+
+  /* Reveal au scroll — piloté par useScrollReveal */
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+  .reveal-left {
+    transform: translateX(-44px);
+  }
+  .reveal-right {
+    transform: translateX(44px);
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal,
+    .reveal-left,
+    .reveal-right {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+}
+
+/* ═════════ Keyframes motion design ═════════ */
+@keyframes hao-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+@keyframes hao-float-b {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(10px); }
+}
+@keyframes hao-blob {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, -30px) scale(1.08); }
+  66% { transform: translate(-30px, 20px) scale(0.95); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+@keyframes hao-dot {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.5); opacity: 1; }
+}
+@keyframes hao-think {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+@keyframes hao-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes hao-dash {
+  to { stroke-dashoffset: -20; }
+}
+@keyframes hao-shimmer {
+  0% { background-position: 200% 50%; }
+  100% { background-position: -200% 50%; }
+}
+@keyframes hao-ring {
+  from { stroke-dashoffset: 226; }
+  to { stroke-dashoffset: 29; }
+}
+@keyframes hao-grad-text {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@keyframes hao-sheen {
+  0% { transform: translateX(-160%) skewX(-20deg); }
+  55%, 100% { transform: translateX(260%) skewX(-20deg); }
+}
+@keyframes hao-rise {
+  0% { transform: translateY(0); opacity: 0; }
+  10% { opacity: 1; }
+  85% { opacity: 0.8; }
+  100% { transform: translateY(-360px); opacity: 0; }
+}
+@keyframes hao-glow-pulse {
+  0%, 100% { box-shadow: 0 0 40px rgb(37 99 235 / 0.15); }
+  50% { box-shadow: 0 0 80px rgb(37 99 235 / 0.4); }
 }
