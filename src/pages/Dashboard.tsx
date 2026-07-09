@@ -202,12 +202,12 @@ const Dashboard = () => {
             onExpand={() => navigate("/pipeline")}
           />
           {totalFav === 0 ? (
-            <p className="py-8 text-center text-sm text-[#6B7280]">Ajoutez des AO à votre pipeline.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">Ajoutez des AO à votre pipeline.</p>
           ) : (
             <div className="flex items-center gap-[18px]">
               <div className="relative h-[124px] w-[124px] flex-shrink-0">
                 <svg width="124" height="124" viewBox="0 0 124 124" style={{ transform: "rotate(-90deg)" }}>
-                  <circle cx="62" cy="62" r={R} fill="none" stroke="#EEF2F7" strokeWidth="16" />
+                  <circle cx="62" cy="62" r={R} fill="none" stroke="hsl(var(--muted))" strokeWidth="16" />
                   {segments.map((s, i) => (
                     <circle
                       key={i}
@@ -224,13 +224,13 @@ const Dashboard = () => {
                   ))}
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-2xl font-extrabold leading-none">{totalFav}</span>
-                  <span className="mt-[3px] text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#9CA3AF]">
+                  <span className="text-2xl font-extrabold leading-none text-foreground">{totalFav}</span>
+                  <span className="mt-[3px] text-[9.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     favoris
                   </span>
                 </div>
               </div>
-              <ul className="flex flex-1 flex-col gap-[7px] text-[13px]">
+              <ul className="flex flex-1 flex-col gap-[7px] text-[13px] text-foreground">
                 {distribution
                   .filter((d) => d.value > 0)
                   .map((d) => {
@@ -239,7 +239,7 @@ const Dashboard = () => {
                       <li key={d.key} className="flex items-center gap-2">
                         <span className="h-[9px] w-[9px] flex-shrink-0 rounded-full" style={{ background: d.donut }} />
                         <span className="flex-1 truncate">{d.name}</span>
-                        <span className="tabular-nums text-[#6B7280]">
+                        <span className="tabular-nums text-muted-foreground">
                           {d.value} · {pct}%
                         </span>
                       </li>
@@ -248,6 +248,7 @@ const Dashboard = () => {
               </ul>
             </div>
           )}
+
         </Panel>
       </div>
 
