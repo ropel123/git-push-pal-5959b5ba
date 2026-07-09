@@ -40,11 +40,16 @@ const HackaoLogo = ({ variant = "full", tone = "navy", className, size = 28 }: H
         ? "currentColor"
         : "hsl(var(--accent))";
 
-  // Petal: rounded rectangle with one corner deeply curved inward — repeated 4× at 90°.
-  // We build it with a path so it scales cleanly.
+  // Petal: rounded pill radiating diagonally from the center — 4 pills at 45°/135°/225°/315°
+  // form a clean, symmetric pinwheel/flower mark.
   const Petal = ({ rotate }: { rotate: number }) => (
-    <path
-      d="M0,-18 L14,-18 A6,6 0 0 1 20,-12 L20,2 A20,20 0 0 0 0,-18 Z"
+    <rect
+      x={-7}
+      y={-28}
+      width={14}
+      height={22}
+      rx={7}
+      ry={7}
       fill={fillSymbol}
       transform={`rotate(${rotate})`}
     />
@@ -64,10 +69,10 @@ const HackaoLogo = ({ variant = "full", tone = "navy", className, size = 28 }: H
           <stop offset="100%" stopColor="hsl(42 90% 70%)" />
         </linearGradient>
       </defs>
-      <Petal rotate={0} />
-      <Petal rotate={90} />
-      <Petal rotate={180} />
-      <Petal rotate={270} />
+      <Petal rotate={45} />
+      <Petal rotate={135} />
+      <Petal rotate={225} />
+      <Petal rotate={315} />
     </svg>
   );
 

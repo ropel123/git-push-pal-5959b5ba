@@ -1,32 +1,19 @@
-## Diagnostic
+## Problème
 
-D'après les données :
-- 2065 notices TED en base
-- Seules **405** (celles ingérées aujourd'hui 10/06) ont été parsées par la version actuelle du parser eForms → 320 ont `award_criteria`, 323 ont `offers_received`, 324 ont `winner_address`
-- Les **1660 notices plus anciennes** ont leur `raw` (XML déjà parsé en JSON) stocké en base, mais les champs avancés sont vides parce qu'elles ont été ingérées **avant** que `parseBoampAward` gère correctement le format TED
+Le symbole du logo dans la sidebar apparaît cassé : les 4 « pétales » du path SVG ne forment pas un vrai moulinet équilibré. Le path actuel dessine des rectangles avec un coin arrondi + une courbe interne, ce qui produit des formes irrégulières et mal alignées au centre.
 
-Aucun bug actuel à corriger dans le parser. Il faut juste **rejouer le parser sur le `raw` déjà stocké** pour les anciennes notices — pas besoin de retaper l'API TED.
+## Correction
 
-## Plan
+Refaire uniquement le symbole dans `src/components/brand/HackaoLogo.tsx` — ne pas toucher au wordmark, à la sidebar, ou au reste du layout.
 
-### 1. Nouvelle edge function `reparse-ted-awards`
-- Sélectionne par lots (200) les `award_notices` où `source = 'TED'`, `raw IS NOT NULL`, et au moins un champ avancé manquant (`award_criteria IS NULL AND offers_received IS NULL AND winner_address IS NULL`)
-- Pour chaque ligne :
-  - Wrap : `{ EFORMS: { ContractAwardNotice: raw.ContractAwardNotice } }`
-  - Appelle `parseBoampAward` (déjà partagé dans `_shared/boampParse.ts`)
-  - Si succès, met à jour `award_criteria`, `offers_received`, `offers_admitted`, `offers_rejected`, `num_candidates`, `subcontracting_share`, `winner_address`, `winner_legal_form`, `winner_country`, `award_date` (si null), `cpv_codes`, `place_of_performance`, `lots_awarded`
-  - Ne touche pas à `winner_name`/`winner_siren`/`awarded_amount` s'ils sont déjà remplis (pour ne pas écraser)
-- Param `?limit=200&offset=0` pour pagination + renvoie `{ processed, updated, skipped, remaining }`
+Nouvelle géométrie du pinwheel :
+- 4 pétales identiques disposées à 0°, 90°, 180°, 270° autour du centre
+- Chaque pétale = quart de disque (rayon extérieur ~22) avec un coin interne carré et un coin externe arrondi, laissant un petit vide au centre (~4px) pour l'effet moulinet
+- Path unique propre basé sur `M` + arc `A` + lignes droites, sans mélange rect/arc bricolé
+- Épaisseur régulière, angles nets, symétrie parfaite après rotation
 
-### 2. Exécution
-- Appelle la fonction en boucle (8-9 appels de 200) jusqu'à épuiser les 1660 notices
-- Vérifie le résultat final via une query d'agrégat
+Le gradient (`hackao-gradient`) et l'API du composant (`variant`, `tone`, `size`, `className`) restent inchangés — donc aucun autre fichier ne bouge (AppSidebar, Navbar, etc. continuent de marcher).
 
-### 3. Résultat attendu
-~1600 notices TED supplémentaires recevront le badge "enriched" dans la liste Awards.
+## Fichier modifié
 
-## Détails techniques
-- Aucune migration SQL
-- Aucun appel externe (pas de re-fetch TED)
-- Function `verify_jwt = false`, idempotente (relance possible)
-- Le parser actuel marche déjà — démontré par les 405 notices d'aujourd'hui correctement enrichies
+- `src/components/brand/HackaoLogo.tsx` — remplacer la fonction `Petal` et son path par une géométrie de moulinet correcte.
