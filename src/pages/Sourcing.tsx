@@ -162,7 +162,7 @@ const Sourcing = () => {
             <AlertDialogHeader>
               <AlertDialogTitle>Reclassifier tous les hosts ?</AlertDialogTitle>
               <AlertDialogDescription>
-                Claude 3.5 Sonnet va analyser les {kpis.totalHosts} hosts et écraser
+                L'IA va analyser les {kpis.totalHosts} hosts et écraser
                 les fingerprints existants. Durée estimée : 6-10 min.
               </AlertDialogDescription>
             </AlertDialogHeader>
