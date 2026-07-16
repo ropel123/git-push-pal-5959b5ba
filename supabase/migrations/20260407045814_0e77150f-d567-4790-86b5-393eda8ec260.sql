@@ -1,1 +1,0 @@
-ALTER TABLE public.pipeline_items ADD COLUMN pricing_strategy jsonb DEFAULT '{}'::jsonb;

@@ -1,1 +1,0 @@
-SELECT cron.unschedule('batch-fetch-dce-every-minute');
