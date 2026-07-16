@@ -1,0 +1,1 @@
+DELETE FROM tenders WHERE source = 'ted';

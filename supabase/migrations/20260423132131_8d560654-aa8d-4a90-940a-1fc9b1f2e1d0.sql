@@ -1,0 +1,11 @@
+DELETE FROM pipeline_comments;
+DELETE FROM pipeline_items;
+DELETE FROM tender_analyses;
+DELETE FROM dce_downloads;
+DELETE FROM dce_uploads;
+DELETE FROM agent_runs;
+DELETE FROM award_notices;
+DELETE FROM tenders;
+DELETE FROM scrape_logs;
+DELETE FROM ingest_cursors;
+DELETE FROM sourcing_urls;
