@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Check, Loader2, ArrowLeft, Sparkles } from "lucide-react";
 import {
-  PLANS,
+  getPlan,
   plansByCategory,
   isPriceConfigured,
   PRICING_FOOTNOTE,
@@ -27,11 +27,12 @@ const PricingPage = () => {
   const [emailSeats, setEmailSeats] = useState(1);
   const [assistantId, setAssistantId] = useState("assistant_pro");
 
-  const veille = PLANS.find((p) => p.id === "sourcing_monthly")!;
-  const emailOption = PLANS.find((p) => p.id === "sourcing_extra_email")!;
+  const veille = getPlan("sourcing_monthly");
+  const emailOption = getPlan("sourcing_extra_email");
   const assistantPlans = plansByCategory("assistant");
-  const assistantPlan = assistantPlans.find((p) => p.id === assistantId)!;
+  const assistantPlan = getPlan(assistantId);
   const expertPlans = plansByCategory("expert");
+  const checkoutInFlight = loadingId !== null;
 
   const subscribe = async (plan: Plan, quantity = 1) => {
     if (!user) {
@@ -62,7 +63,8 @@ const PricingPage = () => {
       } else {
         throw new Error("no checkout url");
       }
-    } catch {
+    } catch (e) {
+      console.error("create-checkout failed", e);
       toast({
         title: "Le paiement n'a pas pu être initialisé",
         description: `Veuillez réessayer dans quelques instants, ou contactez-nous à ${CONTACT_EMAIL}.`,
@@ -95,12 +97,12 @@ const PricingPage = () => {
             <Sparkles className="h-3 w-3 mr-1" /> Tarifs HackAO
           </Badge>
           <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
-            Surveillez, rédigez, ou déléguez
+            Surveillez, rédigez ou déléguez
           </h1>
           <p className="text-muted-foreground max-w-2xl mx-auto">
             Trois offres indépendantes et cumulables : la Veille détecte vos marchés, l'Assistant IA
             analyse et rédige vos réponses, le Chef de projet AO s'occupe de tout. Sans engagement,
-            annulable à tout moment.
+            annulables à tout moment.
           </p>
         </section>
 
@@ -114,8 +116,8 @@ const PricingPage = () => {
               <CardTitle>{veille.name}</CardTitle>
               <CardDescription>{veille.description}</CardDescription>
               <p className="pt-2 text-3xl font-bold">
-                {veille.monthlyAmountEur} €{" "}
-                <span className="text-sm font-normal text-muted-foreground">HT /mois</span>
+                {veille.monthlyAmountEur}&nbsp;€{" "}
+                <span className="text-sm font-normal text-muted-foreground">HT/mois</span>
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -130,7 +132,7 @@ const PricingPage = () => {
                 className="w-full"
                 variant="outline"
                 onClick={() => subscribe(veille)}
-                disabled={loadingId === veille.id}
+                disabled={checkoutInFlight}
               >
                 {loadingId === veille.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "S'abonner"}
               </Button>
@@ -138,7 +140,7 @@ const PricingPage = () => {
               <div className="border-t border-border pt-4 space-y-2">
                 <p className="text-sm font-medium">Option : destinataires supplémentaires</p>
                 <p className="text-xs text-muted-foreground">
-                  {emailOption.monthlyAmountEur} € HT /mois par destinataire d'alertes ajouté.
+                  {emailOption.monthlyAmountEur}&nbsp;€ HT/mois par destinataire d'alertes ajouté.
                 </p>
                 <div className="flex items-end gap-2">
                   <div className="space-y-1 w-24">
@@ -157,7 +159,7 @@ const PricingPage = () => {
                     className="flex-1"
                     variant="secondary"
                     onClick={() => subscribe(emailOption, emailSeats)}
-                    disabled={loadingId === emailOption.id}
+                    disabled={checkoutInFlight}
                   >
                     {loadingId === emailOption.id ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -189,7 +191,8 @@ const PricingPage = () => {
                       key={p.id}
                       type="button"
                       onClick={() => setAssistantId(p.id)}
-                      className={`rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
+                      disabled={checkoutInFlight}
+                      className={`rounded-md px-2 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
                         p.id === assistantId
                           ? "bg-primary text-primary-foreground"
                           : "text-muted-foreground hover:bg-muted"
@@ -200,8 +203,8 @@ const PricingPage = () => {
                   ))}
                 </div>
                 <p className="text-3xl font-bold">
-                  {assistantPlan.monthlyAmountEur} €{" "}
-                  <span className="text-sm font-normal text-muted-foreground">HT /mois</span>
+                  {assistantPlan.monthlyAmountEur}&nbsp;€{" "}
+                  <span className="text-sm font-normal text-muted-foreground">HT/mois</span>
                 </p>
                 <p className="text-xs text-muted-foreground">Palier {assistantPlan.name}</p>
               </div>
@@ -217,7 +220,7 @@ const PricingPage = () => {
               <Button
                 className="w-full"
                 onClick={() => subscribe(assistantPlan)}
-                disabled={loadingId === assistantPlan.id}
+                disabled={checkoutInFlight}
               >
                 {loadingId === assistantPlan.id ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -249,7 +252,7 @@ const PricingPage = () => {
                   >
                     <span>{p.name}</span>
                     <span className="whitespace-nowrap font-semibold">
-                      {p.monthlyAmountEur.toLocaleString("fr-FR")} € + {p.successFeeLabel}
+                      {p.monthlyAmountEur.toLocaleString("fr-FR")}&nbsp;€ + {p.successFeeLabel}
                     </span>
                   </div>
                 ))}

@@ -15,7 +15,7 @@ import {
   Download,
   AlertTriangle,
 } from "lucide-react";
-import { PLANS, ASSISTANT_FEATURES, PRICING_FOOTNOTE } from "@/lib/pricing";
+import { getPlan, plansByCategory, ASSISTANT_FEATURES, EXPERT_FEATURES, PRICING_FOOTNOTE } from "@/lib/pricing";
 import { useScrollReveal, useTilt } from "@/hooks/useScrollReveal";
 
 /* ────────────────────────────────────────────────────────────────
@@ -53,10 +53,10 @@ const Index = () => {
   useScrollReveal();
   useTilt();
 
-  const sourcing = PLANS.find((p) => p.id === "sourcing_monthly")!;
-  const sourcingOption = PLANS.find((p) => p.id === "sourcing_extra_email")!;
-  const assistantPlans = PLANS.filter((p) => p.category === "assistant");
-  const expertPlans = PLANS.filter((p) => p.category === "expert");
+  const sourcing = getPlan("sourcing_monthly");
+  const sourcingOption = getPlan("sourcing_extra_email");
+  const assistantPlans = plansByCategory("assistant");
+  const expertPlans = plansByCategory("expert");
 
   // Nav blur + barre de progression
   const [scrolled, setScrolled] = useState(false);
@@ -163,7 +163,7 @@ const Index = () => {
           </div>
 
           <h1 className="reveal mt-8 max-w-5xl text-balance text-[40px] font-extrabold leading-[1.05] tracking-[-0.035em] md:text-7xl lg:text-[84px]" data-reveal-delay={80}>
-            La plateforme qui trouve, analyse et rédige
+            La plateforme qui trouve et analyse
             <br />
             <span
               className="bg-clip-text text-transparent"
@@ -173,12 +173,12 @@ const Index = () => {
                 animation: "hao-grad-text 7s ease-in-out infinite",
               }}
             >
-              vos appels d'offres publics.
+              vos appels d'offres publics, puis rédige vos réponses.
             </span>
           </h1>
 
           <p className="reveal mt-7 max-w-2xl text-pretty text-[17px] leading-relaxed text-gray-500 md:text-[21px]" data-reveal-delay={160}>
-            HackAO surveille les plateformes acheteurs, analyse chaque DCE en quelques minutes et rédige votre mémoire technique à partir de vos propres documents. Vous gardez la main — du go / no-go au dossier prêt à déposer.
+            HackAO surveille les plateformes acheteurs, analyse chaque DCE en quelques minutes et rédige votre mémoire technique à partir de vos propres documents. Vous gardez la main — du Go / No-Go au dossier prêt à déposer.
           </p>
 
           <div className="reveal mt-10 flex flex-wrap justify-center gap-4" data-reveal-delay={240}>
@@ -348,7 +348,7 @@ const Index = () => {
             {[
               { title: "8× plus rapide", grad: "linear-gradient(100deg,#2563EB,#4F46E5)", text: "De l'analyse du DCE à la rédaction du mémoire, HackAO automatise toutes les tâches répétitives.", delay: 0 },
               { title: "+30 % de réussite", grad: "linear-gradient(100deg,#4F46E5,#7C3AED)", text: "Des mémoires précis et personnalisés pour vous démarquer de la concurrence sur la note technique.", delay: 100 },
-              { title: "0 opportunité ratée", grad: "linear-gradient(100deg,#2563EB,#7C3AED)", text: "Une veille continue sur toutes les plateformes acheteurs, filtrée sur votre profil entreprise.", delay: 200 },
+              { title: "0 opportunité ratée", grad: "linear-gradient(100deg,#2563EB,#7C3AED)", text: "Une veille continue sur les principales plateformes acheteurs, filtrée sur votre profil entreprise.", delay: 200 },
             ].map((b) => (
               <div
                 key={b.title}
@@ -565,7 +565,7 @@ const Index = () => {
         <div className="relative mx-auto mt-14 grid max-w-6xl items-center gap-10 px-5 md:mt-22 md:grid-cols-2 md:px-12" style={{ gap: "clamp(36px, 5vw, 72px)" }}>
           <div className="reveal reveal-left flex flex-col items-center">
             {[
-              { title: "Application HackAO", sub: "Veille · Analyse & Go/No-Go · Chiffrage · Mémoires techniques", highlight: false },
+              { title: "Application HackAO", sub: "Veille · Analyse & Go / No-Go · Chiffrage · Mémoires techniques", highlight: false },
               { title: "Architecture IA & RAG", sub: "Moteur IA sécurisé · Réponses générées à partir de vos données d'entreprise · Sources tracées", highlight: true },
               { title: "Vos données", sub: "Cloud européen sécurisé · chiffrées au repos et en transit", highlight: false },
             ].map((block, i) => (
@@ -608,7 +608,7 @@ const Index = () => {
         <div className="relative mx-auto max-w-6xl">
           <div className="reveal mx-auto max-w-2xl text-center">
             <div className="eyebrow mb-4">Tarifs</div>
-            <h2 className="text-balance text-3xl font-extrabold leading-[1.12] tracking-tight md:text-5xl">Surveillez, rédigez, ou déléguez.</h2>
+            <h2 className="text-balance text-3xl font-extrabold leading-[1.12] tracking-tight md:text-5xl">Surveillez, rédigez ou déléguez.</h2>
             <p className="mt-5 text-base leading-relaxed text-gray-500 md:text-lg">
               Trois offres indépendantes, cumulables librement. Un prix clair pour chacune, sans engagement.
             </p>
@@ -621,7 +621,7 @@ const Index = () => {
               <div className="mt-2 text-xl font-extrabold tracking-tight">{sourcing.name}</div>
               <div className="mt-1 text-[13.5px] leading-normal text-gray-500">{sourcing.description}</div>
               <div className="mt-5 flex items-baseline gap-1.5">
-                <span className="text-[38px] font-extrabold tracking-tight">{sourcing.monthlyAmountEur} €</span>
+                <span className="whitespace-nowrap text-[38px] font-extrabold tracking-tight">{sourcing.monthlyAmountEur}&nbsp;€</span>
                 <span className="text-sm text-gray-400">/mois</span>
               </div>
               <div className="my-6 flex flex-1 flex-col gap-2.5">
@@ -638,7 +638,7 @@ const Index = () => {
                 Choisir cette offre
               </Link>
               <p className="mt-3 text-center text-xs text-gray-400">
-                Option : + {sourcingOption.monthlyAmountEur} € /mois par destinataire d'alertes supplémentaire
+                Option : + {sourcingOption.monthlyAmountEur}&nbsp;€/mois par destinataire d'alertes supplémentaire
               </p>
             </div>
 
@@ -658,7 +658,9 @@ const Index = () => {
               <div className="mt-1 text-[13.5px] leading-normal text-gray-500">Analysez et rédigez vos réponses 8× plus vite.</div>
               <div className="mt-5 flex items-baseline gap-1.5">
                 <span className="text-sm font-semibold text-gray-400">dès</span>
-                <span className="text-[38px] font-extrabold tracking-tight">{assistantPlans[0].monthlyAmountEur} €</span>
+                <span className="whitespace-nowrap text-[38px] font-extrabold tracking-tight">
+                  {Math.min(...assistantPlans.map((p) => p.monthlyAmountEur))}&nbsp;€
+                </span>
                 <span className="text-sm text-gray-400">/mois</span>
               </div>
               <div className="mt-4 overflow-hidden rounded-[14px] border border-black/[0.06]">
@@ -669,8 +671,11 @@ const Index = () => {
                       i < assistantPlans.length - 1 ? "border-b border-black/[0.05]" : ""
                     } ${p.highlight ? "bg-[#2563EB]/[0.06] font-semibold" : "bg-[#F8FAFC]"}`}
                   >
-                    <span>{p.aoPerMonth} AO traité{(p.aoPerMonth ?? 0) > 1 ? "s" : ""} / mois</span>
-                    <span className="whitespace-nowrap font-bold">{p.monthlyAmountEur} €</span>
+                    <span>
+                      {p.aoPerMonth} AO traité{(p.aoPerMonth ?? 0) > 1 ? "s" : ""} /mois
+                      {p.id === "assistant_business" && " · support prioritaire"}
+                    </span>
+                    <span className="whitespace-nowrap font-bold">{p.monthlyAmountEur}&nbsp;€</span>
                   </div>
                 ))}
               </div>
@@ -689,7 +694,7 @@ const Index = () => {
                 <Sheen />
                 Choisir cette offre
               </Link>
-              <p className="mt-3 text-center text-xs text-gray-400">Se combine avec l'offre Veille</p>
+              <p className="mt-3 text-center text-xs text-gray-400">Se combine avec l'offre Veille.</p>
             </div>
 
             {/* Offre 3 — Chef de projet AO */}
@@ -699,7 +704,9 @@ const Index = () => {
               <div className="mt-1 text-[13.5px] leading-normal text-gray-500">Un expert répond à votre place, de A à Z.</div>
               <div className="mt-5 flex items-baseline gap-1.5">
                 <span className="text-sm font-semibold text-gray-400">dès</span>
-                <span className="text-[38px] font-extrabold tracking-tight">{expertPlans[0].monthlyAmountEur} €</span>
+                <span className="whitespace-nowrap text-[38px] font-extrabold tracking-tight">
+                  {Math.min(...expertPlans.map((p) => p.monthlyAmountEur))}&nbsp;€
+                </span>
                 <span className="text-sm text-gray-400">par dossier</span>
               </div>
               <div className="mt-4 overflow-hidden rounded-[14px] border border-black/[0.06]">
@@ -712,14 +719,14 @@ const Index = () => {
                   >
                     <span>{p.name}</span>
                     <span className="whitespace-nowrap text-right font-bold">
-                      {p.monthlyAmountEur.toLocaleString("fr-FR")} € + {p.successFeeLabel}
+                      {p.monthlyAmountEur.toLocaleString("fr-FR")}&nbsp;€ + {p.successFeeLabel}
                     </span>
                   </div>
                 ))}
               </div>
               <p className="mt-3 text-[12.5px] font-medium text-gray-500">Le pourcentage n'est dû que si vous remportez le marché.</p>
               <div className="my-6 flex flex-1 flex-col gap-2.5">
-                {expertPlans[0].features.map((f) => (
+                {EXPERT_FEATURES.map((f) => (
                   <div key={f} className="flex items-start gap-2.5 text-sm text-gray-700">
                     <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2563EB]" strokeWidth={2.5} /> {f}
                   </div>
@@ -812,7 +819,7 @@ const Index = () => {
           <div className="relative">
             <h2 className="text-balance text-3xl font-extrabold leading-[1.1] tracking-tight text-white md:text-[56px]">Prêt à gagner plus de marchés&nbsp;?</h2>
             <p className="mx-auto mt-5 max-w-xl text-pretty leading-relaxed text-white/65 md:text-xl">
-              Commencez par la Veille à 99&nbsp;€ HT / mois. Ajoutez l'Assistant IA ou le Chef de projet AO quand vous êtes prêt.
+              Commencez par la Veille à 99&nbsp;€ HT/mois. Ajoutez l'Assistant IA ou le Chef de projet AO quand vous êtes prêt.
             </p>
             <div className="mt-10 flex flex-wrap justify-center gap-4">
               <Link
