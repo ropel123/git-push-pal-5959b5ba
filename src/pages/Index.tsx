@@ -15,7 +15,7 @@ import {
   Download,
   AlertTriangle,
 } from "lucide-react";
-import { PLANS } from "@/lib/pricing";
+import { getPlan, plansByCategory, ASSISTANT_FEATURES, EXPERT_FEATURES, PRICING_FOOTNOTE } from "@/lib/pricing";
 import { useScrollReveal, useTilt } from "@/hooks/useScrollReveal";
 
 /* ────────────────────────────────────────────────────────────────
@@ -53,9 +53,10 @@ const Index = () => {
   useScrollReveal();
   useTilt();
 
-  const sourcing = PLANS.find((p) => p.id === "sourcing_monthly")!;
-  const assistantPlans = PLANS.filter((p) => p.category === "assistant");
-  const expertPlans = PLANS.filter((p) => p.category === "expert");
+  const sourcing = getPlan("sourcing_monthly");
+  const sourcingOption = getPlan("sourcing_extra_email");
+  const assistantPlans = plansByCategory("assistant");
+  const expertPlans = plansByCategory("expert");
 
   // Nav blur + barre de progression
   const [scrolled, setScrolled] = useState(false);
@@ -112,7 +113,7 @@ const Index = () => {
               Connexion
             </Link>
             <Link
-              to="/pricing"
+              to="/auth"
               className="whitespace-nowrap rounded-full bg-[#111827] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(17,24,39,0.25)]"
             >
               Essayer la plateforme
@@ -157,12 +158,12 @@ const Index = () => {
 
         <div className="relative mx-auto flex max-w-6xl flex-col items-center text-center">
           <div className="reveal inline-flex items-center gap-2.5 rounded-full border border-black/[0.06] bg-white/70 py-1.5 pl-2.5 pr-4 text-[13.5px] font-medium text-gray-500 shadow-sm backdrop-blur">
-            <span className="rounded-full bg-gradient-to-br from-[#2563EB] to-[#7C3AED] px-2.5 py-0.5 text-[11.5px] font-bold text-white">IA</span>
-            Propulsé par Claude 3.5 Sonnet, fine-tuné marchés publics
+            <span className="rounded-full bg-gradient-to-br from-[#2563EB] to-[#7C3AED] px-2.5 py-0.5 text-[11.5px] font-bold text-white">Marchés publics</span>
+            Pensé pour les PME &amp; ETI françaises
           </div>
 
           <h1 className="reveal mt-8 max-w-5xl text-balance text-[40px] font-extrabold leading-[1.05] tracking-[-0.035em] md:text-7xl lg:text-[84px]" data-reveal-delay={80}>
-            Gagnez plus d'appels d'offres,
+            La plateforme qui trouve et analyse
             <br />
             <span
               className="bg-clip-text text-transparent"
@@ -172,28 +173,28 @@ const Index = () => {
                 animation: "hao-grad-text 7s ease-in-out infinite",
               }}
             >
-              deux fois plus vite.
+              vos appels d'offres publics, puis rédige vos réponses.
             </span>
           </h1>
 
           <p className="reveal mt-7 max-w-2xl text-pretty text-[17px] leading-relaxed text-gray-500 md:text-[21px]" data-reveal-delay={160}>
-            HackAO unifie la veille, l'analyse IA et la rédaction de mémoires techniques pour les PME et ETI françaises. De la détection au dépôt — en un seul outil.
+            HackAO surveille les plateformes acheteurs, analyse chaque DCE en quelques minutes et rédige votre mémoire technique à partir de vos propres documents. Vous gardez la main — du Go / No-Go au dossier prêt à déposer.
           </p>
 
           <div className="reveal mt-10 flex flex-wrap justify-center gap-4" data-reveal-delay={240}>
             <Link
-              to="/pricing"
+              to="/auth"
               className="relative inline-flex items-center gap-2.5 overflow-hidden rounded-[14px] bg-gradient-to-br from-[#2563EB] to-[#4F46E5] px-8 py-4 text-base font-semibold text-white transition-all duration-300 hover:-translate-y-[3px]"
               style={{ boxShadow: "0 8px 24px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.2)" }}
             >
               <Sheen />
-              Voir les tarifs <ArrowRight className="h-[17px] w-[17px]" strokeWidth={2.2} />
+              Essayer la plateforme <ArrowRight className="h-[17px] w-[17px]" strokeWidth={2.2} />
             </Link>
             <Link
-              to="/auth"
+              to="/pricing"
               className="inline-flex items-center gap-2.5 rounded-[14px] border border-black/[0.09] bg-white px-8 py-4 text-base font-semibold shadow-sm transition-all duration-300 hover:-translate-y-[3px] hover:shadow-[0_12px_28px_rgba(0,0,0,0.09)]"
             >
-              Essayer la plateforme
+              Voir les tarifs
             </Link>
           </div>
 
@@ -256,7 +257,7 @@ const Index = () => {
                     </div>
                     <div className="inline-flex items-center gap-1.5 rounded-full bg-green-600/[0.08] px-3 py-1.5 text-xs font-semibold text-green-600">
                       <span className="h-[7px] w-[7px] rounded-full bg-green-600" style={{ animation: "hao-dot 2s ease-in-out infinite" }} />
-                      Scraping en continu
+                      Veille en continu
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
@@ -347,7 +348,7 @@ const Index = () => {
             {[
               { title: "8× plus rapide", grad: "linear-gradient(100deg,#2563EB,#4F46E5)", text: "De l'analyse du DCE à la rédaction du mémoire, HackAO automatise toutes les tâches répétitives.", delay: 0 },
               { title: "+30 % de réussite", grad: "linear-gradient(100deg,#4F46E5,#7C3AED)", text: "Des mémoires précis et personnalisés pour vous démarquer de la concurrence sur la note technique.", delay: 100 },
-              { title: "0 opportunité ratée", grad: "linear-gradient(100deg,#2563EB,#7C3AED)", text: "Une veille continue sur toutes les plateformes acheteurs, filtrée sur votre profil entreprise.", delay: 200 },
+              { title: "0 opportunité ratée", grad: "linear-gradient(100deg,#2563EB,#7C3AED)", text: "Une veille continue sur les principales plateformes acheteurs, filtrée sur votre profil entreprise.", delay: 200 },
             ].map((b) => (
               <div
                 key={b.title}
@@ -380,10 +381,10 @@ const Index = () => {
               <div className="inline-flex items-center gap-2 rounded-full bg-[#2563EB]/[0.08] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#2563EB]">01 · Veille intelligente</div>
               <h3 className="mt-5 text-balance text-2xl font-extrabold leading-[1.15] tracking-tight md:text-[38px]">Détectez chaque marché pertinent, automatiquement.</h3>
               <p className="mt-3.5 mb-6 leading-relaxed text-gray-500">
-                Scraping en continu de toutes les plateformes acheteurs publiques. Alertes filtrées sur votre profil entreprise — plus aucune opportunité noyée dans le bruit.
+                Surveillance en continu des principales plateformes acheteurs publiques. Alertes filtrées sur votre profil entreprise — plus aucune opportunité noyée dans le bruit.
               </p>
               <div className="flex flex-col gap-3">
-                <CheckRow>Atexo, Marchés-Sécurisés, Maximilien, AWS et plus</CheckRow>
+                <CheckRow>Atexo, Marchés-Sécurisés, Maximilien, AWS-Achat et bien d'autres</CheckRow>
                 <CheckRow>Filtres intelligents par profil entreprise</CheckRow>
                 <CheckRow>Alertes email illimitées, en temps réel</CheckRow>
               </div>
@@ -402,7 +403,7 @@ const Index = () => {
                   {[
                     { t: "Travaux de voirie — Ville de Bordeaux", s: "Atexo · il y a 4 min", m: "92 % match", c: "text-green-600 bg-green-600/10" },
                     { t: "Prestations de nettoyage — CD 44", s: "Maximilien · il y a 18 min", m: "78 % match", c: "text-[#2563EB] bg-[#2563EB]/[0.08]" },
-                    { t: "Refonte SI RH — Métropole de Lille", s: "AWS · il y a 1 h", m: "64 % match", c: "text-gray-500 bg-gray-100" },
+                    { t: "Refonte SI RH — Métropole de Lille", s: "AWS-Achat · il y a 1 h", m: "64 % match", c: "text-gray-500 bg-gray-100" },
                   ].map((r) => (
                     <div key={r.t} className="flex items-center gap-3 rounded-[13px] border border-black/[0.06] bg-[#F8FAFC] px-4 py-3">
                       <div className="min-w-0 flex-1">
@@ -464,7 +465,7 @@ const Index = () => {
               <div className="inline-flex items-center gap-2 rounded-full bg-[#4F46E5]/[0.08] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#4F46E5]">02 · Analyse IA</div>
               <h3 className="mt-5 text-balance text-2xl font-extrabold leading-[1.15] tracking-tight md:text-[38px]">Analysez chaque DCE en quelques minutes.</h3>
               <p className="mt-3.5 mb-6 leading-relaxed text-gray-500">
-                Claude 3.5 Sonnet décortique le DCE et produit un scoring de pertinence, des points de vigilance et un plan de réponse. Structurez vos décisions Go / No-Go.
+                Notre IA décortique le DCE et produit un score de pertinence, des points de vigilance et un plan de réponse. Structurez vos décisions Go / No-Go.
               </p>
               <div className="flex flex-col gap-3">
                 <CheckRow from="#4F46E5" to="#6D28D9">Scoring de pertinence sur votre profil</CheckRow>
@@ -480,11 +481,11 @@ const Index = () => {
               <div className="inline-flex items-center gap-2 rounded-full bg-[#7C3AED]/[0.08] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#7C3AED]">03 · Rédaction &amp; dépôt</div>
               <h3 className="mt-5 text-balance text-2xl font-extrabold leading-[1.15] tracking-tight md:text-[38px]">Des mémoires techniques ultra-personnalisés.</h3>
               <p className="mt-3.5 mb-6 leading-relaxed text-gray-500">
-                Mémoire technique généré à partir de votre mémoire d'entreprise — pas de copier-coller, pas de contenu générique. Exporté en PDF ou PPTX, prêt à déposer.
+                Mémoire technique généré à partir de vos documents d'entreprise (références, moyens, certifications, méthodes) — pas de copier-coller, pas de contenu générique. Exporté en PDF ou PPTX, prêt à déposer.
               </p>
               <div className="flex flex-col gap-3">
-                <CheckRow from="#6D28D9" to="#7C3AED">Rédigé depuis votre mémoire d'entreprise</CheckRow>
-                <CheckRow from="#6D28D9" to="#7C3AED">100 % conforme aux exigences du règlement</CheckRow>
+                <CheckRow from="#6D28D9" to="#7C3AED">Rédigé depuis vos documents d'entreprise</CheckRow>
+                <CheckRow from="#6D28D9" to="#7C3AED">Structuré selon les exigences du règlement de consultation</CheckRow>
                 <CheckRow from="#6D28D9" to="#7C3AED">Export PDF / PPTX en un clic</CheckRow>
               </div>
             </div>
@@ -543,7 +544,7 @@ const Index = () => {
             {[...Array(2)].flatMap((_, dup) =>
               [
                 { icon: Globe, label: "Hébergement UE" },
-                { icon: Shield, label: "100 % RGPD" },
+                { icon: Shield, label: "Conforme RGPD" },
                 { icon: Lock, label: "Chiffrement AES-256" },
                 { icon: Users, label: "Données isolées par client" },
                 { icon: ShieldCheck, label: "Aucun entraînement sur vos données" },
@@ -564,8 +565,8 @@ const Index = () => {
         <div className="relative mx-auto mt-14 grid max-w-6xl items-center gap-10 px-5 md:mt-22 md:grid-cols-2 md:px-12" style={{ gap: "clamp(36px, 5vw, 72px)" }}>
           <div className="reveal reveal-left flex flex-col items-center">
             {[
-              { title: "Application HackAO", sub: "Veille · Analyse & Go/No-Go · Chiffrage · Mémoires techniques", highlight: false },
-              { title: "Architecture IA & RAG", sub: "Claude 3.5 Sonnet · Retrieval Augmented Generation · Vos données d'entreprise", highlight: true },
+              { title: "Application HackAO", sub: "Veille · Analyse & Go / No-Go · Chiffrage · Mémoires techniques", highlight: false },
+              { title: "Architecture IA & RAG", sub: "Moteur IA sécurisé · Réponses générées à partir de vos données d'entreprise · Sources tracées", highlight: true },
               { title: "Vos données", sub: "Cloud européen sécurisé · chiffrées au repos et en transit", highlight: false },
             ].map((block, i) => (
               <div key={block.title} className="contents">
@@ -588,7 +589,7 @@ const Index = () => {
           </div>
           <div className="reveal reveal-right grid gap-4 sm:grid-cols-2">
             {[
-              { t: "Architecture IA", d: "Une IA entraînée sur vos documents. Pas sur Internet. Traçabilité complète des sources." },
+              { t: "Architecture IA", d: "Une IA qui s'appuie exclusivement sur vos documents, sans jamais s'entraîner dessus. Traçabilité complète des sources." },
               { t: "Sécurité & conformité", d: "Hébergement européen, chiffrement complet, conformité RGPD native." },
               { t: "Plateforme SaaS", d: "Déploiement rapide, haute disponibilité, mises à jour continues. Zéro maintenance." },
               { t: "Accompagnement humain", d: "Des experts AO qui répondent eux-mêmes à des marchés, disponibles à la demande." },
@@ -606,94 +607,141 @@ const Index = () => {
       <section id="tarifs" className="relative overflow-hidden px-5 py-20 md:px-12 md:py-36">
         <div className="relative mx-auto max-w-6xl">
           <div className="reveal mx-auto max-w-2xl text-center">
-            <div className="eyebrow mb-4">Nos offres</div>
-            <h2 className="text-balance text-3xl font-extrabold leading-[1.12] tracking-tight md:text-5xl">Tarifs simples, sans engagement.</h2>
-            <p className="mt-5 text-base leading-relaxed text-gray-500 md:text-lg">Trois briques modulables : surveillez, analysez, déléguez.</p>
+            <div className="eyebrow mb-4">Tarifs</div>
+            <h2 className="text-balance text-3xl font-extrabold leading-[1.12] tracking-tight md:text-5xl">Surveillez, rédigez ou déléguez.</h2>
+            <p className="mt-5 text-base leading-relaxed text-gray-500 md:text-lg">
+              Trois offres indépendantes, cumulables librement. Un prix clair pour chacune, sans engagement.
+            </p>
           </div>
 
-          {/* Brique 1 — Sourcing */}
-          <div className="reveal mt-14 grid items-center gap-8 rounded-3xl border border-black/[0.06] bg-white p-8 shadow-[0_2px_8px_rgba(17,24,39,0.04)] transition-shadow duration-300 hover:shadow-[0_20px_48px_-12px_rgba(17,24,39,0.1)] md:grid-cols-2 md:p-11">
-            <div>
-              <div className="inline-flex rounded-full bg-[#2563EB]/[0.08] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#2563EB]">Brique 1 · Sourcing</div>
-              <h3 className="mt-4 text-xl font-extrabold tracking-tight md:text-[28px]">{sourcing.name}</h3>
-              <p className="mt-2 text-gray-500">{sourcing.description}</p>
-              <div className="mt-5 flex flex-col gap-2.5">
+          <div className="reveal mt-14 grid gap-5 md:grid-cols-3">
+            {/* Offre 1 — Veille */}
+            <div className="flex flex-col rounded-3xl border border-black/[0.06] bg-white p-8 shadow-[0_2px_8px_rgba(17,24,39,0.04)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_24px_48px_-12px_rgba(17,24,39,0.12)]">
+              <div className="text-[11.5px] font-bold uppercase tracking-wider text-[#2563EB]">Abonnement mensuel</div>
+              <div className="mt-2 text-xl font-extrabold tracking-tight">{sourcing.name}</div>
+              <div className="mt-1 text-[13.5px] leading-normal text-gray-500">{sourcing.description}</div>
+              <div className="mt-5 flex items-baseline gap-1.5">
+                <span className="whitespace-nowrap text-[38px] font-extrabold tracking-tight">{sourcing.monthlyAmountEur}&nbsp;€</span>
+                <span className="text-sm text-gray-400">/mois</span>
+              </div>
+              <div className="my-6 flex flex-1 flex-col gap-2.5">
                 {sourcing.features.map((f) => (
-                  <div key={f} className="flex items-center gap-2.5 text-[14.5px] text-gray-700">
-                    <Check className="h-[15px] w-[15px] text-[#2563EB]" strokeWidth={2.5} /> {f}
+                  <div key={f} className="flex items-start gap-2.5 text-sm text-gray-700">
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2563EB]" strokeWidth={2.5} /> {f}
                   </div>
                 ))}
               </div>
-            </div>
-            <div className="rounded-[18px] border border-black/[0.05] bg-[#F8FAFC] p-7 text-center md:p-9">
-              <div className="text-4xl font-extrabold tracking-tight md:text-5xl">
-                {sourcing.priceLabel}
-              </div>
-              <div className="mt-1.5 text-[13px] text-gray-400">+ 20 € / mois par email destinataire supplémentaire</div>
               <Link
                 to="/pricing"
-                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#111827] px-8 py-3 text-[15px] font-semibold text-white shadow transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(17,24,39,0.28)]"
+                className="block rounded-xl border border-black/10 bg-white py-3 text-center text-[15px] font-semibold transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(0,0,0,0.08)]"
               >
-                S'abonner
+                Choisir cette offre
               </Link>
+              <p className="mt-3 text-center text-xs text-gray-400">
+                Option : + {sourcingOption.monthlyAmountEur}&nbsp;€/mois par destinataire d'alertes supplémentaire
+              </p>
+            </div>
+
+            {/* Offre 2 — Assistant IA (recommandée) */}
+            <div
+              className="relative flex flex-col rounded-3xl p-8 shadow-[0_24px_56px_-16px_rgba(37,99,235,0.28)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_34px_68px_-16px_rgba(37,99,235,0.38)]"
+              style={{
+                background: "linear-gradient(#FFFFFF,#FFFFFF) padding-box, linear-gradient(135deg,#2563EB,#4F46E5,#7C3AED) border-box",
+                border: "2px solid transparent",
+              }}
+            >
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gradient-to-br from-[#2563EB] to-[#7C3AED] px-4 py-1.5 text-[11.5px] font-bold uppercase tracking-wide text-white shadow-[0_6px_16px_rgba(37,99,235,0.35)]">
+                Recommandé
+              </div>
+              <div className="text-[11.5px] font-bold uppercase tracking-wider text-[#4F46E5]">Abonnement mensuel</div>
+              <div className="mt-2 text-xl font-extrabold tracking-tight">Assistant IA</div>
+              <div className="mt-1 text-[13.5px] leading-normal text-gray-500">Analysez et rédigez vos réponses 8× plus vite.</div>
+              <div className="mt-5 flex items-baseline gap-1.5">
+                <span className="text-sm font-semibold text-gray-400">dès</span>
+                <span className="whitespace-nowrap text-[38px] font-extrabold tracking-tight">
+                  {Math.min(...assistantPlans.map((p) => p.monthlyAmountEur))}&nbsp;€
+                </span>
+                <span className="text-sm text-gray-400">/mois</span>
+              </div>
+              <div className="mt-4 overflow-hidden rounded-[14px] border border-black/[0.06]">
+                {assistantPlans.map((p, i) => (
+                  <div
+                    key={p.id}
+                    className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm ${
+                      i < assistantPlans.length - 1 ? "border-b border-black/[0.05]" : ""
+                    } ${p.highlight ? "bg-[#2563EB]/[0.06] font-semibold" : "bg-[#F8FAFC]"}`}
+                  >
+                    <span>
+                      {p.aoPerMonth} AO traité{(p.aoPerMonth ?? 0) > 1 ? "s" : ""} /mois
+                      {p.id === "assistant_business" && " · support prioritaire"}
+                    </span>
+                    <span className="whitespace-nowrap font-bold">{p.monthlyAmountEur}&nbsp;€</span>
+                  </div>
+                ))}
+              </div>
+              <div className="my-6 flex flex-1 flex-col gap-2.5">
+                {ASSISTANT_FEATURES.map((f) => (
+                  <div key={f} className="flex items-start gap-2.5 text-sm text-gray-700">
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2563EB]" strokeWidth={2.5} /> {f}
+                  </div>
+                ))}
+              </div>
+              <Link
+                to="/pricing"
+                className="relative block overflow-hidden rounded-xl bg-gradient-to-br from-[#2563EB] to-[#4F46E5] py-3 text-center text-[15px] font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+                style={{ boxShadow: "0 8px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.2)" }}
+              >
+                <Sheen />
+                Choisir cette offre
+              </Link>
+              <p className="mt-3 text-center text-xs text-gray-400">Se combine avec l'offre Veille.</p>
+            </div>
+
+            {/* Offre 3 — Chef de projet AO */}
+            <div className="flex flex-col rounded-3xl border border-black/[0.06] bg-white p-8 shadow-[0_2px_8px_rgba(17,24,39,0.04)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_24px_48px_-12px_rgba(17,24,39,0.12)]">
+              <div className="text-[11.5px] font-bold uppercase tracking-wider text-[#7C3AED]">Forfait + commission au succès</div>
+              <div className="mt-2 text-xl font-extrabold tracking-tight">Chef de projet AO</div>
+              <div className="mt-1 text-[13.5px] leading-normal text-gray-500">Un expert répond à votre place, de A à Z.</div>
+              <div className="mt-5 flex items-baseline gap-1.5">
+                <span className="text-sm font-semibold text-gray-400">dès</span>
+                <span className="whitespace-nowrap text-[38px] font-extrabold tracking-tight">
+                  {Math.min(...expertPlans.map((p) => p.monthlyAmountEur))}&nbsp;€
+                </span>
+                <span className="text-sm text-gray-400">par dossier</span>
+              </div>
+              <div className="mt-4 overflow-hidden rounded-[14px] border border-black/[0.06]">
+                {expertPlans.map((p, i) => (
+                  <div
+                    key={p.id}
+                    className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm ${
+                      i < expertPlans.length - 1 ? "border-b border-black/[0.05]" : ""
+                    } bg-[#F8FAFC]`}
+                  >
+                    <span>{p.name}</span>
+                    <span className="whitespace-nowrap text-right font-bold">
+                      {p.monthlyAmountEur.toLocaleString("fr-FR")}&nbsp;€ + {p.successFeeLabel}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-[12.5px] font-medium text-gray-500">Le pourcentage n'est dû que si vous remportez le marché.</p>
+              <div className="my-6 flex flex-1 flex-col gap-2.5">
+                {EXPERT_FEATURES.map((f) => (
+                  <div key={f} className="flex items-start gap-2.5 text-sm text-gray-700">
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2563EB]" strokeWidth={2.5} /> {f}
+                  </div>
+                ))}
+              </div>
+              <a
+                href="mailto:contact@hackao.fr?subject=Accompagnement%20AO"
+                className="block rounded-xl border border-black/10 bg-white py-3 text-center text-[15px] font-semibold transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(0,0,0,0.08)]"
+              >
+                Demander un devis
+              </a>
             </div>
           </div>
 
-          {/* Brique 2 — Assistant IA */}
-          <div className="reveal mt-7">
-            <div className="mb-6 mt-10 flex flex-wrap items-baseline gap-3.5">
-              <div className="inline-flex rounded-full bg-[#4F46E5]/[0.08] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#4F46E5]">Brique 2 · Assistant IA</div>
-              <span className="text-[15px] text-gray-500">Rédigez vos réponses 8× plus vite</span>
-            </div>
-            <div className="grid gap-5 md:grid-cols-3">
-              {assistantPlans.map((p) =>
-                p.highlight ? (
-                  <div
-                    key={p.id}
-                    className="relative flex flex-col rounded-3xl p-8 shadow-[0_24px_56px_-16px_rgba(37,99,235,0.28)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_34px_68px_-16px_rgba(37,99,235,0.38)]"
-                    style={{
-                      background: "linear-gradient(#FFFFFF,#FFFFFF) padding-box, linear-gradient(135deg,#2563EB,#4F46E5,#7C3AED) border-box",
-                      border: "2px solid transparent",
-                    }}
-                  >
-                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-gradient-to-br from-[#2563EB] to-[#7C3AED] px-4 py-1.5 text-[11.5px] font-bold uppercase tracking-wide text-white shadow-[0_6px_16px_rgba(37,99,235,0.35)]">
-                      Recommandé
-                    </div>
-                    <PlanBody plan={p} highlight />
-                  </div>
-                ) : (
-                  <div
-                    key={p.id}
-                    className="flex flex-col rounded-3xl border border-black/[0.06] bg-white p-8 shadow-[0_2px_8px_rgba(17,24,39,0.04)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_24px_48px_-12px_rgba(17,24,39,0.12)]"
-                  >
-                    <PlanBody plan={p} />
-                  </div>
-                )
-              )}
-            </div>
-          </div>
-
-          {/* Brique 3 — Chef de projet AO */}
-          <div className="reveal mt-13" style={{ marginTop: 52 }}>
-            <div className="mb-6 flex flex-wrap items-baseline gap-3.5">
-              <div className="inline-flex rounded-full bg-[#7C3AED]/[0.08] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#7C3AED]">Brique 3 · Chef de projet AO</div>
-              <span className="text-[15px] text-gray-500">La réponse clé en main — incentive uniquement si le marché est gagné</span>
-            </div>
-            <div className="grid gap-5 md:grid-cols-2">
-              {expertPlans.map((p, i) =>
-                i === 0 ? (
-                  <div key={p.id} className="relative overflow-hidden rounded-3xl bg-[#111827] p-8 text-white transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_30px_60px_-14px_rgba(17,24,39,0.5)] md:p-10">
-                    <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full blur-[20px]" style={{ background: "radial-gradient(circle, rgba(37,99,235,0.35), transparent 65%)" }} />
-                    <ExpertBody plan={p} dark />
-                  </div>
-                ) : (
-                  <div key={p.id} className="rounded-3xl border border-black/[0.06] bg-white p-8 shadow-[0_2px_8px_rgba(17,24,39,0.04)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_24px_48px_-12px_rgba(17,24,39,0.12)] md:p-10">
-                    <ExpertBody plan={p} />
-                  </div>
-                )
-              )}
-            </div>
-          </div>
+          <p className="reveal mt-8 text-center text-[13px] text-gray-400">{PRICING_FOOTNOTE}</p>
         </div>
       </section>
 
@@ -736,10 +784,12 @@ const Index = () => {
           <div className="reveal mt-10 flex flex-col gap-3.5 md:mt-14" data-reveal-delay={100}>
             {[
               { q: "Y a-t-il un engagement ?", r: "Non. Tous les abonnements sont mensuels et annulables à tout moment depuis le portail Stripe." },
-              { q: "Quelles plateformes scrapez-vous ?", r: "Toutes les plateformes acheteurs publiques françaises (Atexo, Marchés-Sécurisés, Maximilien, AWS, etc.). La veille tourne en continu et de nouvelles sources sont ajoutées chaque mois." },
-              { q: "Mes données restent-elles confidentielles ?", r: "Oui. Hébergement Supabase Europe, RLS au niveau ligne, buckets privés, mémoire technique chiffrée. Vos données ne servent jamais à entraîner des modèles." },
-              { q: "L'IA est-elle vraiment fiable pour un mémoire technique ?", r: "L'IA produit un premier jet structuré à partir de votre mémoire d'entreprise. Vous gardez la main éditoriale : chaque section est relisible et modifiable avant export. C'est un accélérateur, pas un automate." },
-              { q: "Quelle différence avec l'offre Chef de projet AO ?", r: "Avec l'Assistant IA, vous pilotez vous-même la réponse. Avec le Chef de projet AO, un expert humain prend le dossier en charge de A à Z, avec un incentive aligné sur votre gain." },
+              { q: "Les offres sont-elles cumulables ?", r: "Oui. Veille, Assistant IA et Chef de projet AO sont trois offres indépendantes, que vous combinez librement. Vous pouvez par exemple commencer par la Veille seule, puis ajouter l'Assistant IA quand un marché vous intéresse." },
+              { q: "Qu'est-ce qu'un « AO traité » ?", r: "Chaque appel d'offres pour lequel vous lancez l'analyse du DCE et la rédaction du mémoire technique compte pour un AO traité. Les paliers de l'Assistant IA incluent 1, 3 ou 10 AO traités par mois." },
+              { q: "Quelles plateformes surveillez-vous ?", r: "Les principales plateformes acheteurs publiques françaises (Atexo, Marchés-Sécurisés, Maximilien, AWS-Achat, etc.). La veille tourne en continu et de nouvelles sources sont ajoutées chaque mois." },
+              { q: "Mes données restent-elles confidentielles ?", r: "Oui. Vos données sont hébergées en Europe, chiffrées et strictement cloisonnées par client. Elles ne servent jamais à entraîner des modèles d'IA." },
+              { q: "L'IA est-elle vraiment fiable pour un mémoire technique ?", r: "L'IA produit un premier jet structuré à partir de vos documents d'entreprise. Vous gardez la main éditoriale : chaque section peut être relue et modifiée avant export. C'est un accélérateur, pas un automate." },
+              { q: "Quelle différence avec l'offre Chef de projet AO ?", r: "Avec l'Assistant IA, vous pilotez vous-même la réponse. Avec le Chef de projet AO, un expert humain prend le dossier en charge de A à Z, avec une commission due uniquement si vous remportez le marché." },
             ].map((f, i) => (
               <details
                 key={f.q}
@@ -769,7 +819,7 @@ const Index = () => {
           <div className="relative">
             <h2 className="text-balance text-3xl font-extrabold leading-[1.1] tracking-tight text-white md:text-[56px]">Prêt à gagner plus de marchés&nbsp;?</h2>
             <p className="mx-auto mt-5 max-w-xl text-pretty leading-relaxed text-white/65 md:text-xl">
-              Commencez par la veille à 99&nbsp;€ / mois. Ajoutez l'IA ou le chef de projet quand vous êtes prêt.
+              Commencez par la Veille à 99&nbsp;€ HT/mois. Ajoutez l'Assistant IA ou le Chef de projet AO quand vous êtes prêt.
             </p>
             <div className="mt-10 flex flex-wrap justify-center gap-4">
               <Link
@@ -814,64 +864,5 @@ const Index = () => {
     </main>
   );
 };
-
-/* ── Sous-composants tarifs (utilisent le vrai PLANS de src/lib/pricing) ── */
-
-type Plan = (typeof PLANS)[number];
-
-const PlanBody = ({ plan, highlight = false }: { plan: Plan; highlight?: boolean }) => (
-  <>
-    <div className="text-base font-bold">{plan.name}</div>
-    <div className="mt-3.5 text-[38px] font-extrabold tracking-tight">{plan.priceLabel}</div>
-    <div className="mt-2 text-[13.5px] leading-normal text-gray-500">{plan.description}</div>
-    <div className="my-6 flex flex-1 flex-col gap-2.5">
-      {plan.features.map((f) => (
-        <div key={f} className="flex items-center gap-2.5 text-sm text-gray-700">
-          <Check className="h-3.5 w-3.5 shrink-0 text-[#2563EB]" strokeWidth={2.5} /> {f}
-        </div>
-      ))}
-    </div>
-    {highlight ? (
-      <Link
-        to="/pricing"
-        className="relative block overflow-hidden rounded-xl bg-gradient-to-br from-[#2563EB] to-[#4F46E5] py-3 text-center text-[15px] font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
-        style={{ boxShadow: "0 8px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.2)" }}
-      >
-        <Sheen />
-        Choisir
-      </Link>
-    ) : (
-      <Link
-        to="/pricing"
-        className="block rounded-xl border border-black/10 bg-white py-3 text-center text-[15px] font-semibold transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(0,0,0,0.08)]"
-      >
-        Choisir
-      </Link>
-    )}
-  </>
-);
-
-const ExpertBody = ({ plan, dark = false }: { plan: Plan; dark?: boolean }) => (
-  <div className="relative">
-    <div className={`text-[13px] font-semibold tracking-wide ${dark ? "text-white/60" : "text-gray-500"}`}>{plan.name}</div>
-    <div className="mt-3.5 text-[26px] font-extrabold tracking-tight md:text-[32px]">{plan.priceLabel}</div>
-    <p className={`mb-5 mt-3.5 text-[14.5px] leading-relaxed ${dark ? "text-white/70" : "text-gray-500"}`}>{plan.description}</p>
-    <div className="mb-7 flex flex-col gap-2.5">
-      {plan.features.map((f) => (
-        <div key={f} className={`flex items-center gap-2.5 text-sm ${dark ? "text-white/85" : "text-gray-700"}`}>
-          <Check className={`h-3.5 w-3.5 shrink-0 ${dark ? "text-blue-400" : "text-[#2563EB]"}`} strokeWidth={2.5} /> {f}
-        </div>
-      ))}
-    </div>
-    <a
-      href="mailto:contact@hackao.fr?subject=Accompagnement%20AO"
-      className={`inline-flex items-center gap-2 rounded-xl px-7 py-3 text-[15px] font-semibold transition-all duration-300 hover:-translate-y-0.5 ${
-        dark ? "bg-white text-[#111827] hover:shadow-[0_12px_28px_rgba(0,0,0,0.3)]" : "border border-black/10 bg-white text-[#111827] hover:shadow-[0_10px_24px_rgba(0,0,0,0.08)]"
-      }`}
-    >
-      Demander un devis
-    </a>
-  </div>
-);
 
 export default Index;
