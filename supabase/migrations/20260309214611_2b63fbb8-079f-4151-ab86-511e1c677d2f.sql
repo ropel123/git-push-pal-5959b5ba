@@ -1,1 +1,0 @@
-DELETE FROM tenders WHERE source IN ('BOAMP', 'JOUE');

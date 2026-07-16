@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX IF NOT EXISTS award_notices_tender_id_unique ON award_notices (tender_id);
