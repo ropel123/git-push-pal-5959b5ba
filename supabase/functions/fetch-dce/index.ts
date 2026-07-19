@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 import { safeFetch } from '../_shared/urlGuard.ts'
+import { requireActiveSubscription } from '../_shared/subscription.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -202,6 +203,15 @@ Deno.serve(async (req) => {
           })
         }
         userId = user.id
+        // Garde d'abonnement (S5) — chemin utilisateur uniquement (les modes
+        // batch/service_role ci-dessus ne sont pas concernés). Soft-enable via
+        // ENFORCE_SUBSCRIPTION. Voir _shared/subscription.ts.
+        if (!(await requireActiveSubscription(supabaseAdmin, userId))) {
+          return new Response(JSON.stringify({ error: 'Abonnement actif requis pour télécharger le DCE.' }), {
+            status: 402,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
       }
     }
 

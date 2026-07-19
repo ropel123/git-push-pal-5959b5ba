@@ -4,6 +4,7 @@ import { safeFetch, assertPublicUrl } from "../_shared/urlGuard.ts";
 import { extractDocumentText } from "../_shared/documentText.ts";
 import { loadPromptConfig, resolveProviderChain, type PromptConfig, type ResolvedProvider } from "../_shared/promptStore.ts";
 import { checkRateLimit } from "../_shared/rateLimit.ts";
+import { requireActiveSubscription } from "../_shared/subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -347,6 +348,11 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    // Garde d'abonnement (S5) — soft-enable via ENFORCE_SUBSCRIPTION. Voir _shared/subscription.ts.
+    if (!(await requireActiveSubscription(supabase, user.id))) {
+      return jsonResponse({ error: "Abonnement actif requis pour utiliser cette fonctionnalité." }, 402);
+    }
 
     // Rate limiting par utilisateur (fenêtre glissante d'une heure) — helper partagé.
     const rate = await checkRateLimit(supabase, user.id, FN_NAME, RATE_LIMIT_PER_HOUR);
