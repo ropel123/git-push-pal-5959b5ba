@@ -1,0 +1,42 @@
+name: Deploy Edge Functions
+
+# Déploie automatiquement les Edge Functions Supabase sur push vers main.
+# Tourne sur les runners GitHub (réseau non restreint), lit les fichiers exacts
+# du repo et bundle le code partagé (_shared) correctement, en respectant les
+# réglages verify_jwt de supabase/config.toml.
+#
+# PRÉREQUIS (une seule fois) : ajouter le secret repo SUPABASE_ACCESS_TOKEN
+#   GitHub → Settings → Secrets and variables → Actions → New repository secret
+#   (créer le token sur https://supabase.com/dashboard/account/tokens)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/functions/**"
+      - "supabase/config.toml"
+      - ".github/workflows/deploy-functions.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: xfqvaeshidleazgfqlze
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Vérifier la présence du token
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::Secret SUPABASE_ACCESS_TOKEN manquant. Ajoute-le dans Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Deploy all edge functions
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
