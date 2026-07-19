@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
+import { safeFetch } from '../_shared/urlGuard.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -62,7 +63,9 @@ async function fetchPlace(url: string): Promise<{ files: ArrayBuffer[] | null; e
     let files: ArrayBuffer[] | null = null
     for (const dlLink of downloadLinks.slice(0, 3)) {
       try {
-        const fileRes = await fetch(dlLink, { redirect: 'follow' })
+        // C14 : lien issu du scraping (URL non fiable) → safeFetch (garde SSRF,
+        // redirections revalidées à chaque saut).
+        const fileRes = await safeFetch(dlLink)
         const contentType = fileRes.headers.get('content-type') || ''
         if (contentType.includes('pdf') || contentType.includes('zip') || contentType.includes('octet-stream')) {
           const buffer = await fileRes.arrayBuffer()
@@ -131,7 +134,9 @@ async function fetchGeneric(url: string): Promise<{ files: ArrayBuffer[] | null;
     let files: ArrayBuffer[] | null = null
     for (const dlLink of downloadLinks.slice(0, 3)) {
       try {
-        const fileRes = await fetch(dlLink, { redirect: 'follow' })
+        // C14 : lien issu du scraping (URL non fiable) → safeFetch (garde SSRF,
+        // redirections revalidées à chaque saut).
+        const fileRes = await safeFetch(dlLink)
         const contentType = fileRes.headers.get('content-type') || ''
         if (contentType.includes('pdf') || contentType.includes('zip') || contentType.includes('octet-stream')) {
           const buffer = await fileRes.arrayBuffer()

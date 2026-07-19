@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { loadPromptConfig, resolveProviderChain } from "../_shared/promptStore.ts";
+import { checkRateLimit } from "../_shared/rateLimit.ts";
+import { requireActiveSubscription } from "../_shared/subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,6 +23,24 @@ serve(async (req) => {
     const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
     const { data: { user }, error: authError } = await anonClient.auth.getUser(authHeader.replace("Bearer ", ""));
     if (authError || !user) throw new Error("Non authentifié");
+
+    // Garde d'abonnement (S5) — inactive tant que ENFORCE_SUBSCRIPTION != "true"
+    // (voir _shared/subscription.ts).
+    if (!(await requireActiveSubscription(supabase, user.id))) {
+      return new Response(
+        JSON.stringify({ error: "Un abonnement actif est requis pour utiliser cette fonctionnalité." }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Rate limiting par utilisateur (fenêtre glissante d'une heure).
+    const rate = await checkRateLimit(supabase, user.id, "generate-tender-document", 60);
+    if (!rate.ok) {
+      return new Response(
+        JSON.stringify({ error: "Vous avez atteint la limite d'utilisation du service IA. Réessayez dans une heure." }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const { tender_id, document_type, template, include_references } = await req.json();
     if (!tender_id) throw new Error("tender_id requis");

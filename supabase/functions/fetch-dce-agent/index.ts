@@ -3,6 +3,8 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 import { unzipSync, zipSync } from "https://esm.sh/fflate@0.8.2";
+import { getAuthedUser, isServiceRole, sharedSecretOk } from "../_shared/auth.ts";
+import { requireActiveSubscription } from "../_shared/subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1016,6 +1018,30 @@ Deno.serve(async (req) => {
 
   // Defensive top-level wrapper : guarantee CORS even on early throws
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  // Garde d'accès (S3) : fonction coûteuse (session Browserbase ≈ 0,15 $/run).
+  // Chemin principal : utilisateur authentifié (appel front avec JWT).
+  // Chemins internes/batch : service_role, ou secret partagé x-ingest-secret —
+  // soft-enabled tant que INGEST_SECRET n'est pas défini (voir _shared/auth.ts),
+  // donc aucun appelant existant n'est cassé avant l'activation du secret.
+  const authedUser = isServiceRole(req)
+    ? null
+    : await getAuthedUser(req, SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY") ?? "");
+  if (!authedUser && !isServiceRole(req) && !sharedSecretOk(req)) {
+    return new Response(JSON.stringify({ error: "Non autorisé" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  // Garde d'abonnement (S5) — inactive tant que ENFORCE_SUBSCRIPTION != "true"
+  // (voir _shared/subscription.ts). Ne s'applique qu'au chemin utilisateur.
+  if (authedUser && !(await requireActiveSubscription(supabase, authedUser.id))) {
+    return new Response(
+      JSON.stringify({ error: "Un abonnement actif est requis pour utiliser cette fonctionnalité." }),
+      { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
   const startedAt = Date.now();
   const trace: RunTrace[] = [];
   let runId: string | null = null;
@@ -1151,7 +1177,9 @@ Deno.serve(async (req) => {
     const liveViewUrl = await getBrowserbaseLiveViewUrl(sessionId);
     if (liveViewUrl) {
       await supabase.from("agent_runs").update({ live_view_url: liveViewUrl, browserbase_session_id: sessionId }).eq("id", runId);
-      log("live_view.ready", "ok", liveViewUrl);
+      // B42 : ne pas logger l'URL de live view (URL "capability" donnant accès à
+      // la session navigateur) — elle est déjà stockée dans agent_runs.live_view_url.
+      log("live_view.ready", "ok", `session=${sessionId}`);
     }
 
     const steps = (playbook.steps as PlaybookStep[]) ?? [];

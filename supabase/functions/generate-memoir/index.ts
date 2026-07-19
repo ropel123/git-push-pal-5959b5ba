@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { safeFetch, assertPublicUrl } from "../_shared/urlGuard.ts";
 import { extractDocumentText } from "../_shared/documentText.ts";
 import { loadPromptConfig, resolveProviderChain, type PromptConfig, type ResolvedProvider } from "../_shared/promptStore.ts";
+import { checkRateLimit } from "../_shared/rateLimit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -347,21 +348,14 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // Rate limiting par utilisateur (fenêtre glissante d'une heure).
-    const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
-    const { count: recentCount } = await supabase
-      .from("ai_request_log")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .eq("fn", FN_NAME)
-      .gte("created_at", oneHourAgo);
-    if ((recentCount ?? 0) >= RATE_LIMIT_PER_HOUR) {
+    // Rate limiting par utilisateur (fenêtre glissante d'une heure) — helper partagé.
+    const rate = await checkRateLimit(supabase, user.id, FN_NAME, RATE_LIMIT_PER_HOUR);
+    if (!rate.ok) {
       return jsonResponse(
         { error: "Vous avez atteint la limite d'utilisation de l'assistant. Réessayez dans une heure." },
         429
       );
     }
-    await supabase.from("ai_request_log").insert({ user_id: user.id, fn: FN_NAME });
 
     const { messages: rawMessages, analyze_website_url, extract_document_path } = await req.json();
 

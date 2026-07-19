@@ -1,7 +1,71 @@
 project_id = "xfqvaeshidleazgfqlze"
 
+# verify_jwt : quand true, la plateforme Supabase exige un JWT valide (clé anon
+# ou token utilisateur) AVANT d'invoquer la fonction. Les fonctions appelées par
+# des crons pg_net, des webhooks externes (Stripe) ou en batch doivent rester à
+# false et gérer leur propre authentification applicative (voir
+# functions/_shared/auth.ts). Chaque fonction présente dans le repo a une entrée
+# explicite ci-dessous, alignée sur la valeur actuellement déployée, pour qu'un
+# futur `supabase functions deploy` ne bascule pas silencieusement la valeur.
+
+# --- Fonctions présentes dans le repo ---
+
+[functions.analyze-tender]
+verify_jwt = false
+
+[functions.classify-host]
+verify_jwt = false
+
+[functions.close-expired-tenders]
+verify_jwt = false
+
+[functions.create-checkout]
+verify_jwt = true
+
+[functions.customer-portal]
+verify_jwt = true
+
+[functions.fetch-boamp]
+verify_jwt = false
+
 [functions.fetch-dce]
 verify_jwt = false
+
+[functions.fetch-dce-agent]
+verify_jwt = false
+
+[functions.fetch-dce-mpi]
+verify_jwt = false
+
+[functions.fetch-ted]
+verify_jwt = false
+
+[functions.generate-memoir]
+verify_jwt = false
+
+[functions.generate-pricing-strategy]
+verify_jwt = false
+
+[functions.generate-tender-document]
+verify_jwt = false
+
+[functions.inspect-dce-zip]
+verify_jwt = false
+
+[functions.reclassify-all-hosts]
+verify_jwt = false
+
+[functions.reparse-ted-awards]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.upsert-tenders]
+verify_jwt = false
+
+# --- Fonctions déployées mais absentes du repo (conservées pour ne pas
+# --- modifier leur configuration lors d'un déploiement) ---
 
 [functions.batch-fetch-dce]
 verify_jwt = false
@@ -12,29 +76,8 @@ verify_jwt = false
 [functions.scrape-list]
 verify_jwt = false
 
-[functions.upsert-tenders]
-verify_jwt = false
-
 [functions.reclassify-sourcing-urls]
 verify_jwt = false
 
 [functions.atexo-backfill]
-verify_jwt = false
-
-[functions.inspect-dce-zip]
-verify_jwt = false
-
-[functions.create-checkout]
-verify_jwt = true
-
-[functions.customer-portal]
-verify_jwt = true
-
-[functions.stripe-webhook]
-verify_jwt = false
-
-[functions.fetch-boamp]
-verify_jwt = false
-
-[functions.run-matching]
 verify_jwt = false
