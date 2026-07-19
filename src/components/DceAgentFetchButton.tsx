@@ -22,8 +22,17 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
   const [runId, setRunId] = useState<string | null>(null);
   const [liveViewUrl, setLiveViewUrl] = useState<string | null>(null);
   const notifiedRef = useRef(false);
+  // onSuccess vient du parent et change de référence à chaque render (fonction
+  // inline). On le stocke dans un ref pour ne pas recréer l'intervalle de polling.
+  const onSuccessRef = useRef(onSuccess);
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
 
-  // Poll agent_runs row: live_view_url early, then final status when background finalize completes
+  // Poll agent_runs row: live_view_url early, then final status when background finalize completes.
+  // Deps volontairement limitées à [runId, status] : liveViewUrl est mis à jour via une
+  // update fonctionnelle et onSuccess est lu via un ref, pour que l'intervalle ne soit
+  // pas recréé à chaque render.
   useEffect(() => {
     if (!runId || status !== "running") return;
     let cancelled = false;
@@ -36,7 +45,7 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
         .maybeSingle();
       if (cancelled || !data) return;
 
-      if (data.live_view_url && !liveViewUrl) setLiveViewUrl(data.live_view_url);
+      if (data.live_view_url) setLiveViewUrl((prev) => prev ?? data.live_view_url);
 
       const s = (data.status ?? "") as string;
       if (["success", "no_files", "failed", "timeout"].includes(s) && !notifiedRef.current) {
@@ -50,7 +59,7 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
           setStatus("success");
           setDetail(`${files} fichier(s) récupéré(s) — ${caps} captcha(s) résolu(s) — ${dur}s — ~${cost} $`);
           toast({ title: "Agent IA terminé ✓", description: "Le DCE a été récupéré automatiquement." });
-          onSuccess?.();
+          onSuccessRef.current?.();
         } else if (s === "no_files") {
           setStatus("no_files");
           setDetail("L'agent a complété le parcours mais aucun fichier n'a été téléchargé.");
@@ -68,7 +77,8 @@ const DceAgentFetchButton = ({ tenderId, dceUrl, onSuccess }: Props) => {
       cancelled = true;
       clearInterval(iv);
     };
-  }, [runId, status, liveViewUrl, toast, onSuccess]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId, status]);
 
   const launch = async () => {
     const newRunId = crypto.randomUUID();

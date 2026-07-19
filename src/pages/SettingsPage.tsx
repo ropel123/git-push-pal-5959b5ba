@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -51,10 +51,16 @@ const SettingsPage = () => {
   const toggleAlertMutation = useToggleAlert();
   const deleteAlertMutation = useDeleteAlert();
 
-  // Synchronise le state local d'édition avec la donnée serveur fraîchement chargée.
+  // Initialise le formulaire depuis la donnée serveur UNE SEULE FOIS par utilisateur.
+  // Un refetch (ex: déclenché par MemoirAIChat) ne doit pas réécraser les éditions
+  // non sauvegardées en cours. On rejoue l'initialisation uniquement si le user_id
+  // change (nouvel utilisateur chargé).
+  const initializedForUser = useRef<string | null>(null);
   useEffect(() => {
     if (!profileData) return;
     const data = profileData as any;
+    if (initializedForUser.current === data.user_id) return;
+    initializedForUser.current = data.user_id;
     setProfile({
       company_name: data.company_name ?? "",
       siren: data.siren ?? "",

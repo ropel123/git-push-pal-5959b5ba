@@ -17,23 +17,38 @@ import {
 import { createStreamAccumulator } from "@/lib/aiStream";
 import { Bot, Send, Loader2, Save, Sparkles, Paperclip, X, FileText, RotateCcw, Globe } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { z } from "zod";
 
-interface MemoirData {
-  company_name?: string;
-  siren?: string;
-  company_size?: string;
-  sectors?: string[];
-  regions?: string[];
-  keywords?: string[];
-  company_website?: string;
-  company_certifications?: string[];
-  company_skills?: string;
-  company_team?: string;
-  company_equipment?: string;
-  company_past_work?: string;
-  company_references?: { title: string; client: string; amount?: string; date?: string; description?: string }[];
-  company_description?: string;
-}
+// Schéma de validation des données produites par le tool-call `save_memoir` de
+// l'IA. On ne persiste JAMAIS la sortie brute du LLM dans `profiles` : elle est
+// d'abord validée pour rejeter des types incohérents (ex: `sectors` en string,
+// `company_skills` en objet). Correspond à la forme réellement écrite en base.
+const memoirReferenceSchema = z.object({
+  title: z.string(),
+  client: z.string(),
+  amount: z.string().optional(),
+  date: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const memoirDataSchema = z.object({
+  company_name: z.string().optional(),
+  siren: z.string().optional(),
+  company_size: z.string().optional(),
+  sectors: z.array(z.string()).optional(),
+  regions: z.array(z.string()).optional(),
+  keywords: z.array(z.string()).optional(),
+  company_website: z.string().optional(),
+  company_certifications: z.array(z.string()).optional(),
+  company_skills: z.string().optional(),
+  company_team: z.string().optional(),
+  company_equipment: z.string().optional(),
+  company_past_work: z.string().optional(),
+  company_references: z.array(memoirReferenceSchema).optional(),
+  company_description: z.string().optional(),
+});
+
+type MemoirData = z.infer<typeof memoirDataSchema>;
 
 interface MemoirAIChatProps {
   onMemoirSaved: () => void;
@@ -142,10 +157,25 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
         toast({ title: "Erreur upload", description: `${file.name}: ${error.message}`, variant: "destructive" });
         continue;
       }
-      const { data: urlData } = await supabase.storage.from("company-assets").createSignedUrl(path, 3600 * 24 * 7);
-      attachments.push({ name: file.name, url: urlData?.signedUrl ?? "", path });
+      // On ne persiste PAS d'URL signée longue durée dans la conversation : seul le
+      // `path` est stocké, et l'URL est re-signée à la demande (1h) au clic — voir
+      // openAttachment. Évite qu'un lien valide 7 jours reste dans les messages.
+      attachments.push({ name: file.name, url: "", path });
     }
     return attachments;
+  };
+
+  // Signe une URL courte durée (1h) à la volée puis ouvre la pièce jointe. Fallback
+  // sur att.url pour les anciennes conversations où l'URL était encore persistée.
+  const openAttachment = async (att: Attachment) => {
+    if (att.path) {
+      const { data } = await supabase.storage.from("company-assets").createSignedUrl(att.path, 3600);
+      if (data?.signedUrl) {
+        window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+    }
+    if (att.url) window.open(att.url, "_blank", "noopener,noreferrer");
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -301,9 +331,19 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
             toast({ title: "Analyse du site échouée", description: "Le site n'a pas pu être analysé, l'entretien continue.", variant: "destructive" });
           }
         } else if (toolCall.name === "save_memoir") {
-          setMemoirData(args as MemoirData);
-          if (convId) persistConversation(convId, { messages: finalHistory, memoir_draft: args });
-          toast({ title: "Mémoire technique prêt", description: "Vérifiez le résumé et sauvegardez." });
+          const parsed = memoirDataSchema.safeParse(args);
+          if (!parsed.success) {
+            console.error("[memoir] save_memoir output invalide, écriture ignorée:", parsed.error);
+            toast({
+              title: "Résumé invalide",
+              description: "Les données générées n'ont pas pu être validées et n'ont pas été enregistrées. Réessayez.",
+              variant: "destructive",
+            });
+          } else {
+            setMemoirData(parsed.data);
+            if (convId) persistConversation(convId, { messages: finalHistory, memoir_draft: parsed.data });
+            toast({ title: "Mémoire technique prêt", description: "Vérifiez le résumé et sauvegardez." });
+          }
         }
       }
     } catch (e) {
@@ -413,16 +453,15 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
                     {msg.attachments && msg.attachments.length > 0 && (
                       <div className="mt-2 space-y-1">
                         {msg.attachments.map((att, j) => (
-                          <a
+                          <button
                             key={j}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            type="button"
+                            onClick={() => openAttachment(att)}
                             className="flex items-center gap-1.5 text-xs opacity-80 hover:opacity-100 underline"
                           >
                             <FileText className="h-3 w-3" />
                             {att.name}
-                          </a>
+                          </button>
                         ))}
                       </div>
                     )}

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useDceSourcing, useClassifyHost } from "@/hooks/queries/useDceSourcing";
 import { useReclassifyJob, useStartReclassify } from "@/hooks/queries/useReclassifyJob";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { useDebounce } from "@/hooks/useDebounce";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -63,8 +64,10 @@ const Sourcing = () => {
   const { isAdmin, loading: adminLoading } = useIsAdmin();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  // Debounce : la RPC ne doit pas être appelée à chaque frappe.
+  const debouncedSearch = useDebounce(search, 300);
   // Fetch unfiltered by category so we can show counts everywhere
-  const { data: allData, isLoading, isFetching } = useDceSourcing(search, "all");
+  const { data: allData, isLoading, isFetching } = useDceSourcing(debouncedSearch, "all");
   const classify = useClassifyHost();
   const startReclassify = useStartReclassify();
   const { data: lastJob } = useReclassifyJob();

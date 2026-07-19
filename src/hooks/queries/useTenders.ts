@@ -67,9 +67,17 @@ export function useTenders(filters: TendersFilters = {}) {
       const from = page * pageSize;
       const to = from + pageSize - 1;
 
+      // Colonnes explicites (chantier C20) : la liste ne consomme qu'un sous-ensemble
+      // des ~30 colonnes. On exclut les colonnes lourdes (enriched_data, additional_info,
+      // lots, buyer_contact…) non affichées pour alléger la page. On garde les champs
+      // lus par l'affichage, l'export CSV ET computeScore (object, description,
+      // award_criteria, participation_conditions, department, cpv_codes).
+      const LIST_COLUMNS =
+        "id, title, object, description, award_criteria, participation_conditions, buyer_name, region, department, cpv_codes, estimated_amount, status, deadline, publication_date";
+
       let query = supabase
         .from("tenders")
-        .select("*", { count: "exact" })
+        .select(LIST_COLUMNS, { count: "exact" })
         .order("publication_date", { ascending: false })
         .range(from, to);
 

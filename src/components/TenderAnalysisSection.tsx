@@ -84,9 +84,13 @@ const TenderAnalysisSection = ({ tenderId, hasDocuments, analyses, onAnalysesCha
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast({ title: "Copié ✓" });
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: "Copié ✓" });
+    } catch {
+      toast({ title: "Impossible de copier", description: "Copie non autorisée par le navigateur.", variant: "destructive" });
+    }
   };
 
   const downloadAsTxt = (text: string, type: string) => {

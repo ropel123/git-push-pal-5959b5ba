@@ -15,6 +15,7 @@ import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import BuyerFollowButton from "@/components/BuyerFollowButton";
 import { computeScore, getScoreColor, getScoreLabel, hasScorableProfile } from "@/lib/scoring";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
+import { useProfile } from "@/hooks/queries/useProfile";
 import { AwardDetailDialog, type AwardDetail } from "@/components/awards/AwardDetailDialog";
 import { ChevronRight } from "lucide-react";
 
@@ -87,7 +88,8 @@ const TenderDetail = () => {
   const awards = (awardsQuery.data ?? []) as AwardNotice[];
   const loading = tenderQuery.isLoading;
 
-  const [profile, setProfile] = useState<any>(null);
+  const { data: profileData } = useProfile(user?.id);
+  const profile = (profileData as any) ?? null;
   const [dceUploads, setDceUploads] = useState<any[]>([]);
   const [analyses, setAnalyses] = useState<any[]>([]);
   const [pipelineItem, setPipelineItem] = useState<any>(null);
@@ -106,15 +108,6 @@ const TenderDetail = () => {
     supabase.from("pipeline_items").select("*").eq("tender_id", id).eq("user_id", user.id).maybeSingle()
       .then(({ data }) => setPipelineItem(data));
   };
-
-  useEffect(() => {
-    if (!user) {
-      setProfile(null);
-      return;
-    }
-    supabase.from("profiles").select("*").eq("user_id", user.id).single()
-      .then(({ data }) => setProfile(data ?? null));
-  }, [user]);
 
   useEffect(() => {
     fetchDceAndAnalyses();

@@ -24,21 +24,31 @@ export function useBuyerData(buyerName: string | undefined) {
     queryKey: ["buyer", buyerName],
     enabled: !!buyerName,
     queryFn: async () => {
-      const [tendersRes, awardsRes] = await Promise.all([
-        supabase
-          .from("tenders")
-          .select("id, title, status, estimated_amount, publication_date, deadline, region")
-          .eq("buyer_name", buyerName!)
-          .order("publication_date", { ascending: false }),
-        supabase.from("award_notices").select("id, winner_name, awarded_amount, award_date, tender_id"),
-      ]);
+      const tendersRes = await supabase
+        .from("tenders")
+        .select("id, title, status, estimated_amount, publication_date, deadline, region")
+        .eq("buyer_name", buyerName!)
+        .order("publication_date", { ascending: false });
       if (tendersRes.error) throw tendersRes.error;
-      if (awardsRes.error) throw awardsRes.error;
       const tenders = (tendersRes.data ?? []) as BuyerTender[];
-      const tenderIds = new Set(tenders.map((t) => t.id));
-      const awards = ((awardsRes.data ?? []) as BuyerAward[]).filter(
-        (a) => a.tender_id && tenderIds.has(a.tender_id),
-      );
+      const tenderIds = tenders.map((t) => t.id);
+
+      // Filtrage côté serveur : sans filtre, `award_notices` est plafonné à 1000
+      // lignes par PostgREST puis filtré côté client — on ratait des attributions.
+      // On requête par lots d'ids pour garder l'URL sous une taille raisonnable.
+      const awards: BuyerAward[] = [];
+      if (tenderIds.length > 0) {
+        const CHUNK = 200;
+        for (let i = 0; i < tenderIds.length; i += CHUNK) {
+          const ids = tenderIds.slice(i, i + CHUNK);
+          const { data, error } = await supabase
+            .from("award_notices")
+            .select("id, winner_name, awarded_amount, award_date, tender_id")
+            .in("tender_id", ids);
+          if (error) throw error;
+          awards.push(...((data ?? []) as BuyerAward[]));
+        }
+      }
       return { tenders, awards };
     },
   });

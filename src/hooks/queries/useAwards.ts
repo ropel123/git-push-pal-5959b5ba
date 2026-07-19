@@ -59,8 +59,16 @@ export function useAwardsInfinite(filters: AwardsFilters = {}) {
         q = q.gte("award_date", since);
       }
       if (filters.search && filters.search.trim()) {
-        const s = `%${filters.search.trim()}%`;
-        q = q.or(`winner_name.ilike.${s},title.ilike.${s}`);
+        // PostgREST `.or()` parse les virgules/parenthèses comme séparateurs et
+        // n'accepte pas de guillemets autour des valeurs ilike. On assainit le
+        // terme (même approche que useTenders) pour ne pas casser la requête.
+        const sanitize = (v: string) =>
+          v.trim().replace(/[,()*"']/g, " ").replace(/\s+/g, " ").trim();
+        const term = sanitize(filters.search);
+        if (term) {
+          const s = `%${term}%`;
+          q = q.or(`winner_name.ilike.${s},title.ilike.${s}`);
+        }
       }
 
       const { data, error, count } = await q;
