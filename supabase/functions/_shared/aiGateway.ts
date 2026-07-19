@@ -154,7 +154,12 @@ async function callProvider(
       lastErr = e;
       const status = (e as any)?.status as number | undefined;
       const retryable = !status || RETRYABLE_STATUS.has(status);
-      console.error(`[aiGateway] ${provider} attempt ${attempt}/${maxAttempts} failed:`, e);
+      // B42 : ne logger que le message d'erreur (jamais le corps de requête,
+      // qui contient documents / profils utilisateur).
+      console.error(
+        `[aiGateway] ${provider} attempt ${attempt}/${maxAttempts} failed:`,
+        e instanceof Error ? e.message : String(e)
+      );
       if (!retryable || attempt === maxAttempts) break;
       await sleep(500 * Math.pow(2, attempt - 1));
     }
@@ -185,7 +190,10 @@ export async function callAI(opts: AICallOptions): Promise<AICallResult> {
     if (opts.noFallback) throw primaryErr;
     const fallback: AIProvider = preferred === "claude" ? "gemini" : "claude";
     const fallbackModel = fallback === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_GEMINI_MODEL;
-    console.warn(`[aiGateway] fallback ${preferred} → ${fallback}:`, primaryErr);
+    console.warn(
+      `[aiGateway] fallback ${preferred} → ${fallback}:`,
+      primaryErr instanceof Error ? primaryErr.message : String(primaryErr)
+    );
     const r = await callProvider(fallback, opts.messages, fallbackModel, opts);
     console.log(
       `[aiGateway] fallback ok provider=${fallback} model=${fallbackModel} tokens=${r.tokens} latency=${r.latencyMs}ms`

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Upload, Loader2, Check, Palette, ArrowRight } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import MemoirAIChat from "@/components/MemoirAIChat";
 
 const Onboarding = () => {
@@ -18,6 +19,7 @@ const Onboarding = () => {
   const [saving, setSaving] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -46,7 +48,7 @@ const Onboarding = () => {
       if (!uploadErr) logoPath = path;
     }
 
-    await supabase
+    const { error } = await supabase
       .from("profiles")
       .update({
         primary_color: primaryColor,
@@ -57,17 +59,25 @@ const Onboarding = () => {
       .eq("user_id", user.id);
 
     setSaving(false);
+    if (error) {
+      toast({ title: "Erreur", description: "Impossible d'enregistrer votre profil. Réessayez.", variant: "destructive" });
+      return;
+    }
     navigate("/dashboard");
   };
 
   const skipToFinish = async () => {
     if (!user) return;
     setSaving(true);
-    await supabase
+    const { error } = await supabase
       .from("profiles")
       .update({ onboarding_completed: true })
       .eq("user_id", user.id);
     setSaving(false);
+    if (error) {
+      toast({ title: "Erreur", description: "Impossible de finaliser l'étape. Réessayez.", variant: "destructive" });
+      return;
+    }
     navigate("/dashboard");
   };
 

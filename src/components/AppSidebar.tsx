@@ -175,7 +175,7 @@ const AppSidebar = () => {
       <SidebarFooter className="border-t border-sidebar-border">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={() => { signOut(); navigate("/"); }}>
+            <SidebarMenuButton onClick={async () => { await signOut(); navigate("/"); }}>
               <LogOut className="h-4 w-4" />
               <span>Déconnexion</span>
             </SidebarMenuButton>

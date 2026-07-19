@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,9 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { computeScore, getScoreColor, hasScorableProfile } from "@/lib/scoring";
+import { statusLabel, getStatusColor } from "@/lib/tenderStatus";
 import { useTenders, type TenderStatus } from "@/hooks/queries/useTenders";
+import { useProfile } from "@/hooks/queries/useProfile";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useDceUploadedTenderIds } from "@/hooks/queries/useDceUploads";
 
@@ -76,23 +78,33 @@ const Tenders = () => {
   const [pubDateTo, setPubDateTo] = useState("");
   const [includeUndatedPub, setIncludeUndatedPub] = useState(true);
   const [smartFilter, setSmartFilter] = useState(true);
-  const [profile, setProfile] = useState<any>(null);
-  const [profileLoaded, setProfileLoaded] = useState(false);
   const [searchName, setSearchName] = useState("");
   const [savingSearch, setSavingSearch] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
 
+  // Profil partagé via le cache React Query (useProfile) — plus de fetch ad-hoc.
+  const profileQuery = useProfile(user?.id);
+  const profile = (profileQuery.data as any) ?? null;
+  const profileLoaded = !user || !profileQuery.isLoading;
+
+  // Seed la recherche depuis ?q=... (ex: barre de recherche du Dashboard) au montage.
   useEffect(() => {
-    if (user) {
-      supabase.from("profiles").select("*").eq("user_id", user.id).single().then(({ data }) => {
-        if (data) setProfile(data);
-        setProfileLoaded(true);
-      });
-      fetchSavedSearches();
+    const q = searchParams.get("q");
+    if (q) {
+      setSearch(q);
+      setPage(0);
     }
+    // Une seule fois au montage : on ne resynchronise pas à chaque changement d'URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (user) fetchSavedSearches();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const smartFilterInfo = useMemo(() => {
@@ -139,15 +151,20 @@ const Tenders = () => {
 
   const loading = tendersQuery.isLoading || tendersQuery.isFetching;
   const totalCount = tendersQuery.data?.count ?? 0;
+  const scorable = !!(profile && hasScorableProfile(profile));
+  // Score calculé UNE fois par AO (réutilisé pour le tri ET l'affichage du badge),
+  // au lieu de deux appels computeScore par carte.
   const tenders = useMemo(() => {
     const items = tendersQuery.data?.items ?? [];
-    if (smartFilter && profile && hasScorableProfile(profile) && items.length > 0) {
-      return [...items]
-        .map((t) => ({ ...t, _score: computeScore(t, profile) }))
-        .sort((a, b) => b._score - a._score);
+    const withScore = items.map((t) => ({
+      ...t,
+      _score: scorable ? computeScore(t, profile) : (null as number | null),
+    }));
+    if (smartFilter && scorable && withScore.length > 0) {
+      return [...withScore].sort((a, b) => (b._score ?? 0) - (a._score ?? 0));
     }
-    return items;
-  }, [tendersQuery.data, smartFilter, profile]);
+    return withScore;
+  }, [tendersQuery.data, smartFilter, profile, scorable]);
 
   const fetchSavedSearches = async () => {
     if (!user) return;
@@ -231,17 +248,6 @@ const Tenders = () => {
   };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-
-  const getStatusColor = (status: string | null) => {
-    switch (status) {
-      case "open": return "bg-green-500/20 text-green-400 border-green-500/30";
-      case "closed": return "bg-red-500/20 text-red-400 border-red-500/30";
-      case "awarded": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
-
-  const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
 
   const resetFilters = () => {
     setRegionFilter("");
@@ -399,7 +405,7 @@ const Tenders = () => {
           {smartFilter && smartFilterInfo && (
             <div className="flex items-center gap-2 text-sm text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2">
               <Sparkles className="h-4 w-4 shrink-0" />
-              <span>Filtré selon votre profil ({smartFilterInfo}) — triés par pertinence</span>
+              <span>Filtré selon votre profil ({smartFilterInfo}) — triés par pertinence sur cette page</span>
             </div>
           )}
 
@@ -438,7 +444,7 @@ const Tenders = () => {
           ) : (
             <div className="space-y-3">
               {tenders.map((tender) => {
-                const score = profile && hasScorableProfile(profile) ? computeScore(tender, profile) : null;
+                const score = tender._score;
                 return (
                   <Card key={tender.id} className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer" onClick={() => navigate(`/tenders/${tender.id}`)}>
                     <CardContent className="p-3 sm:p-4">

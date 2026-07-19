@@ -14,7 +14,9 @@ import DceAgentFetchButton from "@/components/DceAgentFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import BuyerFollowButton from "@/components/BuyerFollowButton";
 import { computeScore, getScoreColor, getScoreLabel, hasScorableProfile } from "@/lib/scoring";
+import { statusLabel, statusColor } from "@/lib/tenderStatus";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
+import { useProfile } from "@/hooks/queries/useProfile";
 import { AwardDetailDialog, type AwardDetail } from "@/components/awards/AwardDetailDialog";
 import { ChevronRight } from "lucide-react";
 
@@ -61,20 +63,6 @@ interface AwardNotice {
   contract_duration: string | null;
 }
 
-const statusLabel: Record<string, string> = {
-  open: "Ouvert",
-  closed: "Clôturé",
-  awarded: "Attribué",
-  cancelled: "Annulé",
-};
-
-const statusColor: Record<string, string> = {
-  open: "bg-green-500/20 text-green-400 border-green-500/30",
-  closed: "bg-red-500/20 text-red-400 border-red-500/30",
-  awarded: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  cancelled: "bg-muted text-muted-foreground",
-};
-
 const TenderDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -87,7 +75,8 @@ const TenderDetail = () => {
   const awards = (awardsQuery.data ?? []) as AwardNotice[];
   const loading = tenderQuery.isLoading;
 
-  const [profile, setProfile] = useState<any>(null);
+  const { data: profileData } = useProfile(user?.id);
+  const profile = (profileData as any) ?? null;
   const [dceUploads, setDceUploads] = useState<any[]>([]);
   const [analyses, setAnalyses] = useState<any[]>([]);
   const [pipelineItem, setPipelineItem] = useState<any>(null);
@@ -106,15 +95,6 @@ const TenderDetail = () => {
     supabase.from("pipeline_items").select("*").eq("tender_id", id).eq("user_id", user.id).maybeSingle()
       .then(({ data }) => setPipelineItem(data));
   };
-
-  useEffect(() => {
-    if (!user) {
-      setProfile(null);
-      return;
-    }
-    supabase.from("profiles").select("*").eq("user_id", user.id).single()
-      .then(({ data }) => setProfile(data ?? null));
-  }, [user]);
 
   useEffect(() => {
     fetchDceAndAnalyses();

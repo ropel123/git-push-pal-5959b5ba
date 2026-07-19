@@ -14,13 +14,15 @@ export const useIsAdmin = () => {
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id)
         .eq("role", "admin")
         .maybeSingle();
-      if (!cancelled) setIsAdmin(!!data);
+      // En cas d'erreur (réseau/RLS), on considère explicitement l'utilisateur
+      // comme non-admin plutôt que de laisser un état ambigu.
+      if (!cancelled) setIsAdmin(!error && !!data);
     })();
     return () => {
       cancelled = true;

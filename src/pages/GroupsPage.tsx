@@ -6,7 +6,7 @@ const GroupsPage = () => (
     icon={Users2}
     title="Aucun groupe"
     description="Créez des groupes pour organiser vos équipes et leurs droits d'accès."
-    cta={{ label: "Créer un groupe", to: "/groups" }}
+    cta={{ label: "Créer un groupe", to: "/dashboard" }}
   />
 );
 

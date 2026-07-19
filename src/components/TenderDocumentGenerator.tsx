@@ -12,6 +12,27 @@ import { Switch } from "@/components/ui/switch";
 import { FileText, Presentation, Loader2, Download } from "lucide-react";
 import { generatePdf } from "@/lib/generatePdf";
 import { generatePptx } from "@/lib/generatePptx";
+import { useProfile } from "@/hooks/queries/useProfile";
+import { z } from "zod";
+
+// Le contenu structuré renvoyé par l'edge function est produit par un LLM : on
+// valide la forme des sections avant de le passer à jsPDF/pptxgenjs, sinon un
+// tableau mal formé génère un document cassé (ou un crash) au lieu d'une erreur.
+const sectionSchema = z.object({
+  type: z
+    .enum(["cover", "summary", "content", "stats", "two_columns", "references", "closing"])
+    .optional(),
+  title: z.string(),
+  content: z.string().optional(),
+  subtitle: z.string().optional(),
+  summary_items: z.array(z.string()).optional(),
+  stats: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+  left_column: z.string().optional(),
+  right_column: z.string().optional(),
+  left_title: z.string().optional(),
+  right_title: z.string().optional(),
+});
+const sectionsSchema = z.array(sectionSchema);
 
 interface Analysis {
   id: string;
@@ -30,6 +51,7 @@ interface Props {
 const TenderDocumentGenerator = ({ tenderId, analyses, open, onOpenChange }: Props) => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { data: profile } = useProfile(user?.id);
   const [format, setFormat] = useState<"pdf" | "pptx">("pdf");
   const [template, setTemplate] = useState<"memoire_technique" | "presentation">("memoire_technique");
   const [includeRefs, setIncludeRefs] = useState(true);
@@ -42,13 +64,7 @@ const TenderDocumentGenerator = ({ tenderId, analyses, open, onOpenChange }: Pro
     setProgress(10);
 
     try {
-      // Fetch profile with branding
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", user.id)
-        .single();
-
+      // Profil (branding, références) partagé via le cache React Query (useProfile).
       setProgress(20);
 
       // Fetch tender data
@@ -86,6 +102,18 @@ const TenderDocumentGenerator = ({ tenderId, analyses, open, onOpenChange }: Pro
 
       setProgress(70);
 
+      // Valide la forme des sections IA avant génération (garde runtime).
+      const sectionsCheck = sectionsSchema.safeParse(aiContent?.sections ?? []);
+      if (!sectionsCheck.success) {
+        console.error("[tender-doc] sections IA invalides:", sectionsCheck.error);
+        toast({
+          title: "Contenu IA invalide",
+          description: "Le document n'a pas pu être généré (format inattendu). Réessayez.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       // Get logo URL if available
       let logoUrl: string | undefined;
       if (profile?.company_logo_path) {
@@ -104,8 +132,10 @@ const TenderDocumentGenerator = ({ tenderId, analyses, open, onOpenChange }: Pro
         tenderRef: tender.reference || "",
         buyerName: tender.buyer_name || "",
         deadline: tender.deadline || "",
-        sections: aiContent?.sections || [],
-        references: includeRefs ? (profile?.company_references as any[] || []) : [],
+        sections: aiContent?.sections ?? [],
+        references: includeRefs && Array.isArray(profile?.company_references)
+          ? (profile.company_references as any[])
+          : [],
       };
 
       setProgress(85);

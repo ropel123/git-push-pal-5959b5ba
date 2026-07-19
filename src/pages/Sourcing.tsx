@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useDceSourcing, useClassifyHost } from "@/hooks/queries/useDceSourcing";
 import { useReclassifyJob, useStartReclassify } from "@/hooks/queries/useReclassifyJob";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { useDebounce } from "@/hooks/useDebounce";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -37,34 +38,16 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { ExternalLink, FileText, Sparkles, Loader2, Zap } from "lucide-react";
-
-const KNOWN_CATEGORIES = [
-  "atexo", "place", "mpi", "dematis", "achatpublic",
-  "marches-securises", "klekoon", "xmarches", "safetender",
-  "aws", "synapse", "centrale-marches", "francemarches", "aji",
-  "eu-supply", "domino", "bravo", "adullact", "marchesonline",
-  "medialex", "autre-mp", "anjou", "inconnu",
-];
-
-const normalizeCat = (c: string | null) => {
-  if (!c || c === "autre" || c === "inconnu") return "inconnu";
-  return c;
-};
-
-const categoryColor = (c: string | null) => {
-  const n = normalizeCat(c);
-  if (n === "inconnu") return "bg-muted text-muted-foreground";
-  if (n === "place") return "bg-primary/10 text-primary";
-  if (n === "atexo") return "bg-accent/40 text-foreground";
-  return "bg-secondary text-secondary-foreground";
-};
+import { KNOWN_CATEGORIES, normalizeCat, categoryColor } from "@/lib/sourcing";
 
 const Sourcing = () => {
   const { isAdmin, loading: adminLoading } = useIsAdmin();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  // Debounce : la RPC ne doit pas être appelée à chaque frappe.
+  const debouncedSearch = useDebounce(search, 300);
   // Fetch unfiltered by category so we can show counts everywhere
-  const { data: allData, isLoading, isFetching } = useDceSourcing(search, "all");
+  const { data: allData, isLoading, isFetching } = useDceSourcing(debouncedSearch, "all");
   const classify = useClassifyHost();
   const startReclassify = useStartReclassify();
   const { data: lastJob } = useReclassifyJob();

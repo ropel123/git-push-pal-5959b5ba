@@ -17,6 +17,10 @@ const STAGES = [
   { key: "lost", name: "Perdu", donut: "#D1D5DB", col: "#9CA3AF" },
 ] as const;
 
+// Actualités statiques (contenu de démonstration daté) : masquées par défaut pour
+// ne pas présenter de fausses données comme réelles. Passer à true pour les afficher.
+const SHOW_STATIC_NEWS = false;
+
 const NEWS = [
   {
     title: "La transition écologique au cœur des marchés publics français",
@@ -60,7 +64,7 @@ const Dashboard = () => {
   const firstName = useMemo(() => {
     const meta = (user?.user_metadata?.full_name as string | undefined)?.split(" ")[0];
     if (meta) return meta;
-    return user?.email?.split("@")[0] ?? "Romain";
+    return user?.email?.split("@")[0] ?? "";
   }, [user]);
 
   const distribution = useMemo(() => {
@@ -183,9 +187,6 @@ const Dashboard = () => {
                   <div className="mb-[9px] line-clamp-2 text-[13px] font-semibold leading-[1.35] text-foreground">
                     {a.name}
                   </div>
-                  <span className="inline-block rounded-full bg-muted px-[9px] py-[3px] text-[11px] font-bold text-muted-foreground">
-                    0 non lu
-                  </span>
                 </button>
               ))}
             </div>
@@ -311,17 +312,23 @@ const Dashboard = () => {
             </span>
             <span className="text-[15px] font-bold text-foreground">L'actualité des marchés publics</span>
           </div>
-          <div className="flex flex-col">
-            {NEWS.map((n) => (
-              <div key={n.title} className="cursor-pointer border-b border-border px-0.5 py-[13px] last:border-b-0">
-                <div className="text-[13.5px] font-semibold leading-[1.4] text-foreground transition-colors hover:text-accent">
-                  {n.title}
+          {SHOW_STATIC_NEWS ? (
+            <div className="flex flex-col">
+              {NEWS.map((n) => (
+                <div key={n.title} className="cursor-pointer border-b border-border px-0.5 py-[13px] last:border-b-0">
+                  <div className="text-[13.5px] font-semibold leading-[1.4] text-foreground transition-colors hover:text-accent">
+                    {n.title}
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-xs leading-[1.55] text-muted-foreground">{n.excerpt}</div>
+                  <div className="mt-1.5 text-[11px] text-muted-foreground/70">{n.date}</div>
                 </div>
-                <div className="mt-1 line-clamp-2 text-xs leading-[1.55] text-muted-foreground">{n.excerpt}</div>
-                <div className="mt-1.5 text-[11px] text-muted-foreground/70">{n.date}</div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Aucune actualité pour le moment.
+            </p>
+          )}
         </Panel>
 
       </div>

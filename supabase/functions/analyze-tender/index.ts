@@ -1,6 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { callAI, type AIProvider } from "../_shared/aiGateway.ts";
 import { loadPromptConfig } from "../_shared/promptStore.ts";
+import { checkRateLimit } from "../_shared/rateLimit.ts";
+import { requireActiveSubscription } from "../_shared/subscription.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +38,24 @@ Deno.serve(async (req) => {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Garde d'abonnement (S5) — inactive tant que ENFORCE_SUBSCRIPTION != "true"
+    // (voir _shared/subscription.ts).
+    if (!(await requireActiveSubscription(supabase, user.id))) {
+      return new Response(
+        JSON.stringify({ error: "Un abonnement actif est requis pour utiliser cette fonctionnalité." }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Rate limiting par utilisateur (fenêtre glissante d'une heure).
+    const rate = await checkRateLimit(supabase, user.id, "analyze-tender", 60);
+    if (!rate.ok) {
+      return new Response(
+        JSON.stringify({ error: "Vous avez atteint la limite d'utilisation du service IA. Réessayez dans une heure." }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const { tender_id, analysis_type } = await req.json();

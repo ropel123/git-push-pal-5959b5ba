@@ -59,8 +59,16 @@ export function useAwardsInfinite(filters: AwardsFilters = {}) {
         q = q.gte("award_date", since);
       }
       if (filters.search && filters.search.trim()) {
-        const s = `%${filters.search.trim()}%`;
-        q = q.or(`winner_name.ilike.${s},title.ilike.${s}`);
+        // PostgREST `.or()` parse les virgules/parenthèses comme séparateurs et
+        // n'accepte pas de guillemets autour des valeurs ilike. On assainit le
+        // terme (même approche que useTenders) pour ne pas casser la requête.
+        const sanitize = (v: string) =>
+          v.trim().replace(/[,()*"']/g, " ").replace(/\s+/g, " ").trim();
+        const term = sanitize(filters.search);
+        if (term) {
+          const s = `%${term}%`;
+          q = q.or(`winner_name.ilike.${s},title.ilike.${s}`);
+        }
       }
 
       const { data, error, count } = await q;
@@ -72,27 +80,5 @@ export function useAwardsInfinite(filters: AwardsFilters = {}) {
       };
     },
     getNextPageParam: (last) => last.nextOffset,
-  });
-}
-
-// Legacy export kept for any other caller
-export function useAwards(limit = 100) {
-  return useInfiniteQuery({
-    queryKey: ["awards", { limit }],
-    initialPageParam: 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("award_notices")
-        .select("*, tenders(title, buyer_name)")
-        .order("award_date", { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      return {
-        rows: (data ?? []) as AwardWithTender[],
-        nextOffset: null as number | null,
-        total: data?.length ?? 0,
-      };
-    },
-    getNextPageParam: () => null as number | null,
   });
 }

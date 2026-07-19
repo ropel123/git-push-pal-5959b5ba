@@ -7,14 +7,7 @@ import { ArrowLeft, Building2, Euro, Calendar, MapPin } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useBuyerData } from "@/hooks/queries/useBuyer";
-
-const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
-const statusColor: Record<string, string> = {
-  open: "bg-green-500/20 text-green-400 border-green-500/30",
-  closed: "bg-red-500/20 text-red-400 border-red-500/30",
-  awarded: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  cancelled: "bg-muted text-muted-foreground",
-};
+import { statusLabel, statusColor } from "@/lib/tenderStatus";
 
 const BuyerDetail = () => {
   const { id } = useParams<{ id: string }>();

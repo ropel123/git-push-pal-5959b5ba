@@ -29,7 +29,7 @@ const AppLayout = () => {
   const { user, loading } = useAuth();
   const location = useLocation();
   const [checkingOnboarding, setCheckingOnboarding] = useState(true);
-  const [onboardingCompleted, setOnboardingCompleted] = useState(true);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -41,8 +41,12 @@ const AppLayout = () => {
       .select("onboarding_completed")
       .eq("user_id", user.id)
       .single()
-      .then(({ data }) => {
-        setOnboardingCompleted(data?.onboarding_completed ?? false);
+      .then(({ data, error }) => {
+        // On error (transient network / RLS), the onboarding state is unknown.
+        // Do NOT force a redirect to /onboarding — keep the user on their current
+        // route. Only redirect when the profile clearly loaded and onboarding is
+        // explicitly not completed.
+        setNeedsOnboarding(!error && data?.onboarding_completed === false);
         setCheckingOnboarding(false);
       });
   }, [user]);
@@ -56,7 +60,7 @@ const AppLayout = () => {
   }
 
   if (!user) return <Navigate to="/auth" replace />;
-  if (!onboardingCompleted) return <Navigate to="/onboarding" replace />;
+  if (needsOnboarding) return <Navigate to="/onboarding" replace />;
 
   const pageTitle = PAGE_TITLES[location.pathname] ?? "";
 

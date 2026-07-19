@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useTendersByHost } from "@/hooks/queries/useTendersByHost";
 import { useHostFingerprint } from "@/hooks/queries/useHostFingerprint";
 import { useClassifyHost } from "@/hooks/queries/useDceSourcing";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -23,6 +24,7 @@ const fmtDate = (s: string | null) =>
   s ? new Date(s).toLocaleDateString("fr-FR") : "—";
 
 const SourcingHostDetail = () => {
+  const { isAdmin, loading: adminLoading } = useIsAdmin();
   const { host: rawHost } = useParams<{ host: string }>();
   const host = rawHost ? decodeURIComponent(rawHost) : "";
   const { data, isLoading } = useTendersByHost(host);
@@ -53,6 +55,15 @@ const SourcingHostDetail = () => {
       setClassifying(false);
     }
   };
+
+  if (adminLoading) return null;
+  if (!isAdmin) {
+    return (
+      <div className="container mx-auto py-12 text-center text-muted-foreground">
+        Accès réservé aux administrateurs.
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto max-w-7xl py-8 space-y-6">

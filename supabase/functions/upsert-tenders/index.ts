@@ -1,6 +1,7 @@
 // upsert-tenders : normalise + upsert idempotent batch sur (source, reference)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { isServiceRole, sharedSecretOk } from "../_shared/auth.ts";
 import {
   parseFrenchDate,
   parseAmount,
@@ -124,15 +125,36 @@ function normalize(item: any) {
   };
 }
 
+// Taille max d'un batch pour éviter l'abus (payload service_role, upsert direct en base).
+const MAX_BATCH_ITEMS = 500;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Garde d'accès (S1) : service_role (appels internes) OU secret partagé
+  // x-ingest-secret. sharedSecretOk est soft-enabled : tant que INGEST_SECRET
+  // n'est pas défini, elle retourne true (warning), donc les appelants actuels
+  // (cron/scrapers) continuent de fonctionner. Voir _shared/auth.ts.
+  if (!isServiceRole(req) && !sharedSecretOk(req)) {
+    return json({ error: "Non autorisé" }, 401);
+  }
+
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const body = await req.json().catch(() => ({}));
-    const items: any[] = Array.isArray(body.items) ? body.items : [];
+    // Validation minimale du payload : items doit être un tableau, borné.
+    if (!Array.isArray(body?.items)) {
+      return json({ error: "items doit être un tableau" }, 400);
+    }
+    if (body.items.length > MAX_BATCH_ITEMS) {
+      return json({ error: `Batch trop volumineux (max ${MAX_BATCH_ITEMS} items)` }, 400);
+    }
+    const items: any[] = body.items;
+    // Tableau vide : no-op 200 conservé (compatibilité avec les scrapers cron
+    // existants qui envoient parfois des pages sans résultat).
     if (items.length === 0) return json({ inserted: 0, updated: 0, skipped: 0 });
 
     // 1) Normalize + dedupe in-memory (last write wins on same key)
@@ -165,7 +187,8 @@ Deno.serve(async (req) => {
       .select("id, source, reference, enriched_data")
       .in("source", sources)
       .in("reference", refs);
-    if (fetchErr) console.error("prefetch error", fetchErr);
+    // B42 : on ne logge que message/code (l'objet d'erreur complet peut embarquer des données de lignes).
+    if (fetchErr) console.error("prefetch error", fetchErr.message, fetchErr.code);
 
     const existingMap = new Map<string, { id: string; enriched_data: any }>();
     for (const r of existingRows ?? []) {
@@ -190,7 +213,7 @@ Deno.serve(async (req) => {
       .upsert(finalRows, { onConflict: "source,reference", ignoreDuplicates: false });
 
     if (upsertErr) {
-      console.error("batch upsert error", upsertErr);
+      console.error("batch upsert error", upsertErr.message, upsertErr.code);
       return json({ error: upsertErr.message, inserted: 0, updated: 0, skipped: skipped + finalRows.length }, 500);
     }
 
