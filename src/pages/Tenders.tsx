@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { computeScore, getScoreColor, hasScorableProfile } from "@/lib/scoring";
+import { statusLabel, getStatusColor } from "@/lib/tenderStatus";
 import { useTenders, type TenderStatus } from "@/hooks/queries/useTenders";
 import { useProfile } from "@/hooks/queries/useProfile";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -247,17 +248,6 @@ const Tenders = () => {
   };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-
-  const getStatusColor = (status: string | null) => {
-    switch (status) {
-      case "open": return "bg-green-500/20 text-green-400 border-green-500/30";
-      case "closed": return "bg-red-500/20 text-red-400 border-red-500/30";
-      case "awarded": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
-
-  const statusLabel: Record<string, string> = { open: "Ouvert", closed: "Clôturé", awarded: "Attribué", cancelled: "Annulé" };
 
   const resetFilters = () => {
     setRegionFilter("");

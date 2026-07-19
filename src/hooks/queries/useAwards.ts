@@ -82,25 +82,3 @@ export function useAwardsInfinite(filters: AwardsFilters = {}) {
     getNextPageParam: (last) => last.nextOffset,
   });
 }
-
-// Legacy export kept for any other caller
-export function useAwards(limit = 100) {
-  return useInfiniteQuery({
-    queryKey: ["awards", { limit }],
-    initialPageParam: 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("award_notices")
-        .select("*, tenders(title, buyer_name)")
-        .order("award_date", { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      return {
-        rows: (data ?? []) as AwardWithTender[],
-        nextOffset: null as number | null,
-        total: data?.length ?? 0,
-      };
-    },
-    getNextPageParam: () => null as number | null,
-  });
-}

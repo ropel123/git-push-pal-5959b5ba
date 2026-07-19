@@ -14,6 +14,7 @@ import DceAgentFetchButton from "@/components/DceAgentFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import BuyerFollowButton from "@/components/BuyerFollowButton";
 import { computeScore, getScoreColor, getScoreLabel, hasScorableProfile } from "@/lib/scoring";
+import { statusLabel, statusColor } from "@/lib/tenderStatus";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
 import { useProfile } from "@/hooks/queries/useProfile";
 import { AwardDetailDialog, type AwardDetail } from "@/components/awards/AwardDetailDialog";
@@ -61,20 +62,6 @@ interface AwardNotice {
   award_date: string | null;
   contract_duration: string | null;
 }
-
-const statusLabel: Record<string, string> = {
-  open: "Ouvert",
-  closed: "Clôturé",
-  awarded: "Attribué",
-  cancelled: "Annulé",
-};
-
-const statusColor: Record<string, string> = {
-  open: "bg-green-500/20 text-green-400 border-green-500/30",
-  closed: "bg-red-500/20 text-red-400 border-red-500/30",
-  awarded: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  cancelled: "bg-muted text-muted-foreground",
-};
 
 const TenderDetail = () => {
   const { id } = useParams<{ id: string }>();
