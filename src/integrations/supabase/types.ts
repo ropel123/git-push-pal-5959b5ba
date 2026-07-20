@@ -1073,44 +1073,6 @@ export type Database = {
           source: string
         }[]
       }
-      get_platform_coverage:
-        | {
-            Args: {
-              _filter?: string
-              _limit?: number
-              _offset?: number
-              _search?: string
-            }
-            Returns: {
-              boamp_count: number
-              category: string
-              host: string
-              is_scraped: boolean
-              sample_dce_url: string
-              scraped_urls: number
-              ted_count: number
-              total_count: number
-            }[]
-          }
-        | {
-            Args: {
-              _category?: string
-              _filter?: string
-              _limit?: number
-              _offset?: number
-              _search?: string
-            }
-            Returns: {
-              boamp_count: number
-              category: string
-              host: string
-              is_scraped: boolean
-              sample_dce_url: string
-              scraped_urls: number
-              ted_count: number
-              total_count: number
-            }[]
-          }
       get_unprocessed_tenders: {
         Args: { _limit?: number; _platform_filter?: string }
         Returns: {
