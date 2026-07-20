@@ -205,11 +205,14 @@ Deno.serve(async (req) => {
   let totalCount = 0;
   let awardsInserted = 0;
 
-  // Index ref → enregistrement BOAMP brut (pour parser l'attribution après upsert)
-  const rawByRef = new Map<string, BoampRecord>();
-
   try {
     for (let page = 0; page < maxPages; page++) {
+      // Index ref → enregistrement brut, RÉINITIALISÉ à chaque page : avant, cette
+      // Map était déclarée hors boucle et accumulait tous les enregistrements de
+      // toutes les pages (chacun avec son gros champ `donnees`) → saturation
+      // mémoire = 546 WORKER_LIMIT. Les attributions sont traitées dans la même
+      // itération de page, donc le scope par page suffit.
+      const rawByRef = new Map<string, BoampRecord>();
       const offset = page * limit;
       const data = await fetchPage(offset, limit, since);
       totalCount = data.total_count;
