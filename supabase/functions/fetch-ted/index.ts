@@ -188,11 +188,15 @@ Deno.serve(async (req) => {
   const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 
   const startedAt = new Date().toISOString();
+  // Budget-temps : on s'arrête proprement avant la limite edge (~150s) et on
+  // renvoie un résultat partiel (idempotent : la prochaine exécution reprend).
+  const deadline = Date.now() + 120_000;
   let fetched = 0, tendersUpserted = 0, awardsInserted = 0, errors = 0;
   let totalCount = 0;
 
   try {
     for (let page = 1; page <= maxPages; page++) {
+      if (Date.now() > deadline) { console.warn(`fetch-ted: budget temps atteint, arrêt avant page ${page}`); break; }
       let resp: TedSearchResponse;
       try {
         resp = await searchTed(since, page, pageSize);
@@ -227,31 +231,45 @@ Deno.serve(async (req) => {
       const awardRows: Array<Record<string, unknown>> = [];
       const tenderIdsToReset: string[] = [];
 
-      for (const hit of hits) {
-        const ref = hit["publication-number"]!;
-        const tinfo = idByRef.get(ref);
-        if (!tinfo) continue;
-        const xmlLink = hit.links?.xml?.MUL ?? hit.links?.xml?.FRA ?? hit.links?.xml?.ENG;
-        if (!xmlLink) continue;
-        const parsed = await fetchNoticeXml(xmlLink);
-        if (!parsed) continue;
-        // L'XML TED a une racine ContractAwardNotice. Adapter pour parseBoampAward
-        // qui attend root.EFORMS.ContractAwardNotice. On wrap.
-        const rootObj = parsed as Record<string, unknown>;
-        const can = rootObj["ContractAwardNotice"] ?? rootObj["can:ContractAwardNotice"] ?? rootObj;
-        const wrapped = { EFORMS: { ContractAwardNotice: can } };
-        const award = parseBoampAward(wrapped);
-        if (!award) continue;
-        const noticeUrl = buildTedUrl(ref);
-        awardRows.push(buildAwardRow(
-          tinfo.id,
-          ref,
-          tinfo.buyer_name ?? null,
-          award,
-          noticeUrl,
-          parsed,
-        ));
-        tenderIdsToReset.push(tinfo.id);
+      // Ne garder que les avis résolvables (id connu + lien XML), puis récupérer
+      // les XML par lots concurrents. Avant : 1 fetch séquentiel par avis (~500
+      // requêtes en série) = cause du timeout 504.
+      const resolvable = hits
+        .map((hit) => {
+          const ref = hit["publication-number"];
+          const tinfo = ref ? idByRef.get(ref) : undefined;
+          const xmlLink = hit.links?.xml?.MUL ?? hit.links?.xml?.FRA ?? hit.links?.xml?.ENG;
+          return tinfo && ref && xmlLink ? { ref, tinfo, xmlLink } : null;
+        })
+        .filter((x): x is { ref: string; tinfo: { id: string; buyer_name: string | null }; xmlLink: string } => x !== null);
+
+      const XML_CONCURRENCY = 8;
+      for (let i = 0; i < resolvable.length; i += XML_CONCURRENCY) {
+        if (Date.now() > deadline) break;
+        const chunk = resolvable.slice(i, i + XML_CONCURRENCY);
+        const parsedChunk = await Promise.all(chunk.map((c) => fetchNoticeXml(c.xmlLink)));
+        for (let j = 0; j < chunk.length; j++) {
+          const parsed = parsedChunk[j];
+          if (!parsed) continue;
+          const { ref, tinfo } = chunk[j];
+          // L'XML TED a une racine ContractAwardNotice. Adapter pour parseBoampAward
+          // qui attend root.EFORMS.ContractAwardNotice. On wrap.
+          const rootObj = parsed as Record<string, unknown>;
+          const can = rootObj["ContractAwardNotice"] ?? rootObj["can:ContractAwardNotice"] ?? rootObj;
+          const wrapped = { EFORMS: { ContractAwardNotice: can } };
+          const award = parseBoampAward(wrapped);
+          if (!award) continue;
+          const noticeUrl = buildTedUrl(ref);
+          awardRows.push(buildAwardRow(
+            tinfo.id,
+            ref,
+            tinfo.buyer_name ?? null,
+            award,
+            noticeUrl,
+            parsed,
+          ));
+          tenderIdsToReset.push(tinfo.id);
+        }
       }
 
       if (tenderIdsToReset.length > 0) {
