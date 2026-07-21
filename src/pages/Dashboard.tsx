@@ -131,7 +131,7 @@ const Dashboard = () => {
               &nbsp;!
             </h1>
             <p className="mt-1.5 text-[14.5px] text-muted-foreground">
-              Voici un aperçu de votre activité sur HackAO.
+              Voici un aperçu de votre activité sur Gaston.
             </p>
           </div>
 

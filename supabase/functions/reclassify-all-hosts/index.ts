@@ -19,7 +19,7 @@ async function classifyOne(
   if (sampleUrl) {
     try {
       const res = await fetch(sampleUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 HackAO-classifier" },
+        headers: { "User-Agent": "Mozilla/5.0 Gaston-classifier" },
         redirect: "follow",
         signal: AbortSignal.timeout(12000),
       });

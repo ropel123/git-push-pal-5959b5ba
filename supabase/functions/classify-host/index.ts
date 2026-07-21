@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     let html = "";
     try {
       const res = await fetch(sample_url, {
-        headers: { "User-Agent": "Mozilla/5.0 HackAO-classifier" },
+        headers: { "User-Agent": "Mozilla/5.0 Gaston-classifier" },
         redirect: "follow",
         signal: AbortSignal.timeout(15000),
       });
