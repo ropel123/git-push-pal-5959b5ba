@@ -1,7 +1,7 @@
 name: CI
 
 # Garde-fou : détecte immédiatement tout commit qui casse les types ou le build,
-# quelle que soit la source (Lovable, sessions IA, edits manuels).
+# quelle que soit la source (sessions IA, edits manuels).
 on:
   push:
     branches: [main]

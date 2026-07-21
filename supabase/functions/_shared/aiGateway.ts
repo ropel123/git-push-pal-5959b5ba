@@ -2,7 +2,7 @@
 // Stratégie : Claude 3.5 Sonnet (OpenRouter) par défaut, fallback Gemini (Lovable AI Gateway)
 // sur 429/402/timeout/erreurs réseau. Retry exponential backoff (3 tentatives).
 //
-// Voir mem://architecture/strategie-ia.
+// Voir docs/architecture/strategie-ia.md.
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
