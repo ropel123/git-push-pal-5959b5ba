@@ -97,8 +97,8 @@ Le contenu doit être détaillé, professionnel et adapté au marché.`;
     // Configuration éditable depuis l'admin (system prompt + modèles).
     const promptConfig = await loadPromptConfig("generate-tender-document", {
       systemPrompt: defaultSystemPrompt,
-      provider: "lovable",
-      model: "google/gemini-3-flash-preview",
+      provider: "openrouter",
+      model: "google/gemini-2.5-flash",
       fallbackProvider: "openrouter",
       fallbackModel: "anthropic/claude-3.5-sonnet",
       temperature: null,
