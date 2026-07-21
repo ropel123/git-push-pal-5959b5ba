@@ -134,8 +134,8 @@ ${dceTexts ? `DONNÉES DCE ENRICHIES :\n${dceTexts}` : ""}`;
     // Configuration éditable depuis l'admin (system prompt + modèles).
     const promptConfig = await loadPromptConfig("generate-pricing-strategy", {
       systemPrompt,
-      provider: "lovable",
-      model: "google/gemini-3-flash-preview",
+      provider: "openrouter",
+      model: "google/gemini-2.5-flash",
       fallbackProvider: "openrouter",
       fallbackModel: "anthropic/claude-3.5-sonnet",
       temperature: null,

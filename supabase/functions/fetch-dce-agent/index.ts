@@ -15,7 +15,7 @@ const corsHeaders = {
 const BROWSERBASE_API_KEY = Deno.env.get("BROWSERBASE_API_KEY")!;
 const BROWSERBASE_PROJECT_ID = Deno.env.get("BROWSERBASE_PROJECT_ID")!;
 const TWOCAPTCHA_API_KEY = Deno.env.get("TWOCAPTCHA_API_KEY") ?? "";
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -557,13 +557,13 @@ function jsFillByIndex(mapping: Record<string, string>): string {
 `;
 }
 
-// ---------- LLM calls (Lovable AI Gateway) ----------
+// ---------- LLM calls (OpenRouter) ----------
 
 async function llmPickClickable(
   instruction: string,
   candidates: Array<{ i: number; tag: string; text: string; aria: string; title: string; id: string }>,
 ): Promise<number> {
-  if (!LOVABLE_API_KEY) return -1;
+  if (!OPENROUTER_API_KEY) return -1;
   const compact = candidates
     .filter((c) => (c.text || c.aria || c.title))
     .map((c) => `${c.i}: <${c.tag}> "${(c.text || c.aria || c.title).slice(0, 80)}"${c.id ? ` #${c.id}` : ""}`)
@@ -573,9 +573,9 @@ Retourne UNIQUEMENT un entier : l'index de l'élément qui correspond le mieux �
 Si aucun élément ne correspond, retourne -1. N'écris RIEN d'autre que le nombre.`;
   const user = `Instruction: ${instruction}\n\nÉléments:\n${compact}`;
   try {
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [{ role: "system", content: sys }, { role: "user", content: user }],
@@ -597,7 +597,7 @@ async function llmMapInputs(
   identity: Record<string, string>,
   inputs: Array<any>,
 ): Promise<Record<string, string>> {
-  if (!LOVABLE_API_KEY) return {};
+  if (!OPENROUTER_API_KEY) return {};
   const compact = inputs
     .map((c) => `${c.i}: <${c.tag} type=${c.type}> name="${c.name}" id="${c.id}" placeholder="${c.placeholder}" aria="${c.aria}" label="${c.label}"`)
     .join("\n");
@@ -610,9 +610,9 @@ Retourne UNIQUEMENT un objet JSON {"<index>": "<valeur>"} associant chaque input
 Ignore les inputs qui ne correspondent à aucune valeur. Aucune explication.`;
   const user = `Identité:\n${fields}\n\nInputs:\n${compact}`;
   try {
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [{ role: "system", content: sys }, { role: "user", content: user }],

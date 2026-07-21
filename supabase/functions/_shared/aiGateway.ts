@@ -1,6 +1,7 @@
 // _shared/aiGateway.ts — passerelle unifiée pour les appels LLM (chat completions).
-// Stratégie : Claude 3.5 Sonnet (OpenRouter) par défaut, fallback Gemini (Lovable AI Gateway)
-// sur 429/402/timeout/erreurs réseau. Retry exponential backoff (3 tentatives).
+// Stratégie : Claude 3.5 Sonnet (OpenRouter) par défaut, fallback Gemini (via
+// OpenRouter également) sur 429/402/timeout/erreurs réseau. Retry exponential
+// backoff (3 tentatives).
 //
 // Voir docs/architecture/strategie-ia.md.
 
@@ -86,46 +87,6 @@ async function callOpenRouter(
   }
 }
 
-async function callLovableGateway(
-  messages: ChatMessage[],
-  model: string,
-  apiKey: string,
-  maxTokens: number | undefined,
-  temperature: number | undefined,
-  timeoutMs: number
-): Promise<{ content: string; tokens: number | null; status: number }> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      signal: ctrl.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        ...(maxTokens ? { max_tokens: maxTokens } : {}),
-        ...(temperature !== undefined ? { temperature } : {}),
-      }),
-    });
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
-      const err = new Error(`Lovable AI ${resp.status}: ${errText.slice(0, 300)}`);
-      (err as any).status = resp.status;
-      throw err;
-    }
-    const data = await resp.json();
-    const content = data?.choices?.[0]?.message?.content ?? "";
-    const tokens = data?.usage?.total_tokens ?? null;
-    return { content, tokens, status: resp.status };
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 async function callProvider(
   provider: AIProvider,
   messages: ChatMessage[],
@@ -139,17 +100,11 @@ async function callProvider(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      if (provider === "claude") {
-        const key = Deno.env.get("OPENROUTER_API_KEY");
-        if (!key) throw new Error("OPENROUTER_API_KEY missing");
-        const r = await callOpenRouter(messages, model, key, opts.maxTokens, opts.temperature, timeoutMs);
-        return { content: r.content, tokens: r.tokens, attempts: attempt, latencyMs: Date.now() - start };
-      } else {
-        const key = Deno.env.get("LOVABLE_API_KEY");
-        if (!key) throw new Error("LOVABLE_API_KEY missing");
-        const r = await callLovableGateway(messages, model, key, opts.maxTokens, opts.temperature, timeoutMs);
-        return { content: r.content, tokens: r.tokens, attempts: attempt, latencyMs: Date.now() - start };
-      }
+      // Claude comme Gemini passent par OpenRouter — seul le modèle change.
+      const key = Deno.env.get("OPENROUTER_API_KEY");
+      if (!key) throw new Error("OPENROUTER_API_KEY missing");
+      const r = await callOpenRouter(messages, model, key, opts.maxTokens, opts.temperature, timeoutMs);
+      return { content: r.content, tokens: r.tokens, attempts: attempt, latencyMs: Date.now() - start };
     } catch (e) {
       lastErr = e;
       const status = (e as any)?.status as number | undefined;

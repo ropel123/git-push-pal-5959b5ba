@@ -204,13 +204,14 @@ Sois stratégique et orienté vers la victoire. Base ton analyse sur le profil r
       systemPrompt: defaultPrompt,
       provider: "openrouter",
       model: "anthropic/claude-3.5-sonnet",
-      fallbackProvider: "lovable",
+      fallbackProvider: "openrouter",
       fallbackModel: "google/gemini-2.5-flash",
       temperature: null,
     });
-    // La passerelle aiGateway nomme ses providers claude/gemini
-    // (openrouter/lovable dans l'admin).
-    const gatewayProvider: AIProvider = promptConfig.provider === "lovable" ? "gemini" : "claude";
+    // La passerelle aiGateway nomme ses familles claude/gemini (tout passe par
+    // OpenRouter) ; "lovable" est un alias historique des modèles Gemini.
+    const gatewayProvider: AIProvider =
+      promptConfig.provider === "lovable" || promptConfig.model.startsWith("google/") ? "gemini" : "claude";
 
     // Appel IA via passerelle unifiée, fallback automatique sur l'autre provider
     let aiResult;

@@ -1,6 +1,6 @@
 ---
 name: AI Strategy
-description: Two providers for platform classification (Anthropic Haiku 4.5 default, OpenRouter Opus 4.7 deep), Lovable AI Gateway as fallback
+description: Two providers for platform classification (Anthropic Haiku 4.5 default, OpenRouter Opus 4.7 deep), Gemini via OpenRouter as fallback
 type: feature
 ---
 
@@ -16,7 +16,7 @@ Les deux classifiers partagent **exactement le même enum fermé** de 22 platefo
 ### Autres usages
 
 - **Analyse de tender / pricing / mémoire technique** : Claude Sonnet 4.5 via OpenRouter.
-- **Fallback global** : Lovable AI Gateway (`google/gemini-3-flash-preview`) si OpenRouter / Anthropic indisponible.
+- **Fallback global** : Gemini (`google/gemini-2.5-flash`) via OpenRouter si le modèle principal est indisponible. Un seul secret LLM côté edge functions : `OPENROUTER_API_KEY` (+ `ANTHROPIC_API_KEY` pour la classification directe). L'ancien provider « lovable » (Lovable AI Gateway) est retiré ; `promptStore.buildProvider` garde un alias legacy qui route les anciennes configs vers OpenRouter.
 
 ## Règles
 

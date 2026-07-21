@@ -23,7 +23,9 @@ export type ResolvedProvider = {
 
 /** Construit un provider d'API chat-completions à partir de son nom logique. */
 export function buildProvider(name: string, model: string): ResolvedProvider | null {
-  if (name === "openrouter") {
+  // "lovable" est un alias historique (anciennes lignes ai_prompts) : tous les
+  // appels passent désormais par OpenRouter, seul le modèle diffère.
+  if (name === "openrouter" || name === "lovable") {
     const key = Deno.env.get("OPENROUTER_API_KEY");
     if (!key) return null;
     return {
@@ -31,18 +33,7 @@ export function buildProvider(name: string, model: string): ResolvedProvider | n
       key,
       model,
       name: "openrouter",
-      extraHeaders: { "HTTP-Referer": "https://lovable.dev", "X-Title": "Hackao AI" },
-    };
-  }
-  if (name === "lovable") {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return null;
-    return {
-      url: "https://ai.gateway.lovable.dev/v1/chat/completions",
-      key,
-      model,
-      name: "lovable",
-      extraHeaders: {},
+      extraHeaders: { "HTTP-Referer": "https://hackao.fr", "X-Title": "HackAO" },
     };
   }
   return null;

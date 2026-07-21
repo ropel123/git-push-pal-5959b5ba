@@ -19,7 +19,7 @@ const DEFAULT_PROMPT_CONFIG: PromptConfig = {
   systemPrompt: "",
   provider: "openrouter",
   model: "anthropic/claude-sonnet-4",
-  fallbackProvider: "lovable",
+  fallbackProvider: "openrouter",
   fallbackModel: "google/gemini-2.5-pro",
   temperature: null,
 };
