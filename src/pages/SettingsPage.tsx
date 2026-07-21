@@ -29,7 +29,7 @@ const SettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState({
     company_name: "", siren: "", sectors: "", regions: "", keywords: "", company_size: "",
-    company_description: "", company_website: "", primary_color: "#F97316", secondary_color: "#1E293B",
+    company_description: "", company_website: "", primary_color: "#2563EB", secondary_color: "#7C3AED",
     company_certifications: "",
     company_skills: "",
     company_team: "",
@@ -70,8 +70,8 @@ const SettingsPage = () => {
       company_size: data.company_size ?? "",
       company_description: data.company_description ?? "",
       company_website: data.company_website ?? "",
-      primary_color: data.primary_color ?? "#F97316",
-      secondary_color: data.secondary_color ?? "#1E293B",
+      primary_color: data.primary_color ?? "#2563EB",
+      secondary_color: data.secondary_color ?? "#7C3AED",
       company_certifications: (data.company_certifications as string[])?.join(", ") ?? "",
       company_skills: data.company_skills ?? "",
       company_team: data.company_team ?? "",
