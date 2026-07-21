@@ -1,5 +1,5 @@
 /**
- * HackAO — catalogue tarifaire & mapping Stripe.
+ * Gaston — catalogue tarifaire & mapping Stripe.
  *
  * Remplis chaque `priceId` avec ton vrai Stripe Price ID (Dashboard → Products).
  * Tant qu'un Price ID vaut une chaîne `price_TODO_*`, le bouton "S'abonner"
@@ -65,7 +65,7 @@ export const PLANS: Plan[] = [
       "Alertes illimitées, en temps réel",
       "Les principales plateformes acheteurs surveillées en continu",
       "Filtres intelligents par profil entreprise",
-      "Accès complet à la plateforme HackAO",
+      "Accès complet à la plateforme Gaston",
       "1 utilisateur inclus",
     ],
     priceId: "price_TODO_sourcing_99",

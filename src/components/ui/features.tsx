@@ -19,7 +19,7 @@ interface FeaturesProps {
 
 export function Features({
   features,
-  title = "HACKIFY, votre allié stratégique",
+  title = "GASTON, votre allié stratégique",
   subtitle = "Nous prenons en charge l'intégralité de la chaîne de valeur des appels d'offres, du sourcing à la formation de vos équipes.",
   label = "La solution"
 }: FeaturesProps) {

@@ -1,6 +1,6 @@
-# HackAO
+# Gaston
 
-Plateforme SaaS pour PME/ETI françaises : veille des appels d'offres publics, analyse IA des DCE et rédaction de mémoires techniques.
+Gaston (ex-HackAO) : plateforme SaaS pour PME/ETI françaises : veille des appels d'offres publics, analyse IA des DCE et rédaction de mémoires techniques.
 
 ## Stack
 
