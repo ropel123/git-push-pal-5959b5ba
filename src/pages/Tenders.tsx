@@ -74,6 +74,7 @@ const Tenders = () => {
   const [search, setSearch] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("open");
+  const [sourceFilter, setSourceFilter] = useState("");
   const [procedureFilter, setProcedureFilter] = useState<string>(DEFAULT_PROCEDURE);
   const [dceFilter, setDceFilter] = useState(false);
   const [dceReadyFilter, setDceReadyFilter] = useState(false);
@@ -142,6 +143,7 @@ const Tenders = () => {
     search: debouncedSearch,
     region: regionFilter,
     status: (statusFilter || undefined) as TenderStatus | undefined,
+    source: sourceFilter,
     procedures: procedureList,
     dceOnly: dceFilter,
     idsIn: dceReadyFilter ? dceReadyIds : null,
@@ -184,6 +186,7 @@ const Tenders = () => {
     setSearch(f.search ?? "");
     setRegionFilter(f.regionFilter ?? "");
     setStatusFilter(f.statusFilter ?? "open");
+    setSourceFilter(f.sourceFilter ?? "");
     setProcedureFilter(f.procedureFilter ?? DEFAULT_PROCEDURE);
     setDceFilter(f.dceFilter ?? false);
     setDceReadyFilter(f.dceReadyFilter ?? false);
@@ -220,7 +223,7 @@ const Tenders = () => {
   const saveSearch = async () => {
     if (!user || !searchName.trim()) return;
     setSavingSearch(true);
-    const filters = { search, regionFilter, statusFilter, procedureFilter, dceFilter, dceReadyFilter, pubDateFrom, pubDateTo, includeUndatedPub, smartFilter };
+    const filters = { search, regionFilter, statusFilter, sourceFilter, procedureFilter, dceFilter, dceReadyFilter, pubDateFrom, pubDateTo, includeUndatedPub, smartFilter };
     const { error } = await supabase
       .from("saved_searches")
       .insert({ user_id: user.id, name: searchName.trim(), filters });
@@ -235,7 +238,7 @@ const Tenders = () => {
   };
 
   const exportCSV = () => {
-    const headers = ["Titre", "Acheteur", "Montant estimé", "Région", "Date limite", "Statut", "Lien"];
+    const headers = ["Titre", "Acheteur", "Montant estimé", "Région", "Date limite", "Statut", "Source", "Lien"];
     const rows = tenders.map((t) => [
       `"${(t.title ?? "").replace(/"/g, '""')}"`,
       `"${(t.buyer_name ?? "").replace(/"/g, '""')}"`,
@@ -243,6 +246,7 @@ const Tenders = () => {
       t.region ?? "",
       t.deadline ? format(new Date(t.deadline), "dd/MM/yyyy") : "",
       t.status ?? "",
+      t.source ?? "",
       resolveTenderUrls(t).officialUrl ?? "",
     ]);
     const csv = [headers.join(";"), ...rows.map((r) => r.join(";"))].join("\n");
@@ -290,6 +294,18 @@ const Tenders = () => {
                     checked={smartFilter}
                     onCheckedChange={(v) => { setSmartFilter(v); setPage(0); }}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Source</Label>
+                  <Select value={sourceFilter || "all"} onValueChange={(v) => { setSourceFilter(v === "all" ? "" : v); setPage(0); }}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Source" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Toutes les sources</SelectItem>
+                      <SelectItem value="BOAMP">BOAMP (national)</SelectItem>
+                      <SelectItem value="TED">TED (européen)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -481,6 +497,11 @@ const Tenders = () => {
                             {tender.status && (
                               <Badge variant="outline" className={getStatusColor(tender.status)}>
                                 {statusLabel[tender.status] ?? tender.status}
+                              </Badge>
+                            )}
+                            {tender.source && (
+                              <Badge variant="secondary" className="text-[10px] uppercase">
+                                {tender.source}
                               </Badge>
                             )}
                             {score !== null && (

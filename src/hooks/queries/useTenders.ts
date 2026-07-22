@@ -19,8 +19,9 @@ export type TendersFilters = {
   procedure?: string;
   /** Optional explicit list of procedure_type values (synonyms expansion). Takes precedence over `procedure`. */
   procedures?: string[] | null;
-  platform?: string;
   listingHost?: string;
+  /** Source d'ingestion ("BOAMP" | "TED"). Vide = toutes. */
+  source?: string;
   dceOnly?: boolean;
   /** Restrict results to this set of tender IDs (server-side `.in('id', ...)`). When provided as empty array, returns no rows. */
   idsIn?: string[] | null;
@@ -43,8 +44,8 @@ export function useTenders(filters: TendersFilters = {}) {
     status = "",
     procedure = "",
     procedures = null,
-    platform = "",
     listingHost = "",
+    source = "",
     dceOnly = false,
     idsIn = null,
     publicationFrom = null,
@@ -57,7 +58,7 @@ export function useTenders(filters: TendersFilters = {}) {
   return useQuery({
     enabled,
     placeholderData: keepPreviousData,
-    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, procedures, platform, listingHost, dceOnly, idsIn, publicationFrom, publicationTo, includeUndatedPublication, smart }],
+    queryKey: ["tenders", { page, pageSize, search, region, status, procedure, procedures, listingHost, source, dceOnly, idsIn, publicationFrom, publicationTo, includeUndatedPublication, smart }],
     queryFn: async () => {
       // Short-circuit: caller requested filtering by an empty ID set.
       if (idsIn && idsIn.length === 0) {
@@ -74,8 +75,9 @@ export function useTenders(filters: TendersFilters = {}) {
       // award_criteria, participation_conditions, department, cpv_codes).
       // source_url / dce_url : nécessaires pour le lien externe des cartes
       // et la colonne « Lien » de l'export CSV (bug « URLs pas cliquables »).
+      // source : badge BOAMP/TED sur les cartes + filtre de source.
       const LIST_COLUMNS =
-        "id, title, object, description, award_criteria, participation_conditions, buyer_name, region, department, cpv_codes, estimated_amount, status, deadline, publication_date, source_url, dce_url";
+        "id, title, object, description, award_criteria, participation_conditions, buyer_name, region, department, cpv_codes, estimated_amount, status, deadline, publication_date, source_url, dce_url, source";
 
       let query = supabase
         .from("tenders")
@@ -142,7 +144,7 @@ export function useTenders(filters: TendersFilters = {}) {
       } else if (procedure && procedure !== "all") {
         query = query.eq("procedure_type", procedure);
       }
-      if (platform && platform !== "all") query = query.eq("source", platform);
+      if (source && source !== "all") query = query.eq("source", source);
       if (listingHost && listingHost !== "all") {
         query = query.ilike("enriched_data->raw->>_source_url", `%${listingHost}%`);
       }
