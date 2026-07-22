@@ -72,8 +72,10 @@ export function useTenders(filters: TendersFilters = {}) {
       // lots, buyer_contact…) non affichées pour alléger la page. On garde les champs
       // lus par l'affichage, l'export CSV ET computeScore (object, description,
       // award_criteria, participation_conditions, department, cpv_codes).
+      // source_url / dce_url : nécessaires pour le lien externe des cartes
+      // et la colonne « Lien » de l'export CSV (bug « URLs pas cliquables »).
       const LIST_COLUMNS =
-        "id, title, object, description, award_criteria, participation_conditions, buyer_name, region, department, cpv_codes, estimated_amount, status, deadline, publication_date";
+        "id, title, object, description, award_criteria, participation_conditions, buyer_name, region, department, cpv_codes, estimated_amount, status, deadline, publication_date, source_url, dce_url";
 
       let query = supabase
         .from("tenders")

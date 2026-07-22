@@ -17,6 +17,7 @@ import {
 import { createStreamAccumulator } from "@/lib/aiStream";
 import { Bot, Send, Loader2, Save, Sparkles, Paperclip, X, FileText, RotateCcw, Globe } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { z } from "zod";
 
 // Schéma de validation des données produites par le tool-call `save_memoir` de
@@ -445,7 +446,7 @@ export default function MemoirAIChat({ onMemoirSaved, mode = "dialog" }: MemoirA
               >
                 {msg.role === "assistant" ? (
                   <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: (props) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{msg.content}</ReactMarkdown>
                   </div>
                 ) : (
                   <>

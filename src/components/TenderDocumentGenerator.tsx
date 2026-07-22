@@ -10,8 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { FileText, Presentation, Loader2, Download } from "lucide-react";
-import { generatePdf } from "@/lib/generatePdf";
-import { generatePptx } from "@/lib/generatePptx";
+// jspdf / pptxgenjs (~800 kB) : chargés dynamiquement au clic « Générer »
+// pour ne pas alourdir le bundle des pages qui affichent ce composant.
 import { useProfile } from "@/hooks/queries/useProfile";
 import { z } from "zod";
 
@@ -141,8 +141,10 @@ const TenderDocumentGenerator = ({ tenderId, analyses, open, onOpenChange }: Pro
       setProgress(85);
 
       if (format === "pdf") {
+        const { generatePdf } = await import("@/lib/generatePdf");
         await generatePdf(docData);
       } else {
+        const { generatePptx } = await import("@/lib/generatePptx");
         await generatePptx(docData);
       }
 

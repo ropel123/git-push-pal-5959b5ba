@@ -11,6 +11,7 @@ import { Sparkles, Loader2, Copy, FileDown, FileText, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import TenderDocumentGenerator from "@/components/TenderDocumentGenerator";
 
 interface Analysis {
@@ -148,7 +149,7 @@ const TenderAnalysisSection = ({ tenderId, hasDocuments, analyses, onAnalysesCha
                 </Button>
               </div>
               <div className="p-4 rounded-md bg-secondary/50 text-sm text-foreground max-h-96 overflow-y-auto prose prose-sm dark:prose-invert max-w-none">
-                <ReactMarkdown>{currentResult}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: (props) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{currentResult}</ReactMarkdown>
               </div>
             </div>
           )}
@@ -198,7 +199,7 @@ const TenderAnalysisSection = ({ tenderId, hasDocuments, analyses, onAnalysesCha
                         </div>
                         {a.result && (
                           <div className="text-xs text-muted-foreground line-clamp-4 prose prose-xs dark:prose-invert max-w-none">
-                            <ReactMarkdown>{a.result}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: (props) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{a.result}</ReactMarkdown>
                           </div>
                         )}
                       </div>
@@ -256,7 +257,7 @@ const TenderAnalysisSection = ({ tenderId, hasDocuments, analyses, onAnalysesCha
                 </Button>
               </div>
               <div className="prose prose-sm dark:prose-invert max-w-none">
-                <ReactMarkdown>{viewingAnalysis.result}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: (props) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{viewingAnalysis.result}</ReactMarkdown>
               </div>
             </div>
           )}
