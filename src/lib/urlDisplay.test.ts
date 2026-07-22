@@ -44,7 +44,7 @@ describe("isPublisherUrl", () => {
 });
 
 describe("resolveTenderUrls", () => {
-  it("préfère un lien profond de plateforme (cas idéal)", () => {
+  it("sans avis éditeur : le lien profond de plateforme sert de lien principal", () => {
     const r = resolveTenderUrls({ source_url: "https://plateforme.fr/consultation/42", dce_url: null });
     expect(r.officialUrl).toBe("https://plateforme.fr/consultation/42");
     expect(r.officialLabel).toBe("Voir l'avis original");
@@ -69,19 +69,20 @@ describe("resolveTenderUrls", () => {
     expect(r.officialLabel).toBe("Voir l'avis original (TED)");
   });
 
-  it("un vrai lien profond en dce_url reste bouton DCE et lien principal", () => {
+  it("structure uniforme : avis BOAMP en lien principal, lien profond réservé au bouton DCE (pas de doublon)", () => {
     const r = resolveTenderUrls({
       source_url: "https://www.boamp.fr/avis/detail/26-1",
       dce_url: "https://plateforme.fr/dce/42",
     });
-    expect(r.officialUrl).toBe("https://plateforme.fr/dce/42");
+    expect(r.officialUrl).toBe("https://www.boamp.fr/avis/detail/26-1");
+    expect(r.officialLabel).toBe("Voir l'avis original (BOAMP)");
     expect(r.dceUrl).toBe("https://plateforme.fr/dce/42");
     expect(r.platformUrl).toBeNull();
   });
 
-  it("utilise enriched_data.listing_url avant l'avis éditeur", () => {
+  it("sans avis éditeur ni lien profond : listing enrichi en lien principal", () => {
     const r = resolveTenderUrls({
-      source_url: "https://www.boamp.fr/avis/detail/26-3",
+      source_url: null,
       dce_url: "https://mpi.fr/?fuseaction=pub.affPublication",
       enriched_data: { listing_url: "https://plateforme.fr/liste?refCons=88" },
     });

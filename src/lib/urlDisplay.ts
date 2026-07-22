@@ -9,8 +9,10 @@
  * de consultation (vrai lien profond).
  *
  * Règles produit :
- *  1. Le lien principal est toujours le plus SPÉCIFIQUE disponible
- *     (plateforme profonde > listing enrichi > avis BOAMP/TED).
+ *  1. Structure UNIFORME sur toutes les fiches : « Voir l'avis original »
+ *     pointe vers l'avis publié (BOAMP/TED) ; le lien plateforme (profond
+ *     via `dceUrl`, ou générique via `platformUrl`) vit dans le bouton
+ *     d'action dédié — jamais de doublon entre les deux.
  *  2. On ne rend JAMAIS zéro lien quand une URL existe en base.
  *  3. Une racine de plateforme générique n'est jamais présentée comme un
  *     lien direct : elle est exposée à part (`platformUrl`) pour un bouton
@@ -105,19 +107,21 @@ export function resolveTenderUrls(t: TenderUrlFields): ResolvedTenderUrls {
   const platformUrl =
     [t.dce_url, t.source_url, fallbackListing].find((u) => u && !isPublisherUrl(u) && isGenericLink(u)) ?? null;
 
-  const officialUrl = deepUrl || listingUrl || publisherUrl;
-  const isFallbackOnly = !deepUrl && !!listingUrl;
-  const isPublisherFallback = !deepUrl && !listingUrl && !!publisherUrl;
+  // Structure UNIFORME sur toutes les fiches : « Voir l'avis original » pointe
+  // toujours vers l'avis publié (BOAMP/TED) quand il existe — le lien
+  // plateforme (profond ou générique) vit dans le bouton d'action dédié.
+  // Sans avis éditeur, on retombe sur le lien le plus spécifique disponible.
+  const officialUrl = publisherUrl || deepUrl || listingUrl;
+  const isFallbackOnly = !publisherUrl && !deepUrl && !!listingUrl;
+  const isPublisherFallback = !!publisherUrl;
 
-  const officialLabel = deepUrl
-    ? "Voir l'avis original"
+  const officialLabel = publisherUrl
+    ? /ted\.europa\.eu/i.test(publisherUrl)
+      ? "Voir l'avis original (TED)"
+      : "Voir l'avis original (BOAMP)"
     : isFallbackOnly
       ? "Voir sur la plateforme acheteur"
-      : isPublisherFallback
-        ? /ted\.europa\.eu/i.test(publisherUrl!)
-          ? "Voir l'avis original (TED)"
-          : "Voir l'avis original (BOAMP)"
-        : "Voir l'avis original";
+      : "Voir l'avis original";
 
   return { officialUrl, officialLabel, isFallbackOnly, isPublisherFallback, dceUrl, platformUrl };
 }
