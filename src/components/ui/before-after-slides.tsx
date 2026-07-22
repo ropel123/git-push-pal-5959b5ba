@@ -24,7 +24,7 @@ export default function BeforeAfterSlides() {
                 <span className="text-[8px] font-bold text-primary-foreground">P</span>
               </div>
               <span className="text-xs text-muted-foreground">
-                {showAfter ? "Proposition_GASTON.pptx" : "proposition_v12_final.pptx"}
+                {showAfter ? "Proposition_HACKIFY.pptx" : "proposition_v12_final.pptx"}
               </span>
             </div>
             <div className="flex gap-1.5">

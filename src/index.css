@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════
-   Gaston design tokens — indigo #3D4EC7 · ambre #F2A51D (logo casque)
-   Blanc pur · indigo #3D4EC7 → #7583EA · accent ambre #F2A51D
+   HackAO design tokens — v2 "Premium SaaS"
+   Blanc pur + bleu profond #2563EB, gradient #2563EB→#4F46E5→#7C3AED
    Remplace l'ancien thème crème/navy. Toute l'app (shadcn inclus)
    hérite de ces variables.
    ═══════════════════════════════════════════════════════════════ */
@@ -19,7 +19,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 221 39% 11%;
 
-    --primary: 233 55% 51%;           /* #3D4EC7 — indigo Gaston */
+    --primary: 217 91% 60%;           /* #2563EB */
     --primary-foreground: 0 0% 100%;
 
     --secondary: 210 40% 98%;         /* #F8FAFC */
@@ -28,34 +28,34 @@
     --muted: 210 40% 98%;
     --muted-foreground: 220 9% 46%;   /* #6B7280 */
 
-    --accent: 234 67% 60%;            /* #5563DD */
+    --accent: 243 75% 59%;            /* #4F46E5 */
     --accent-foreground: 0 0% 100%;
 
-    --accent-soft: 233 60% 95%;
-    --accent-soft-foreground: 233 55% 42%;
+    --accent-soft: 217 91% 95%;
+    --accent-soft-foreground: 217 91% 40%;
 
     --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 0 0% 0% / 0.06;         /* rgba(0,0,0,0.06) */
     --input: 220 13% 91%;
-    --ring: 233 55% 51%;
+    --ring: 217 91% 60%;
 
     --radius: 1rem;
 
-    --gradient-brand: linear-gradient(135deg, #3D4EC7 0%, #5563DD 50%, #7583EA 100%);
+    --gradient-brand: linear-gradient(135deg, #2563EB 0%, #4F46E5 50%, #7C3AED 100%);
     --shadow-soft: 0 2px 8px hsl(221 39% 11% / 0.04);
     --shadow-elevated: 0 24px 48px -12px hsl(221 39% 11% / 0.12);
-    --shadow-glow: 0 8px 24px rgb(61 78 199 / 0.35);
+    --shadow-glow: 0 8px 24px rgb(37 99 235 / 0.35);
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 221 39% 11%;
-    --sidebar-primary: 233 55% 51%;
+    --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 210 40% 98%;
     --sidebar-accent-foreground: 221 39% 11%;
     --sidebar-border: 220 13% 92%;
-    --sidebar-ring: 233 55% 51%;
+    --sidebar-ring: 217 91% 60%;
   }
 
   .dark {
@@ -68,7 +68,7 @@
     --popover: 222 40% 12%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 233 75% 70%;
+    --primary: 217 91% 65%;           /* #60A5FA-ish */
     --primary-foreground: 222 47% 8%;
 
     --secondary: 222 35% 16%;
@@ -88,21 +88,21 @@
 
     --border: 0 0% 100% / 0.1;
     --input: 222 30% 22%;
-    --ring: 233 75% 70%;
+    --ring: 217 91% 65%;
 
-    --gradient-brand: linear-gradient(135deg, #5B6AE0 0%, #5563DD 50%, #7583EA 100%);
+    --gradient-brand: linear-gradient(135deg, #3B82F6 0%, #6366F1 50%, #8B5CF6 100%);
     --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.3), 0 4px 16px hsl(0 0% 0% / 0.25);
     --shadow-elevated: 0 8px 30px hsl(0 0% 0% / 0.45);
-    --shadow-glow: 0 8px 24px rgb(91 106 224 / 0.4);
+    --shadow-glow: 0 8px 24px rgb(59 130 246 / 0.4);
 
     --sidebar-background: 222 47% 10%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 233 75% 70%;
+    --sidebar-primary: 217 91% 65%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 222 35% 15%;
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 222 30% 18%;
-    --sidebar-ring: 233 75% 70%;
+    --sidebar-ring: 217 91% 65%;
   }
 }
 
@@ -126,11 +126,11 @@
 /* ═════════ Composants réutilisables ═════════ */
 @layer components {
   .btn-primary {
-    @apply relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-br from-[#3D4EC7] to-[#5563DD] px-8 py-3 font-semibold text-white transition-all duration-300 hover:-translate-y-0.5;
+    @apply relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-br from-[#2563EB] to-[#4F46E5] px-8 py-3 font-semibold text-white transition-all duration-300 hover:-translate-y-0.5;
     box-shadow: var(--shadow-glow), inset 0 1px 0 rgb(255 255 255 / 0.2);
   }
   .btn-primary:hover {
-    box-shadow: 0 14px 32px rgb(61 78 199 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.2);
+    box-shadow: 0 14px 32px rgb(37 99 235 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.2);
   }
 
   .btn-secondary {
@@ -161,7 +161,7 @@
   }
 
   .eyebrow {
-    @apply text-[13px] font-bold uppercase tracking-[0.1em] text-[#3D4EC7];
+    @apply text-[13px] font-bold uppercase tracking-[0.1em] text-[#2563EB];
   }
 
   .body-lg {
@@ -278,6 +278,6 @@
   100% { transform: translateY(-360px); opacity: 0; }
 }
 @keyframes hao-glow-pulse {
-  0%, 100% { box-shadow: 0 0 40px rgb(61 78 199 / 0.15); }
-  50% { box-shadow: 0 0 80px rgb(61 78 199 / 0.4); }
+  0%, 100% { box-shadow: 0 0 40px rgb(37 99 235 / 0.15); }
+  50% { box-shadow: 0 0 80px rgb(37 99 235 / 0.4); }
 }

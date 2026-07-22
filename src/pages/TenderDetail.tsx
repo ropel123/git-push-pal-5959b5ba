@@ -510,7 +510,7 @@ const TenderDetail = () => {
             </p>
           </div>
           <Button asChild className="shrink-0">
-            <a href="mailto:contact@gaston.app?subject=Accompagnement%20AO" target="_blank" rel="noopener noreferrer">
+            <a href="mailto:contact@hackao.fr?subject=Accompagnement%20AO" target="_blank" rel="noopener noreferrer">
               Prendre rendez-vous
             </a>
           </Button>
