@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { parseBoampDonnees, parseBoampAward, type BoampAward } from "../_shared/boampParse.ts";
 import { deptToRegion, detectContractType } from "../_shared/normalize.ts";
 
