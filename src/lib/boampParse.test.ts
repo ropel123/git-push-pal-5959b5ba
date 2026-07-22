@@ -63,3 +63,59 @@ describe("parseBoampDonnees — extraction dce_url", () => {
     expect(parseBoampDonnees(donnees).dce_url).toBe("https://www.maximilien.fr/");
   });
 });
+
+describe("parseBoampDonnees — contact/adresse/NUTS scopés sur l'acheteur", () => {
+  // Cas réel : l'avis eForms liste l'opérateur de publication (AWS France,
+  // Seyssinet-Pariset) AVANT l'acheteur — l'ancien parseur prenait ses
+  // coordonnées comme « contact acheteur ».
+  const donneesDeuxOrgs = JSON.stringify({
+    EFORMS: {
+      ContractNotice: {
+        nomacheteur: "SM Manche Numérique",
+        "efac:Organizations": {
+          "efac:Organization": [
+            {
+              "efac:Company": {
+                "cac:PartyName": { "cbc:Name": "AWS France" },
+                "cac:Contact": { "cbc:ElectronicMail": "publications-joue@aws-france.com", "cbc:Telephone": "+33480041260" },
+                "cac:PostalAddress": { "cbc:StreetName": "97 rue du Général Mangin", "cbc:PostalZone": "38170", "cbc:CityName": "Seyssinet-Pariset", "cbc:CountrySubentityCode": "FRK24" },
+              },
+            },
+            {
+              "efac:Company": {
+                "cac:PartyName": { "cbc:Name": "SM Manche Numérique" },
+                "cac:Contact": { "cbc:ElectronicMail": "marches@manchenumerique.fr", "cbc:Telephone": "+33233051234" },
+                "cac:PostalAddress": { "cbc:StreetName": "235 rue Joseph Cugnot", "cbc:PostalZone": "50000", "cbc:CityName": "Saint-Lô", "cbc:CountrySubentityCode": "FRD12" },
+              },
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  it("prend le contact de l'acheteur, pas celui de l'opérateur de publication", () => {
+    const p = parseBoampDonnees(donneesDeuxOrgs);
+    expect(p.buyer_contact?.email).toBe("marches@manchenumerique.fr");
+    expect(p.buyer_contact?.ville).toBe("Saint-Lô");
+  });
+
+  it("prend l'adresse et le NUTS de l'acheteur, pas ceux de l'opérateur", () => {
+    const p = parseBoampDonnees(donneesDeuxOrgs);
+    expect(p.buyer_address).toContain("Saint-Lô");
+    expect(p.buyer_address).not.toContain("Seyssinet");
+    expect(p.nuts_code).toBe("FRD12");
+  });
+
+  it("sans nom d'acheteur appariable, écarte quand même les organisations opérateur", () => {
+    const donnees = JSON.stringify({
+      "efac:Organizations": {
+        "efac:Organization": [
+          { "efac:Company": { "cac:PartyName": { "cbc:Name": "AWS France" }, "cac:Contact": { "cbc:ElectronicMail": "publications-joue@aws-france.com" } } },
+          { "efac:Company": { "cac:PartyName": { "cbc:Name": "Commune de Test" }, "cac:Contact": { "cbc:ElectronicMail": "mairie@test.fr" } } },
+        ],
+      },
+    });
+    expect(parseBoampDonnees(donnees).buyer_contact?.email).toBe("mairie@test.fr");
+  });
+});

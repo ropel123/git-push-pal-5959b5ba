@@ -69,7 +69,7 @@ function mapRecord(r: BoampRecord) {
   const region = deptToRegion(departmentStr);
 
   // Parse champ riche `donnees`
-  const parsed = parseBoampDonnees(r.donnees);
+  const parsed = parseBoampDonnees(r.donnees, r.nomacheteur ? String(r.nomacheteur) : undefined);
 
   const natureStr = joinArr(r.type_marche) ?? r.nature_libelle ?? null;
   const contractType = detectContractType(natureStr ? String(natureStr) : null);
