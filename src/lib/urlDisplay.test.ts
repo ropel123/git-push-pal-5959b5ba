@@ -2,9 +2,24 @@ import { describe, it, expect } from "vitest";
 import { isGenericLink, isPublisherUrl, resolveTenderUrls } from "./urlDisplay";
 
 describe("isGenericLink", () => {
-  it("considère null/vide comme générique", () => {
+  it("considère null/vide/non parsable comme générique", () => {
     expect(isGenericLink(null)).toBe(true);
     expect(isGenericLink("")).toBe(true);
+    expect(isGenericLink("pas une url")).toBe(true);
+  });
+
+  it("détecte les racines de plateforme sans identifiant (cas Maximilien)", () => {
+    expect(isGenericLink("https://marches.maximilien.fr/entreprise")).toBe(true);
+    expect(isGenericLink("https://marches.maximilien.fr/")).toBe(true);
+    expect(isGenericLink("https://www.achatpublic.com/accueil")).toBe(true);
+    expect(isGenericLink("https://plateforme.fr/index.php")).toBe(true);
+    expect(isGenericLink("https://plateforme.fr/fr/entreprise/")).toBe(true);
+  });
+
+  it("accepte les liens profonds vers une consultation", () => {
+    expect(isGenericLink("https://plateforme.fr/consultation/1234")).toBe(false);
+    expect(isGenericLink("https://marches.maximilien.fr/?page=Entreprise.EntrepriseDetailsConsultation&refConsultation=12345&orgAcronyme=maxim")).toBe(false);
+    expect(isGenericLink("https://plateforme.fr/entreprise?idConsultation=987")).toBe(false);
   });
 
   it("détecte les listings MPI sans identifiant de consultation", () => {
@@ -16,7 +31,6 @@ describe("isGenericLink", () => {
   it("détecte les pages de recherche/résultats", () => {
     expect(isGenericLink("https://x.fr/?fuseaction=pub.affResultats")).toBe(true);
     expect(isGenericLink("https://x.fr/entreprise?page=recherche")).toBe(true);
-    expect(isGenericLink("https://plateforme.fr/consultation/1234")).toBe(false);
   });
 });
 
@@ -30,44 +44,61 @@ describe("isPublisherUrl", () => {
 });
 
 describe("resolveTenderUrls", () => {
-  it("préfère un source_url de plateforme (cas idéal)", () => {
+  it("préfère un lien profond de plateforme (cas idéal)", () => {
     const r = resolveTenderUrls({ source_url: "https://plateforme.fr/consultation/42", dce_url: null });
     expect(r.officialUrl).toBe("https://plateforme.fr/consultation/42");
     expect(r.officialLabel).toBe("Voir l'avis original");
     expect(r.isPublisherFallback).toBe(false);
+    expect(r.platformUrl).toBeNull();
   });
 
-  it("retombe sur dce_url quand source_url est BOAMP", () => {
+  it("cas majoritaire réel : source_url BOAMP + dce_url racine générique → l'avis BOAMP est le lien principal, la racine devient platformUrl", () => {
+    const r = resolveTenderUrls({
+      source_url: "https://www.boamp.fr/avis/detail/26-72690",
+      dce_url: "https://marches.maximilien.fr/entreprise",
+    });
+    expect(r.officialUrl).toBe("https://www.boamp.fr/avis/detail/26-72690");
+    expect(r.officialLabel).toBe("Voir l'avis original (BOAMP)");
+    expect(r.isPublisherFallback).toBe(true);
+    expect(r.dceUrl).toBeNull(); // la racine n'est PAS présentée comme un accès DCE
+    expect(r.platformUrl).toBe("https://marches.maximilien.fr/entreprise");
+  });
+
+  it("libellé TED quand l'avis vient de TED", () => {
+    const r = resolveTenderUrls({ source_url: "https://ted.europa.eu/fr/notice/123", dce_url: null });
+    expect(r.officialLabel).toBe("Voir l'avis original (TED)");
+  });
+
+  it("un vrai lien profond en dce_url reste bouton DCE et lien principal", () => {
     const r = resolveTenderUrls({
       source_url: "https://www.boamp.fr/avis/detail/26-1",
       dce_url: "https://plateforme.fr/dce/42",
     });
     expect(r.officialUrl).toBe("https://plateforme.fr/dce/42");
     expect(r.dceUrl).toBe("https://plateforme.fr/dce/42");
+    expect(r.platformUrl).toBeNull();
   });
 
-  it("ne rend JAMAIS zéro lien : fallback avis éditeur (bug « URLs pas cliquables »)", () => {
-    // Cas majoritaire du stock actuel : source_url BOAMP, pas de dce_url.
-    const r = resolveTenderUrls({ source_url: "https://www.boamp.fr/avis/detail/26-2", dce_url: null });
-    expect(r.officialUrl).toBe("https://www.boamp.fr/avis/detail/26-2");
-    expect(r.isPublisherFallback).toBe(true);
-    expect(r.officialLabel).toContain("BOAMP");
-  });
-
-  it("utilise enriched_data.listing_url en fallback intermédiaire", () => {
+  it("utilise enriched_data.listing_url avant l'avis éditeur", () => {
     const r = resolveTenderUrls({
       source_url: "https://www.boamp.fr/avis/detail/26-3",
       dce_url: "https://mpi.fr/?fuseaction=pub.affPublication",
-      enriched_data: { listing_url: "https://plateforme.fr/liste" },
+      enriched_data: { listing_url: "https://plateforme.fr/liste?refCons=88" },
     });
-    expect(r.officialUrl).toBe("https://plateforme.fr/liste");
+    expect(r.officialUrl).toBe("https://plateforme.fr/liste?refCons=88");
     expect(r.isFallbackOnly).toBe(true);
     expect(r.officialLabel).toBe("Voir sur la plateforme acheteur");
+  });
+
+  it("ne rend JAMAIS zéro lien si une URL existe", () => {
+    const r = resolveTenderUrls({ source_url: "https://www.boamp.fr/avis/detail/26-2", dce_url: null });
+    expect(r.officialUrl).toBe("https://www.boamp.fr/avis/detail/26-2");
   });
 
   it("retourne null uniquement quand aucune URL n'existe", () => {
     const r = resolveTenderUrls({ source_url: null, dce_url: "" });
     expect(r.officialUrl).toBeNull();
     expect(r.dceUrl).toBeNull();
+    expect(r.platformUrl).toBeNull();
   });
 });
