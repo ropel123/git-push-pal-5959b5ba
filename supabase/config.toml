@@ -64,20 +64,10 @@ verify_jwt = false
 [functions.upsert-tenders]
 verify_jwt = false
 
-# --- Fonctions déployées mais absentes du repo (conservées pour ne pas
-# --- modifier leur configuration lors d'un déploiement) ---
-
-[functions.batch-fetch-dce]
-verify_jwt = false
-
-[functions.sourcing-scheduler]
-verify_jwt = false
-
-[functions.scrape-list]
-verify_jwt = false
-
-[functions.reclassify-sourcing-urls]
-verify_jwt = false
-
-[functions.atexo-backfill]
-verify_jwt = false
+# NOTE : ne déclarer ici QUE des fonctions dont le dossier existe dans
+# supabase/functions/ — la CLI tente de déployer chaque entrée déclarée et
+# échoue (« entrypoint path does not exist ») sur une entrée sans source,
+# ce qui bloquait tout le workflow deploy-functions. Les fonctions
+# historiques uniquement présentes en production (batch-fetch-dce,
+# sourcing-scheduler, scrape-list, reclassify-sourcing-urls,
+# atexo-backfill) ne sont pas touchées par un déploiement du repo.
