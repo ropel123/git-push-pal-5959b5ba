@@ -5,7 +5,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
-import Index from "./pages/Index";
+import GastonLanding from "./pages/GastonLanding";
+import CreditsPage from "./pages/CreditsPage";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
 import AppLayout from "./components/AppLayout";
@@ -50,7 +51,8 @@ const App = () => (
         <BrowserRouter>
           <AuthProvider>
             <Routes>
-              <Route path="/" element={<Index />} />
+              <Route path="/" element={<GastonLanding />} />
+              <Route path="/credits" element={<CreditsPage />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/pricing" element={<PricingPage />} />

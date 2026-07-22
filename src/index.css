@@ -123,6 +123,15 @@
   }
 }
 
+/* ═════════ Site vitrine Gaston (/ et /credits) ═════════ */
+@layer components {
+  /* Typo du site public : Bree Serif (référence mesurée sur l'original),
+     scopée pour ne pas toucher l'app (Inter). */
+  .gaston-site {
+    font-family: "Bree Serif", ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  }
+}
+
 /* ═════════ Composants réutilisables ═════════ */
 @layer components {
   .btn-primary {
