@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase, FileDown, Send } from "lucide-react";
+import { ArrowLeft, MapPin, Euro, Calendar, Building2, FileText, Plus, Tag, ExternalLink, Mail, Phone, Globe, MapPinned, Briefcase, FileDown, Send, Copy } from "lucide-react";
 import DceUploadSection from "@/components/DceUploadSection";
 import DceAgentFetchButton from "@/components/DceAgentFetchButton";
 import TenderAnalysisSection from "@/components/TenderAnalysisSection";
@@ -158,7 +158,17 @@ const TenderDetail = () => {
 
   // Résolution des liens affichables — logique partagée et testée
   // (src/lib/urlDisplay.ts). Ne rend jamais zéro lien si une URL existe.
-  const { officialUrl, officialLabel, isFallbackOnly, dceUrl } = resolveTenderUrls(tender);
+  const { officialUrl, officialLabel, isFallbackOnly, dceUrl, platformUrl } = resolveTenderUrls(tender);
+
+  const copyReference = async () => {
+    if (!tender.reference) return;
+    try {
+      await navigator.clipboard.writeText(tender.reference);
+      toast({ title: "Référence copiée", description: `${tender.reference} — collez-la dans la recherche de la plateforme.` });
+    } catch {
+      toast({ title: "Impossible de copier", variant: "destructive" });
+    }
+  };
 
 
   return (
@@ -190,7 +200,20 @@ const TenderDetail = () => {
             )}
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            {tender.reference && <p className="text-sm text-muted-foreground">Réf. {tender.reference}</p>}
+            {tender.reference && (
+              <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                Réf. {tender.reference}
+                <button
+                  type="button"
+                  onClick={copyReference}
+                  title="Copier la référence (pour la recherche sur la plateforme)"
+                  aria-label="Copier la référence"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-secondary hover:text-foreground"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
+              </span>
+            )}
             {officialUrl && (
               <a href={officialUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline inline-flex items-center gap-1">
                 <ExternalLink className="h-3 w-3" /> {officialLabel}
@@ -199,13 +222,29 @@ const TenderDetail = () => {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          {dceUrl && (
+          {dceUrl ? (
             <Button asChild variant="outline">
               <a href={dceUrl} target="_blank" rel="noopener noreferrer">
                 <FileDown className="h-4 w-4 mr-1" /> Accéder au DCE
               </a>
             </Button>
-          )}
+          ) : platformUrl ? (
+            // Pas de lien profond en base : on ouvre l'entrée de la plateforme,
+            // la consultation se retrouve via la référence (copiable ci-contre).
+            <Button
+              asChild
+              variant="outline"
+              title={
+                tender.reference
+                  ? `Recherchez la référence ${tender.reference} sur la plateforme acheteur`
+                  : "Recherchez cette consultation sur la plateforme acheteur"
+              }
+            >
+              <a href={platformUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4 mr-1" /> Ouvrir la plateforme
+              </a>
+            </Button>
+          ) : null}
           {tender.submission_url && (
             <Button asChild variant="secondary">
               <a href={tender.submission_url} target="_blank" rel="noopener noreferrer">

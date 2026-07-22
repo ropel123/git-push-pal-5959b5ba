@@ -37,4 +37,29 @@ describe("parseBoampDonnees — extraction dce_url", () => {
     expect(parseBoampDonnees("pas du json").dce_url).toBeUndefined();
     expect(parseBoampDonnees(null).dce_url).toBeUndefined();
   });
+
+  it("préfère le lien profond (consultation précise) à la racine générique", () => {
+    // Cas réel : profil acheteur = racine achatpublic, mais l'avis contient
+    // aussi le lien exact de la consultation (accessurl eForms).
+    const donnees = JSON.stringify({
+      urlprofilacheteur: "https://www.achatpublic.com/",
+      accessurl: "https://www.achatpublic.com/sdm/ent2/gen/fichecsl.action?Pcslid=Csl_2026_ehv0s2yz52",
+    });
+    expect(parseBoampDonnees(donnees).dce_url).toBe(
+      "https://www.achatpublic.com/sdm/ent2/gen/fichecsl.action?Pcslid=Csl_2026_ehv0s2yz52",
+    );
+  });
+
+  it("repêche un lien profond présent uniquement dans le texte de l'avis", () => {
+    const donnees = JSON.stringify({
+      urlprofilacheteur: "https://www.maximilien.fr/",
+      description: "Le DCE est téléchargeable sur https://demat.centraledesmarches.com/7048372 avant la date limite.",
+    });
+    expect(parseBoampDonnees(donnees).dce_url).toBe("https://demat.centraledesmarches.com/7048372");
+  });
+
+  it("retombe sur la racine plateforme quand aucun lien profond n'existe", () => {
+    const donnees = JSON.stringify({ urlprofilacheteur: "https://www.maximilien.fr/" });
+    expect(parseBoampDonnees(donnees).dce_url).toBe("https://www.maximilien.fr/");
+  });
 });

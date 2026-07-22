@@ -1,12 +1,20 @@
 /**
  * Résolution des liens affichables d'un appel d'offres.
  *
- * Logique extraite de TenderDetail (elle y était inline et non testée) et
- * partagée avec la liste /tenders. Règle produit : on privilégie les URLs
- * « plateforme acheteur » (consultation directe), mais on ne rend JAMAIS
- * une fiche sans aucun lien quand une URL existe en base — au pire on
- * affiche le lien éditeur (BOAMP/TED) avec un libellé dégradé.
- * Contexte : 100 % du stock actuel a un source_url boamp.fr / ted.europa.eu.
+ * Réalité des données (mesurée en base) : les avis proviennent du BOAMP,
+ * qui fournit (a) l'URL de l'avis BOAMP lui-même — toujours spécifique —
+ * et (b) « l'adresse du profil d'acheteur » — le plus souvent la simple
+ * page d'entrée de la plateforme (ex. marches.maximilien.fr/entreprise),
+ * stockée en dce_url. Seuls ~23 % des dce_url contiennent un identifiant
+ * de consultation (vrai lien profond).
+ *
+ * Règles produit :
+ *  1. Le lien principal est toujours le plus SPÉCIFIQUE disponible
+ *     (plateforme profonde > listing enrichi > avis BOAMP/TED).
+ *  2. On ne rend JAMAIS zéro lien quand une URL existe en base.
+ *  3. Une racine de plateforme générique n'est jamais présentée comme un
+ *     lien direct : elle est exposée à part (`platformUrl`) pour un bouton
+ *     honnête « Ouvrir la plateforme » + recherche par référence.
  */
 
 export interface TenderUrlFields {
@@ -15,36 +23,59 @@ export interface TenderUrlFields {
   enriched_data?: unknown;
 }
 
+/** Chemin trivial : racine ou page d'entrée sans identifiant (/, /entreprise, /accueil…). */
+const TRIVIAL_PATH = /^\/?((fr|en)\/?)?((entreprise|entreprises|accueil|portail|home|index\.\w+)\/?)?$/i;
+
+/** La query contient-elle un paramètre ressemblant à un identifiant de consultation ? */
+const HAS_CONSULTATION_PARAM = /[?&][^=&]*(id|ref|cons|code)[^=&]*=/i;
+
 /**
- * URL « générique » : page de listing/résultats sans identifiant de
- * consultation exploitable (l'utilisateur atterrirait sur un moteur de
- * recherche vide).
+ * URL « générique » : page d'entrée/listing de plateforme sans identifiant
+ * de consultation exploitable — l'utilisateur atterrirait sur un accueil ou
+ * un moteur de recherche vide.
  */
 export const isGenericLink = (u?: string | null): boolean => {
   if (!u) return true;
+
   // affPublication SANS identifiant de consultation = listing MPI générique.
   // Un identifiant valide = refPub/refCons/refConsultation… ou IDS=/IDM=.
   if (/fuseaction=pub\.affPublication/i.test(u) && !/[?&](ref(Pub|Cons|Consult)\w*|IDS|IDM)=/i.test(u)) return true;
-  return /(fuseaction=pub\.affResultats|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche|fuseaction=marchesP\.rechM(?![^#]*[?&]IDS=\d))/i.test(u);
+  if (/(fuseaction=pub\.affResultats|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche|fuseaction=marchesP\.rechM(?![^#]*[?&]IDS=\d))/i.test(u)) {
+    return true;
+  }
+
+  // Racine/entrée de plateforme (cas majoritaire des dce_url issus du champ
+  // « profil d'acheteur » du BOAMP) : chemin trivial et aucun paramètre
+  // d'identifiant → page d'accueil, pas une consultation.
+  try {
+    const parsed = new URL(u);
+    if (TRIVIAL_PATH.test(parsed.pathname) && !HAS_CONSULTATION_PARAM.test(parsed.search)) return true;
+  } catch {
+    return true; // URL non parsable → inutilisable comme lien
+  }
+
+  return false;
 };
 
-/** URL d'un éditeur d'avis (BOAMP/TED) — pas la plateforme de consultation. */
+/** URL d'un éditeur d'avis (BOAMP/TED) — spécifique à l'avis, mais pas la plateforme de retrait. */
 export const isPublisherUrl = (u?: string | null): boolean => {
   if (!u) return false;
   return /(boamp\.fr|ted\.europa\.eu)/i.test(u);
 };
 
 export interface ResolvedTenderUrls {
-  /** Lien principal à afficher (jamais null si une URL exploitable existe). */
+  /** Lien principal, le plus spécifique disponible (jamais null si une URL exploitable existe). */
   officialUrl: string | null;
-  /** Libellé adapté à la qualité du lien. */
+  /** Libellé adapté à la nature du lien. */
   officialLabel: string;
-  /** true si on n'a qu'un lien de listing (fallback enriched_data). */
+  /** true si le lien principal n'est qu'un listing enrichi (pas l'avis lui-même). */
   isFallbackOnly: boolean;
-  /** true si le lien affiché est un avis éditeur (BOAMP/TED). */
+  /** true si le lien principal est l'avis éditeur (BOAMP/TED). */
   isPublisherFallback: boolean;
-  /** Lien de retrait du DCE (bouton dédié), ou null. */
+  /** Lien de retrait du DCE — uniquement un vrai lien profond, sinon null. */
   dceUrl: string | null;
+  /** Entrée générique de la plateforme (recherche manuelle par référence), sinon null. */
+  platformUrl: string | null;
 }
 
 export function resolveTenderUrls(t: TenderUrlFields): ResolvedTenderUrls {
@@ -55,31 +86,38 @@ export function resolveTenderUrls(t: TenderUrlFields): ResolvedTenderUrls {
     (typeof raw._source_url === "string" && raw._source_url) ||
     null;
 
-  const dceUrl = t.dce_url && !isGenericLink(t.dce_url) && !isPublisherUrl(t.dce_url) ? t.dce_url : null;
+  const isDeep = (u?: string | null): u is string => !!u && !isGenericLink(u) && !isPublisherUrl(u);
 
-  const primaryUrl =
-    (!isGenericLink(t.source_url) && !isPublisherUrl(t.source_url) ? t.source_url! : null) ||
-    (!isGenericLink(t.dce_url) && !isPublisherUrl(t.dce_url) ? t.dce_url! : null);
+  // 1. Lien profond vers la consultation sur la plateforme.
+  const deepUrl = (isDeep(t.source_url) ? t.source_url : null) || (isDeep(t.dce_url) ? t.dce_url : null);
+  const dceUrl = isDeep(t.dce_url) ? t.dce_url : null;
 
-  const listingUrl = fallbackListing && !isPublisherUrl(fallbackListing) ? fallbackListing : null;
+  // 2. Listing enrichi (page de la plateforme listant la consultation).
+  const listingUrl = isDeep(fallbackListing) ? fallbackListing : null;
 
-  // Dernier recours : ne jamais rendre zéro lien si une URL existe en base.
-  // L'avis éditeur (BOAMP/TED) reste consultable même s'il ne permet pas de
-  // retirer le DCE directement.
+  // 3. Avis éditeur (BOAMP/TED) — toujours spécifique à l'avis.
   const publisherUrl =
     (isPublisherUrl(t.source_url) ? t.source_url! : null) ||
     (isPublisherUrl(t.dce_url) ? t.dce_url! : null) ||
     (fallbackListing && isPublisherUrl(fallbackListing) ? fallbackListing : null);
 
-  const officialUrl = primaryUrl || listingUrl || publisherUrl;
-  const isFallbackOnly = !primaryUrl && !!listingUrl;
-  const isPublisherFallback = !primaryUrl && !listingUrl && !!publisherUrl;
+  // Entrée générique de plateforme : utile pour une recherche manuelle par référence.
+  const platformUrl =
+    [t.dce_url, t.source_url, fallbackListing].find((u) => u && !isPublisherUrl(u) && isGenericLink(u)) ?? null;
 
-  const officialLabel = primaryUrl
+  const officialUrl = deepUrl || listingUrl || publisherUrl;
+  const isFallbackOnly = !deepUrl && !!listingUrl;
+  const isPublisherFallback = !deepUrl && !listingUrl && !!publisherUrl;
+
+  const officialLabel = deepUrl
     ? "Voir l'avis original"
-    : isPublisherFallback
-      ? "Voir l'avis publié (BOAMP / TED)"
-      : "Voir sur la plateforme acheteur";
+    : isFallbackOnly
+      ? "Voir sur la plateforme acheteur"
+      : isPublisherFallback
+        ? /ted\.europa\.eu/i.test(publisherUrl!)
+          ? "Voir l'avis original (TED)"
+          : "Voir l'avis original (BOAMP)"
+        : "Voir l'avis original";
 
-  return { officialUrl, officialLabel, isFallbackOnly, isPublisherFallback, dceUrl };
+  return { officialUrl, officialLabel, isFallbackOnly, isPublisherFallback, dceUrl, platformUrl };
 }

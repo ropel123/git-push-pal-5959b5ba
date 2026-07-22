@@ -24,6 +24,18 @@ export interface BoampParsed {
 const KNOWN_PLATFORM_RE =
   /(marches-publics|marches-securises|achatpublic|atexo|dematis|e-marchespublics|megalis|xmarches|synapse-entreprises|maximilien|aws-achat|klekoon|safetender|ternum|local-trust|bravosolution|ivalua|aji-france|centraledesmarches|medialex|marchesonline|eu-supply|adullact|demat)/i;
 
+// Lien « profond » : pointe vers UNE consultation précise (identifiant en
+// paramètre, jeton de page de détail, ou identifiant numérique dans le chemin)
+// — par opposition à la racine/accueil de la plateforme que les acheteurs
+// renseignent le plus souvent dans le champ « profil d'acheteur ».
+const DEEP_URL_RE =
+  /(fichecsl|consultation|detail|aoo[_-]|[?&][^\s"&=]{0,40}(id|ref|cons|code)[^\s"&=]{0,40}=|\/\d{5,})/i;
+
+/** true si l'URL pointe vers une consultation précise (et non un accueil). */
+export function isDeepPlatformUrl(u: string): boolean {
+  return DEEP_URL_RE.test(u);
+}
+
 /** Ajoute https:// à une URL sans schéma (ex. "www.plateforme.fr"). */
 function ensureScheme(u: string): string {
   return /^https?:\/\//i.test(u) ? u : `https://${u}`;
@@ -148,17 +160,26 @@ export function parseBoampDonnees(raw: unknown): BoampParsed {
   }
 
   // === URL de retrait DCE (profil acheteur) ===
-  // On rassemble tous les candidats d'URL (eForms + national) et on retient la
-  // première qui pointe vers une plateforme de dématérialisation connue — ce qui
-  // exclut le site propre de l'acheteur (ex. mairie.fr) présent en EndpointID.
-  const urlCandidates = collect(root, [
+  // On rassemble tous les candidats d'URL : champs structurés (eForms +
+  // national) PUIS toute URL présente ailleurs dans l'avis (champs non mappés,
+  // texte de description — la page exacte de la consultation s'y trouve
+  // parfois). On ne retient que les plateformes de dématérialisation connues,
+  // ce qui exclut le site propre de l'acheteur (ex. mairie.fr).
+  const fieldCandidates = collect(root, [
     "buyerprofileuri", "urlprofilacheteur", "url_profil_acheteur",
     "websiteuri", "accessurl", "uri", "url",
   ])
     .map((v) => asStr(v))
     .filter((s): s is string => !!s && /^(https?:\/\/|www\.)/i.test(s))
     .map(ensureScheme);
-  out.dce_url = urlCandidates.find((u) => KNOWN_PLATFORM_RE.test(u));
+  const textCandidates = (JSON.stringify(root).match(/https?:\/\/[^"\\\s]+/g) ?? [])
+    .map((u) => u.replace(/[.,;)»]+$/, ""));
+  const platformUrls = [...new Set([...fieldCandidates, ...textCandidates])]
+    .filter((u) => KNOWN_PLATFORM_RE.test(u));
+  // Priorité au lien profond (consultation précise) sur la racine générique :
+  // avant, on prenait le premier candidat venu — souvent l'accueil de la
+  // plateforme — en jetant le lien exact quand l'avis le contenait.
+  out.dce_url = platformUrls.find(isDeepPlatformUrl) ?? platformUrls[0];
 
   // === Buyer address ===
   // national: organisme.adr.{voie.nomvoie, cp, ville}
