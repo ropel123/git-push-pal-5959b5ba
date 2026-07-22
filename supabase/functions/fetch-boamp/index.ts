@@ -219,17 +219,28 @@ Deno.serve(async (req) => {
     ? new Date(Date.now() - untilDays * 86400000).toISOString().slice(0, 10)
     : undefined;
 
+  // Relais : le worker a un budget CPU par requête — mesuré, il meurt en
+  // 546 WORKER_RESOURCE_LIMIT après ~18 s de parse intensif, quel que soit le
+  // découpage en pages. On traite donc un petit lot de pages par invocation,
+  // puis la fonction SE RÉINVOQUE (start_page suivant) : chaque relais repart
+  // avec un budget neuf, et une fenêtre de 30 jours se traite en ~45 relais
+  // sans jamais approcher la limite.
+  const startPage = Number(url.searchParams.get("start_page") ?? "0");
+  const hops = Number(url.searchParams.get("hops") ?? "0");
+  const CHUNK_PAGES = 6;
+  const MAX_HOPS = 90;
+
   const startedAt = new Date().toISOString();
-  // Budget-temps : arrêt propre avant la limite du runtime, résultat partiel.
-  // Idempotent — l'exécution suivante (cron) reprend les mêmes journées.
   const deadline = Date.now() + 110_000;
   let fetched = 0, inserted = 0, errors = 0;
   let totalCount = 0;
   let awardsInserted = 0;
+  let nextPage: number | null = null;
 
   try {
-    for (let page = 0; page < maxPages; page++) {
-      if (Date.now() > deadline) { console.warn(`fetch-boamp: budget temps atteint, arrêt avant page ${page}`); break; }
+    for (let page = startPage; page < maxPages; page++) {
+      if (page >= startPage + CHUNK_PAGES) { nextPage = page; break; }
+      if (Date.now() > deadline) { nextPage = page; break; }
       // Plafond Opendatasoft : offset+limit <= 10 000. Au-delà, cibler une
       // tranche plus ancienne via ?days=&until_days=.
       if ((page + 1) * limit > 10000) { console.warn("fetch-boamp: plafond offset API (10 000) atteint"); break; }
@@ -331,14 +342,30 @@ Deno.serve(async (req) => {
           }
         }
       }
-      if (offset + limit >= totalCount) break;
+      if (offset + limit >= totalCount) { nextPage = null; break; }
     }
   } catch (e) {
     errors++;
     console.error("fetch-boamp error", e);
   }
 
-  return new Response(JSON.stringify({ since, until: until ?? null, fetched, inserted, awardsInserted, errors, total_count: totalCount, startedAt }), {
+  // Passage de relais : réinvocation fire-and-forget avec la page suivante.
+  if (nextPage != null && hops < MAX_HOPS && errors === 0) {
+    const next = new URL(req.url);
+    next.searchParams.set("start_page", String(nextPage));
+    next.searchParams.set("hops", String(hops + 1));
+    const kick = fetch(next.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).catch((e) => console.error("fetch-boamp: échec du relais", e));
+    const er = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    if (er?.waitUntil) er.waitUntil(kick);
+  }
+
+  return new Response(JSON.stringify({
+    since, until: until ?? null, startPage, nextPage, hops,
+    fetched, inserted, awardsInserted, errors, total_count: totalCount, startedAt,
+  }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
