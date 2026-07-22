@@ -349,17 +349,16 @@ Deno.serve(async (req) => {
     console.error("fetch-boamp error", e);
   }
 
-  // Passage de relais : réinvocation fire-and-forget avec la page suivante.
+  // Passage de relais VIA LA BASE (rpc → pg_net) : un fetch sortant direct
+  // est tué par le runtime dès que la réponse est rendue (vérifié en logs :
+  // aucun hop suivant n'arrivait) — pg_net envoie la requête suivante depuis
+  // Postgres, indépendamment du cycle de vie du worker.
   if (nextPage != null && hops < MAX_HOPS && errors === 0) {
     const next = new URL(req.url);
     next.searchParams.set("start_page", String(nextPage));
     next.searchParams.set("hops", String(hops + 1));
-    const kick = fetch(next.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }).catch((e) => console.error("fetch-boamp: échec du relais", e));
-    const er = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
-    if (er?.waitUntil) er.waitUntil(kick);
+    const { error: relayErr } = await supabase.rpc("relay_fetch_boamp", { next_url: next.toString() });
+    if (relayErr) console.error("fetch-boamp: échec du relais", relayErr);
   }
 
   return new Response(JSON.stringify({
