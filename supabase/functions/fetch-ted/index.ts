@@ -243,10 +243,21 @@ Deno.serve(async (req) => {
         })
         .filter((x): x is { ref: string; tinfo: { id: string; buyer_name: string | null }; xmlLink: string } => x !== null);
 
+      // Incrémental : sauter les avis dont l'attribution est déjà en base.
+      // Sans ça, chaque run re-téléchargeait les XML des mêmes premières pages
+      // et le budget-temps expirait avant d'atteindre la fin de la fenêtre —
+      // mesuré : ~50 % des attributions TED de la semaine jamais traitées.
+      const { data: existingAwards } = await supabase.from("award_notices")
+        .select("reference")
+        .eq("source", SOURCE)
+        .in("reference", resolvable.map((r) => r.ref));
+      const alreadyDone = new Set((existingAwards ?? []).map((a) => a.reference as string));
+      const todo = resolvable.filter((r) => !alreadyDone.has(r.ref));
+
       const XML_CONCURRENCY = 8;
-      for (let i = 0; i < resolvable.length; i += XML_CONCURRENCY) {
+      for (let i = 0; i < todo.length; i += XML_CONCURRENCY) {
         if (Date.now() > deadline) break;
-        const chunk = resolvable.slice(i, i + XML_CONCURRENCY);
+        const chunk = todo.slice(i, i + XML_CONCURRENCY);
         const parsedChunk = await Promise.all(chunk.map((c) => fetchNoticeXml(c.xmlLink)));
         for (let j = 0; j < chunk.length; j++) {
           const parsed = parsedChunk[j];
