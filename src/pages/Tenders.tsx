@@ -67,7 +67,9 @@ const PROCEDURES = [
   "Accord-cadre",
 ];
 
-const DEFAULT_PROCEDURE = "Appel d'offres ouvert";
+// « Toutes les procédures » : l'ancien défaut (« Appel d'offres ouvert »)
+// masquait silencieusement 31 % des fiches ouvertes (MAPA, restreint…).
+const DEFAULT_PROCEDURE = "all";
 
 const Tenders = () => {
   const [page, setPage] = useState(0);

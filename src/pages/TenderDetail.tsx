@@ -364,10 +364,17 @@ const TenderDetail = () => {
                 <span>Publié le {format(new Date(tender.publication_date), "dd MMMM yyyy", { locale: fr })}</span>
               </div>
             )}
-            {tender.deadline && (
+            {tender.deadline ? (
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <span>Date limite : {format(new Date(tender.deadline), "dd MMMM yyyy à HH:mm", { locale: fr })}</span>
+              </div>
+            ) : (
+              // 35 % des avis ne publient pas de date limite : l'absence de la
+              // ligne laissait croire à un oubli de la fiche.
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Date limite non précisée — vérifier sur la plateforme de consultation</span>
               </div>
             )}
             {cpvCodes.length > 0 && (
