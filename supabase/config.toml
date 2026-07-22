@@ -64,6 +64,11 @@ verify_jwt = false
 [functions.upsert-tenders]
 verify_jwt = false
 
+# Invoquée par cron ; idempotente (last_sent_at + intervalle minimal par
+# fréquence), donc inoffensive même appelée à répétition de l'extérieur.
+[functions.send-alerts]
+verify_jwt = false
+
 # NOTE : ne déclarer ici QUE des fonctions dont le dossier existe dans
 # supabase/functions/ — la CLI tente de déployer chaque entrée déclarée et
 # échoue (« entrypoint path does not exist ») sur une entrée sans source,
