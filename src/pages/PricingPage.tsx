@@ -16,9 +16,9 @@ import {
   PRICING_FOOTNOTE,
   type Plan,
 } from "@/lib/pricing";
-import GastonLogo from "@/components/brand/GastonLogo";
+import HackaoLogo from "@/components/brand/HackaoLogo";
 
-const CONTACT_EMAIL = "contact@gaston.app";
+const CONTACT_EMAIL = "contact@hackao.fr";
 
 const PricingPage = () => {
   const { user } = useAuth();
@@ -80,7 +80,7 @@ const PricingPage = () => {
       <header className="border-b border-border bg-card/50 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
-            <GastonLogo size={24} />
+            <HackaoLogo className="h-7" />
           </Link>
           <Button variant="ghost" size="sm" asChild>
             <Link to={user ? "/dashboard" : "/"}>
@@ -94,7 +94,7 @@ const PricingPage = () => {
       <main className="max-w-6xl mx-auto px-4 py-12 space-y-10">
         <section className="text-center space-y-3">
           <Badge variant="outline" className="border-primary/40 text-primary">
-            <Sparkles className="h-3 w-3 mr-1" /> Tarifs Gaston
+            <Sparkles className="h-3 w-3 mr-1" /> Tarifs HackAO
           </Badge>
           <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
             Surveillez, rédigez ou déléguez

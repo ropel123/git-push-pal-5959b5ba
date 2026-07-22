@@ -43,7 +43,7 @@ import {
   UserCog,
 } from "lucide-react";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import GastonLogo from "@/components/brand/GastonLogo";
+import HackaoLogo from "@/components/brand/HackaoLogo";
 
 type Leaf = { title: string; to: string; icon: React.ComponentType<{ className?: string }> };
 type Group = { title: string; icon: React.ComponentType<{ className?: string }>; children: Leaf[] };
@@ -145,7 +145,7 @@ const AppSidebar = () => {
           onClick={() => (collapsed ? toggleSidebar() : navigate("/dashboard"))}
           title={collapsed ? "Déplier" : "Accueil"}
         >
-          <GastonLogo variant={collapsed ? "symbol" : "full"} size={26} />
+          <HackaoLogo variant={collapsed ? "symbol" : "full"} size={26} />
         </div>
       </SidebarHeader>
 

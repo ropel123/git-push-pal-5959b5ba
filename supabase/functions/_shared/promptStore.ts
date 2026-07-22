@@ -33,7 +33,7 @@ export function buildProvider(name: string, model: string): ResolvedProvider | n
       key,
       model,
       name: "openrouter",
-      extraHeaders: { "HTTP-Referer": "https://gaston.app", "X-Title": "Gaston" },
+      extraHeaders: { "HTTP-Referer": "https://hackao.fr", "X-Title": "HackAO" },
     };
   }
   return null;
