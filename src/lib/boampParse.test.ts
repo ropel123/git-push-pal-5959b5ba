@@ -62,6 +62,30 @@ describe("parseBoampDonnees — extraction dce_url", () => {
     const donnees = JSON.stringify({ urlprofilacheteur: "https://www.maximilien.fr/" });
     expect(parseBoampDonnees(donnees).dce_url).toBe("https://www.maximilien.fr/");
   });
+
+  it("décode les entités HTML (« &amp; ») qui cassaient les URLs au clic", () => {
+    // Cas réel : 23 % des dce_url contenaient « &amp; » littéral — le paramètre
+    // devenait « amp;type= » et la plateforme ne trouvait pas la consultation.
+    const donnees = JSON.stringify({
+      urlprofilacheteur:
+        "https://www.marches-publics.info/index.cfm?fuseaction=dematEnt.login&amp;type=DCE&amp;IDM=123456",
+      resume_objet: "Fourniture &amp; pose de menuiseries &#39;bois&#39;",
+    });
+    const p = parseBoampDonnees(donnees);
+    expect(p.dce_url).toBe(
+      "https://www.marches-publics.info/index.cfm?fuseaction=dematEnt.login&type=DCE&IDM=123456",
+    );
+    expect(p.description).toBe("Fourniture & pose de menuiseries 'bois'");
+  });
+
+  it("décode aussi le double-encodage (&amp;amp;)", () => {
+    const donnees = JSON.stringify({
+      accessurl: "https://www.achatpublic.com/sdm/ent2/gen/fichecsl.action?Pcslid=Csl_1&amp;amp;orgAcronyme=x",
+    });
+    expect(parseBoampDonnees(donnees).dce_url).toBe(
+      "https://www.achatpublic.com/sdm/ent2/gen/fichecsl.action?Pcslid=Csl_1&orgAcronyme=x",
+    );
+  });
 });
 
 describe("parseBoampDonnees — contact/adresse/NUTS scopés sur l'acheteur", () => {

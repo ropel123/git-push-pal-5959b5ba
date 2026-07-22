@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { parseBoampDonnees, parseBoampAward, type BoampAward } from "../_shared/boampParse.ts";
+import { parseBoampDonnees, parseBoampAward, decodeHtmlEntities, type BoampAward } from "../_shared/boampParse.ts";
 import { deptToRegion, detectContractType } from "../_shared/normalize.ts";
 
 const BOAMP_API = "https://www.boamp.fr/api/explore/v2.1/catalog/datasets/boamp/records";
@@ -36,6 +36,11 @@ function toDateOnly(v: unknown): string | null {
 function joinArr(v: unknown): string | null {
   if (v == null) return null;
   return Array.isArray(v) ? v.join(", ") : String(v);
+}
+// Entités HTML (« &amp; ») présentes aussi dans les champs de premier niveau
+// de l'API BOAMP (objet, nomacheteur), pas seulement dans `donnees`.
+function dec(s: string | null): string | null {
+  return s == null ? null : decodeHtmlEntities(s);
 }
 
 function isCancellation(r: BoampRecord): boolean {
@@ -74,7 +79,7 @@ function mapRecord(r: BoampRecord) {
   const natureStr = joinArr(r.type_marche) ?? r.nature_libelle ?? null;
   const contractType = detectContractType(natureStr ? String(natureStr) : null);
 
-  const title = (r.objet ? String(r.objet) : parsed.description ?? "Sans titre").slice(0, 500);
+  const title = decodeHtmlEntities(r.objet ? String(r.objet) : parsed.description ?? "Sans titre").slice(0, 500);
 
   const cancelled = isCancellation(r);
   const awarded = !cancelled && isAttribution(r);
@@ -87,9 +92,9 @@ function mapRecord(r: BoampRecord) {
     reference: ref,
     source: SOURCE,
     title,
-    object: r.objet ? String(r.objet) : parsed.description ?? null,
-    description: parsed.description ?? joinArr(r.descripteur_libelle),
-    buyer_name: r.nomacheteur ? String(r.nomacheteur) : parsed.buyer_contact?.nom ?? null,
+    object: r.objet ? decodeHtmlEntities(String(r.objet)) : parsed.description ?? null,
+    description: parsed.description ?? dec(joinArr(r.descripteur_libelle)),
+    buyer_name: r.nomacheteur ? decodeHtmlEntities(String(r.nomacheteur)) : parsed.buyer_contact?.nom ?? null,
     buyer_address: parsed.buyer_address ?? null,
     buyer_contact: parsed.buyer_contact ?? null,
     deadline: deadlineISO,

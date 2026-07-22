@@ -48,9 +48,27 @@ function ensureScheme(u: string): string {
   return /^https?:\/\//i.test(u) ? u : `https://${u}`;
 }
 
+// Le pipeline XML→JSON de BOAMP laisse des entités HTML littérales dans les
+// textes et surtout dans les URLs (« &amp; » au lieu de « & ») : ~23 % des
+// dce_url étaient inutilisables au clic (le paramètre devenait « amp;type= »).
+// Idempotent, double-encodage (&amp;amp;) inclus.
+export function decodeHtmlEntities(s: string): string {
+  let out = s;
+  for (let i = 0; i < 3 && out.includes("&amp;"); i++) out = out.split("&amp;").join("&");
+  return out
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (m, n) => {
+      const c = Number(n);
+      return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : m;
+    });
+}
+
 function asStr(v: unknown): string | undefined {
   if (v == null) return undefined;
-  if (typeof v === "string") return v.trim() || undefined;
+  if (typeof v === "string") return decodeHtmlEntities(v.trim()) || undefined;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   if (typeof v === "object" && v && "#text" in (v as any)) {
     return asStr((v as any)["#text"]);
@@ -227,7 +245,7 @@ export function parseBoampDonnees(raw: unknown, buyerNameHint?: string): BoampPa
     .filter((s): s is string => !!s && /^(https?:\/\/|www\.)/i.test(s))
     .map(ensureScheme);
   const textCandidates = (JSON.stringify(root).match(/https?:\/\/[^"\\\s]+/g) ?? [])
-    .map((u) => u.replace(/[.,;)»]+$/, ""));
+    .map((u) => decodeHtmlEntities(u).replace(/[.,;)»]+$/, ""));
   const platformUrls = [...new Set([...fieldCandidates, ...textCandidates])]
     .filter((u) => KNOWN_PLATFORM_RE.test(u));
   // Priorité au lien profond (consultation précise) sur la racine générique :
