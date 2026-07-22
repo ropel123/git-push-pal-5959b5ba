@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
@@ -5,30 +6,38 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
+// Landing chargée en dur : première peinture immédiate pour les visiteurs.
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
-import Auth from "./pages/Auth";
 import AppLayout from "./components/AppLayout";
-import Dashboard from "./pages/Dashboard";
-import Tenders from "./pages/Tenders";
-import TenderDetail from "./pages/TenderDetail";
-import Pipeline from "./pages/Pipeline";
-import Awards from "./pages/Awards";
-import SettingsPage from "./pages/SettingsPage";
-import Onboarding from "./pages/Onboarding";
-import BuyerDetail from "./pages/BuyerDetail";
-import Activity from "./pages/Activity";
-import TrackedTenders from "./pages/TrackedTenders";
-import AlertsPage from "./pages/AlertsPage";
-import DcePage from "./pages/DcePage";
-import ArchivedTenders from "./pages/ArchivedTenders";
-import MemoirsPage from "./pages/MemoirsPage";
-import PricingPage from "./pages/PricingPage";
-import GroupsPage from "./pages/GroupsPage";
-import UsersPage from "./pages/UsersPage";
-import Sourcing from "./pages/Sourcing";
-import SourcingHostDetail from "./pages/SourcingHostDetail";
-import AdminPromptsPage from "./pages/AdminPromptsPage";
+
+// Code-splitting : chaque page applicative devient son propre chunk — un
+// visiteur de la landing ne télécharge plus l'app entière (jspdf, pptxgenjs…).
+const Auth = lazy(() => import("./pages/Auth"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Tenders = lazy(() => import("./pages/Tenders"));
+const TenderDetail = lazy(() => import("./pages/TenderDetail"));
+const Pipeline = lazy(() => import("./pages/Pipeline"));
+const Awards = lazy(() => import("./pages/Awards"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const BuyerDetail = lazy(() => import("./pages/BuyerDetail"));
+const Activity = lazy(() => import("./pages/Activity"));
+const TrackedTenders = lazy(() => import("./pages/TrackedTenders"));
+const AlertsPage = lazy(() => import("./pages/AlertsPage"));
+const DcePage = lazy(() => import("./pages/DcePage"));
+const ArchivedTenders = lazy(() => import("./pages/ArchivedTenders"));
+const MemoirsPage = lazy(() => import("./pages/MemoirsPage"));
+const PricingPage = lazy(() => import("./pages/PricingPage"));
+const GroupsPage = lazy(() => import("./pages/GroupsPage"));
+const UsersPage = lazy(() => import("./pages/UsersPage"));
+const Sourcing = lazy(() => import("./pages/Sourcing"));
+const SourcingHostDetail = lazy(() => import("./pages/SourcingHostDetail"));
+const AdminPromptsPage = lazy(() => import("./pages/AdminPromptsPage"));
+
+const PageFallback = () => (
+  <div className="flex min-h-screen items-center justify-center text-muted-foreground">Chargement…</div>
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +58,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
+            <Suspense fallback={<PageFallback />}>
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
@@ -76,6 +86,7 @@ const App = () => (
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>

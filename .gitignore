@@ -26,3 +26,6 @@ bun.lockb
 *.njsproj
 *.sln
 *.sw?
+
+# Env local (les variables de prod vivent dans Vercel)
+.env

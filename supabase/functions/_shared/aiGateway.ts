@@ -62,8 +62,8 @@ async function callOpenRouter(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://hackify.app",
-        "X-Title": "Hackify",
+        "HTTP-Referer": "https://hackao.fr",
+        "X-Title": "HackAO",
       },
       body: JSON.stringify({
         model,

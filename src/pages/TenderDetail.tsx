@@ -15,6 +15,8 @@ import TenderAnalysisSection from "@/components/TenderAnalysisSection";
 import BuyerFollowButton from "@/components/BuyerFollowButton";
 import { computeScore, getScoreColor, getScoreLabel, hasScorableProfile } from "@/lib/scoring";
 import { statusLabel, statusColor } from "@/lib/tenderStatus";
+import { resolveTenderUrls } from "@/lib/urlDisplay";
+import Linkify from "@/components/Linkify";
 import { useTender, useTenderAwards } from "@/hooks/queries/useTenders";
 import { useProfile } from "@/hooks/queries/useProfile";
 import { AwardDetailDialog, type AwardDetail } from "@/components/awards/AwardDetailDialog";
@@ -154,43 +156,9 @@ const TenderDetail = () => {
     return true;
   };
 
-  // Une URL est "générique" si elle pointe vers une page de listing/résultats
-  // sans identifiant de consultation exploitable.
-  const isGenericLink = (u?: string | null): boolean => {
-    if (!u) return true;
-    // affPublication SANS identifiant de consultation = listing MPI générique.
-    // Un identifiant valide = refPub/refCons/refConsultation… ou IDS=/IDM=.
-    if (/fuseaction=pub\.affPublication/i.test(u) && !/[?&](ref(Pub|Cons|Consult)\w*|IDS|IDM)=/i.test(u)) return true;
-    return /(fuseaction=pub\.affResultats|EntrepriseAdvancedSearch|[?&]AllCons\b|page=recherche|fuseaction=marchesP\.rechM(?![^#]*[?&]IDS=\d))/i.test(u);
-  };
-  // BOAMP et TED ont été retirés de la stratégie data : on garde la garde par
-  // sécurité au cas où d'anciennes données referaient surface, mais aucun nouveau
-  // tender ne devrait plus matcher ce filtre.
-  const isPublisherUrl = (u?: string | null): boolean => {
-    if (!u) return false;
-    return /(boamp\.fr|ted\.europa\.eu)/i.test(u);
-  };
-
-  // Bouton DCE : uniquement si l'URL pointe vers une vraie plateforme de retrait.
-  const dceUrl = tender.dce_url && !isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url)
-    ? tender.dce_url
-    : null;
-
-  // Bouton "Voir l'avis original" : tolérant — on prend la 1ʳᵉ URL utile disponible.
-  // Cascade : source_url → dce_url → enriched_data.listing_url → enriched_data.raw._source_url
-  const enriched = (tender as any).enriched_data ?? {};
-  const fallbackListing: string | null =
-    (typeof enriched.listing_url === "string" && enriched.listing_url) ||
-    (enriched.raw && typeof enriched.raw._source_url === "string" && enriched.raw._source_url) ||
-    null;
-
-  const primaryUrl =
-    (!isGenericLink(tender.source_url) && !isPublisherUrl(tender.source_url) ? tender.source_url : null) ||
-    (!isGenericLink(tender.dce_url) && !isPublisherUrl(tender.dce_url) ? tender.dce_url : null);
-
-  const officialUrl = primaryUrl || (fallbackListing && !isPublisherUrl(fallbackListing) ? fallbackListing : null);
-  const officialLabel = primaryUrl ? "Voir l'avis original" : "Voir sur la plateforme acheteur";
-  const isFallbackOnly = !primaryUrl && !!officialUrl;
+  // Résolution des liens affichables — logique partagée et testée
+  // (src/lib/urlDisplay.ts). Ne rend jamais zéro lien si une URL existe.
+  const { officialUrl, officialLabel, isFallbackOnly, dceUrl } = resolveTenderUrls(tender);
 
 
   return (
@@ -265,7 +233,7 @@ const TenderDetail = () => {
             <CardTitle className="text-sm text-muted-foreground">Description du marché</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-foreground whitespace-pre-line">{tender.description}</p>
+            <p className="text-sm text-foreground whitespace-pre-line"><Linkify text={tender.description} /></p>
           </CardContent>
         </Card>
       ) : isFallbackOnly && officialUrl ? (
@@ -415,7 +383,7 @@ const TenderDetail = () => {
             <CardTitle className="text-sm text-muted-foreground">Critères d'attribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-foreground whitespace-pre-line">{tender.award_criteria}</p>
+            <p className="text-sm text-foreground whitespace-pre-line"><Linkify text={tender.award_criteria ?? ""} /></p>
           </CardContent>
         </Card>
       )}
@@ -427,7 +395,7 @@ const TenderDetail = () => {
             <CardTitle className="text-sm text-muted-foreground">Conditions de participation</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-foreground whitespace-pre-line">{tender.participation_conditions}</p>
+            <p className="text-sm text-foreground whitespace-pre-line"><Linkify text={tender.participation_conditions ?? ""} /></p>
           </CardContent>
         </Card>
       )}
@@ -462,7 +430,7 @@ const TenderDetail = () => {
             <CardTitle className="text-sm text-muted-foreground">Informations complémentaires</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-foreground whitespace-pre-line">{tender.additional_info}</p>
+            <p className="text-sm text-foreground whitespace-pre-line"><Linkify text={tender.additional_info} /></p>
           </CardContent>
         </Card>
       )}

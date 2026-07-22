@@ -25,7 +25,10 @@ import {
   FileText,
   Sparkles,
   CheckCircle2,
+  ExternalLink,
+  AlertTriangle,
 } from "lucide-react";
+import { resolveTenderUrls } from "@/lib/urlDisplay";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -149,7 +152,11 @@ const Tenders = () => {
     enabled: profileLoaded && (!dceReadyFilter || !dceReadyQuery.isLoading),
   });
 
-  const loading = tendersQuery.isLoading || tendersQuery.isFetching;
+  // isLoading seul pour le plein écran : la query utilise keepPreviousData,
+  // un refetch (changement de filtre) garde la liste affichée, estompée.
+  const loading = tendersQuery.isLoading;
+  const refreshing = tendersQuery.isFetching && !tendersQuery.isLoading;
+  const loadError = tendersQuery.isError;
   const totalCount = tendersQuery.data?.count ?? 0;
   const scorable = !!(profile && hasScorableProfile(profile));
   // Score calculé UNE fois par AO (réutilisé pour le tri ET l'affichage du badge),
@@ -228,7 +235,7 @@ const Tenders = () => {
   };
 
   const exportCSV = () => {
-    const headers = ["Titre", "Acheteur", "Montant estimé", "Région", "Date limite", "Statut"];
+    const headers = ["Titre", "Acheteur", "Montant estimé", "Région", "Date limite", "Statut", "Lien"];
     const rows = tenders.map((t) => [
       `"${(t.title ?? "").replace(/"/g, '""')}"`,
       `"${(t.buyer_name ?? "").replace(/"/g, '""')}"`,
@@ -236,6 +243,7 @@ const Tenders = () => {
       t.region ?? "",
       t.deadline ? format(new Date(t.deadline), "dd/MM/yyyy") : "",
       t.status ?? "",
+      resolveTenderUrls(t).officialUrl ?? "",
     ]);
     const csv = [headers.join(";"), ...rows.map((r) => r.join(";"))].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -433,6 +441,17 @@ const Tenders = () => {
 
           {loading ? (
             <div className="text-center py-12 text-muted-foreground">Chargement...</div>
+          ) : loadError ? (
+            <Card className="bg-card border-destructive/40">
+              <CardContent className="py-12 text-center text-muted-foreground">
+                <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-destructive/60" />
+                <p className="text-lg font-medium text-foreground">Impossible de charger les appels d'offres</p>
+                <p className="text-sm mt-1">Vérifiez votre connexion puis réessayez.</p>
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => tendersQuery.refetch()}>
+                  Réessayer
+                </Button>
+              </CardContent>
+            </Card>
           ) : tenders.length === 0 ? (
             <Card className="bg-card border-border">
               <CardContent className="py-12 text-center text-muted-foreground">
@@ -442,7 +461,7 @@ const Tenders = () => {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
+            <div className={`space-y-3 transition-opacity ${refreshing ? "opacity-60" : ""}`}>
               {tenders.map((tender) => {
                 const score = tender._score;
                 return (
@@ -483,9 +502,21 @@ const Tenders = () => {
                             {tender.deadline && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {format(new Date(tender.deadline), "dd MMM yyyy", { locale: fr })}</span>}
                           </div>
                         </div>
-                        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }} className="shrink-0 self-start">
-                          <Plus className="h-4 w-4 mr-1" /> Pipeline
-                        </Button>
+                        <div className="flex gap-2 shrink-0 self-start">
+                          {(() => {
+                            const { officialUrl, officialLabel } = resolveTenderUrls(tender);
+                            return officialUrl ? (
+                              <Button asChild variant="ghost" size="sm" onClick={(e) => e.stopPropagation()}>
+                                <a href={officialUrl} target="_blank" rel="noopener noreferrer" aria-label={officialLabel} title={officialLabel}>
+                                  <ExternalLink className="h-4 w-4" />
+                                </a>
+                              </Button>
+                            ) : null;
+                          })()}
+                          <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); addToPipeline(tender.id); }}>
+                            <Plus className="h-4 w-4 mr-1" /> Pipeline
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
