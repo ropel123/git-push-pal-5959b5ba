@@ -129,11 +129,15 @@ export function useTenders(filters: TendersFilters = {}) {
         }
       }
 
-      const term = sanitize(search);
+      // Recherche plein-texte française (index GIN `search_vector`, config
+      // fr_unaccent) : multi-mots = ET implicite, pluriels et accents tolérés
+      // ("travaux ecole" trouve « Travaux de l'école »), "guillemets" pour une
+      // expression exacte, OR et -mot supportés (syntaxe websearch). L'ancien
+      // ILIKE exigeait la phrase entière en un seul morceau : 2 résultats là
+      // où le plein-texte en trouve 293.
+      const term = search.trim();
       if (term) {
-        query = query.or(
-          `title.ilike.%${term}%,buyer_name.ilike.%${term}%,object.ilike.%${term}%`,
-        );
+        query = query.textSearch("search_vector", term, { type: "websearch", config: "public.fr_unaccent" });
       }
       if (region && region !== "all") query = query.eq("region", region);
       if (status && status !== ("all" as TenderStatus)) {
