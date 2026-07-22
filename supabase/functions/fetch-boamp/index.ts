@@ -167,7 +167,7 @@ function buildAwardRows(
 }
 
 
-async function fetchPage(offset: number, limit: number, sinceISODate: string) {
+async function fetchPage(offset: number, limit: number, sinceISODate: string, untilISODate?: string) {
   // On élargit le `select` : champs basiques + `donnees` (XML/JSON riche)
   // + métadonnées utiles (famille, type_marche). En cas de rejet d'un champ
   // par l'API on log et on retombe sur le minimum requis.
@@ -178,11 +178,16 @@ async function fetchPage(offset: number, limit: number, sinceISODate: string) {
     "type_marche", "famille", "donnees",
   ].join(",");
 
+  // `until` optionnel : permet de cibler une tranche ancienne (rattrapage de
+  // trous) sans buter sur le plafond offset+limit <= 10 000 d'Opendatasoft.
+  const where = untilISODate
+    ? `dateparution >= date'${sinceISODate}' AND dateparution <= date'${untilISODate}'`
+    : `dateparution >= date'${sinceISODate}'`;
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
     order_by: "dateparution desc",
-    where: `dateparution >= date'${sinceISODate}'`,
+    where,
     select,
   });
   const url = `${BOAMP_API}?${params.toString()}`;
@@ -201,17 +206,33 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const days = Number(url.searchParams.get("days") ?? "30");
-  const maxPages = Number(url.searchParams.get("max_pages") ?? "50");
-  const limit = 100;
+  const untilDaysRaw = url.searchParams.get("until_days");
+  const untilDays = untilDaysRaw != null ? Number(untilDaysRaw) : null;
+  const maxPages = Number(url.searchParams.get("max_pages") ?? "400");
+  // Pages de 25 (et non 100) : chaque avis embarque un gros champ `donnees`
+  // (eForms XML→JSON, parfois >100 kB) — les lots de 100 saturaient la
+  // mémoire du worker (546 WORKER_RESOURCE_LIMIT) et laissaient des trous
+  // d'ingestion jamais rattrapés (mesuré : 1 455 avis manquants sur 30 j).
+  const limit = Number(url.searchParams.get("page_size") ?? "25");
   const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const until = untilDays != null
+    ? new Date(Date.now() - untilDays * 86400000).toISOString().slice(0, 10)
+    : undefined;
 
   const startedAt = new Date().toISOString();
+  // Budget-temps : arrêt propre avant la limite du runtime, résultat partiel.
+  // Idempotent — l'exécution suivante (cron) reprend les mêmes journées.
+  const deadline = Date.now() + 110_000;
   let fetched = 0, inserted = 0, errors = 0;
   let totalCount = 0;
   let awardsInserted = 0;
 
   try {
     for (let page = 0; page < maxPages; page++) {
+      if (Date.now() > deadline) { console.warn(`fetch-boamp: budget temps atteint, arrêt avant page ${page}`); break; }
+      // Plafond Opendatasoft : offset+limit <= 10 000. Au-delà, cibler une
+      // tranche plus ancienne via ?days=&until_days=.
+      if ((page + 1) * limit > 10000) { console.warn("fetch-boamp: plafond offset API (10 000) atteint"); break; }
       // Index ref → enregistrement brut, RÉINITIALISÉ à chaque page : avant, cette
       // Map était déclarée hors boucle et accumulait tous les enregistrements de
       // toutes les pages (chacun avec son gros champ `donnees`) → saturation
@@ -219,7 +240,7 @@ Deno.serve(async (req) => {
       // itération de page, donc le scope par page suffit.
       const rawByRef = new Map<string, BoampRecord>();
       const offset = page * limit;
-      const data = await fetchPage(offset, limit, since);
+      const data = await fetchPage(offset, limit, since, until);
       totalCount = data.total_count;
       const results = data.results ?? [];
       for (const r of results) {
@@ -317,7 +338,7 @@ Deno.serve(async (req) => {
     console.error("fetch-boamp error", e);
   }
 
-  return new Response(JSON.stringify({ since, fetched, inserted, awardsInserted, errors, total_count: totalCount, startedAt }), {
+  return new Response(JSON.stringify({ since, until: until ?? null, fetched, inserted, awardsInserted, errors, total_count: totalCount, startedAt }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
