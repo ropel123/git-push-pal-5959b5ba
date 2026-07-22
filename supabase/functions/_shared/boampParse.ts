@@ -36,6 +36,13 @@ export function isDeepPlatformUrl(u: string): boolean {
   return DEEP_URL_RE.test(u);
 }
 
+// Opérateurs de publication/dématérialisation : ils apparaissent comme
+// organisation dans les avis qu'ils publient (ex. AWS France, siège à
+// Seyssinet-Pariset). Leurs coordonnées ne doivent JAMAIS être présentées
+// comme celles de l'acheteur — mesuré : ~16 % des fiches contaminées.
+const OPERATOR_RE =
+  /(aws-france|avenue\s?web\s?syst|atexo|dematis|klekoon|achatpublic|e-marchespublics|marches-securises|maximilien|local-?trust|megalis|centraledesmarches|seyssinet[-\s]?pariset|francemarches|doubletrade|interbat)/i;
+
 /** Ajoute https:// à une URL sans schéma (ex. "www.plateforme.fr"). */
 function ensureScheme(u: string): string {
   return /^https?:\/\//i.test(u) ? u : `https://${u}`;
@@ -96,7 +103,12 @@ function uniq<T>(arr: T[]): T[] {
   return Array.from(new Set(arr.filter((x): x is T => x != null && x !== "")));
 }
 
-export function parseBoampDonnees(raw: unknown): BoampParsed {
+/**
+ * @param buyerNameHint Nom d'acheteur connu (champ `nomacheteur` du record
+ *   BOAMP de niveau supérieur) — fiabilise le choix de l'organisation
+ *   acheteuse quand l'avis en liste plusieurs.
+ */
+export function parseBoampDonnees(raw: unknown, buyerNameHint?: string): BoampParsed {
   let root: any = raw;
   if (typeof raw === "string") {
     try { root = JSON.parse(raw); } catch { return {}; }
@@ -143,16 +155,58 @@ export function parseBoampDonnees(raw: unknown): BoampParsed {
     firstStr(collect(root, ["objet"]));
 
   // === Contact acheteur ===
-  const email = firstStr(collect(root, ["electronicmail", "mel", "email"]));
-  const tel = firstStr(collect(root, ["telephone", "tel"]).filter((v) =>
+  // Un avis eForms contient PLUSIEURS organisations : l'acheteur, mais aussi
+  // l'opérateur de publication (ex. AWS France). Le collect() global prenait
+  // le premier nœud en ordre de document — parfois l'opérateur → contact,
+  // adresse et NUTS faux. On scope donc l'extraction au nœud de
+  // l'organisation acheteuse, avec garde anti-opérateur en repli.
+  const nom = firstStr(collect(root, ["acheteurpublic", "nomorganisme", "nomacheteur"])) ??
+    // repli sur les noms d'organisations, en écartant les opérateurs
+    firstStr(
+      collect(root, ["partyname"])
+        .map((v: any) => asStr(v?.["cbc:Name"] ?? v?.Name))
+        .filter((s): s is string => !!s && !OPERATOR_RE.test(s)),
+    );
+  const buyerNameForMatch = buyerNameHint || nom;
+
+  const normName = (s?: string) =>
+    (s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
+  const orgProbe = (o: unknown) =>
+    collect(o, ["partyname", "nomorganisme", "electronicmail", "mel", "cityname", "ville"])
+      .map((v: any) => asStr(v?.["cbc:Name"] ?? v))
+      .filter(Boolean)
+      .join(" ");
+  const orgName = (o: unknown) =>
+    firstStr(collect(o, ["partyname"]).map((v: any) => v?.["cbc:Name"] ?? v?.Name)) ??
+    firstStr(collect(o, ["nomorganisme", "acheteurpublic"]));
+  // Nœuds d'organisation « feuilles » (on écarte les conteneurs qui
+  // englobent plusieurs organisations).
+  const leafOrgs = collect(root, ["organization", "organisme"])
+    .flatMap((o) => (Array.isArray(o) ? o : [o]))
+    .filter((o): o is Record<string, unknown> => !!o && typeof o === "object" && !Array.isArray(o))
+    .filter((o) => collect(o, ["organization", "organisme"]).length === 0);
+  const buyerScope: unknown =
+    leafOrgs.find((o) => {
+      const n = orgName(o);
+      return !!n && !!buyerNameForMatch &&
+        (normName(n).includes(normName(buyerNameForMatch)) || normName(buyerNameForMatch).includes(normName(n)));
+    }) ??
+    leafOrgs.find((o) => !OPERATOR_RE.test(orgProbe(o))) ??
+    root;
+
+  const notOperator = (s?: string) => (s && !OPERATOR_RE.test(s) ? s : undefined);
+  const email =
+    firstStr(collect(buyerScope, ["electronicmail", "mel", "email"]).map((v) => notOperator(asStr(v)))) ??
+    firstStr(collect(root, ["electronicmail", "mel", "email"]).map((v) => notOperator(asStr(v))));
+  const tel = firstStr(collect(buyerScope, ["telephone", "tel"]).filter((v) =>
     typeof v === "string" || (v && typeof v === "object" && "#text" in (v as any))));
-  const url = firstStr(collect(root, ["websiteuri", "urlprofilacheteur", "url"]).filter((v) => {
+  const url = firstStr(collect(buyerScope, ["websiteuri", "urlprofilacheteur", "url"]).filter((v) => {
     const s = asStr(v); return s && /^https?:\/\//i.test(s);
   }));
-  const nom = firstStr(collect(root, ["acheteurpublic", "nomorganisme"])) ??
-    firstStr(collect(root, ["partyname"]).map((v: any) => v?.["cbc:Name"] ?? v?.Name));
-  const ville = firstStr(collect(root, ["cityname"])) ?? firstStr(collect(root, ["ville"]));
-  const pays = firstStr(collect(root, ["identificationcode"]).filter((v: any) => {
+  const ville =
+    firstStr(collect(buyerScope, ["cityname"]).map((v) => notOperator(asStr(v)))) ??
+    firstStr(collect(buyerScope, ["ville"]).map((v) => notOperator(asStr(v))));
+  const pays = firstStr(collect(buyerScope, ["identificationcode"]).filter((v: any) => {
     const s = asStr(v); return s && /^[A-Z]{2,3}$/.test(s);
   }));
   if (email || tel || url || nom || ville) {
@@ -182,8 +236,15 @@ export function parseBoampDonnees(raw: unknown): BoampParsed {
   out.dce_url = platformUrls.find(isDeepPlatformUrl) ?? platformUrls[0];
 
   // === Buyer address ===
+  // Scopée sur l'organisation acheteuse (repli : reste de l'avis), avec
+  // garde anti-opérateur — l'adresse du siège d'AWS France (Seyssinet-
+  // Pariset) contaminait ~14 % des fiches.
+  const addrScopes: unknown[] = buyerScope === root ? [root] : [buyerScope, root];
+  const notOperatorNode = (v: unknown) => v && typeof v === "object" && !OPERATOR_RE.test(JSON.stringify(v));
   // national: organisme.adr.{voie.nomvoie, cp, ville}
-  const adrNode: any = collect(root, ["adr"]).find((v) => v && typeof v === "object" && ("voie" in v || "cp" in v || "ville" in v));
+  const adrNode: any = addrScopes
+    .flatMap((s) => collect(s, ["adr"]))
+    .find((v: any) => notOperatorNode(v) && ("voie" in v || "cp" in v || "ville" in v));
   if (adrNode) {
     const voie = asStr(adrNode.voie?.nomvoie ?? adrNode.voie);
     const cp = asStr(adrNode.cp);
@@ -191,7 +252,9 @@ export function parseBoampDonnees(raw: unknown): BoampParsed {
     out.buyer_address = [voie, cp, v].filter(Boolean).join(", ") || undefined;
   } else {
     // eForms PostalAddress
-    const postal: any = collect(root, ["postaladdress"]).find((v) => v && typeof v === "object");
+    const postal: any = addrScopes
+      .flatMap((s) => collect(s, ["postaladdress"]))
+      .find((v) => notOperatorNode(v));
     if (postal) {
       const street = asStr(postal["cbc:StreetName"] ?? postal.StreetName);
       const cp = asStr(postal["cbc:PostalZone"] ?? postal.PostalZone);
@@ -208,9 +271,16 @@ export function parseBoampDonnees(raw: unknown): BoampParsed {
     const voie = asStr(lieu.voie?.nomvoie ?? lieu.voie);
     out.execution_location = [voie, cp, v].filter(Boolean).join(", ") || asStr(lieu);
   }
-  out.nuts_code = firstStr(collect(root, ["countrysubentitycode", "nuts", "code_nuts"]).filter((v) => {
-    const s = asStr(v); return s && /^FR/i.test(s);
-  }));
+  // NUTS : d'abord celui du lieu d'exécution, sinon celui de l'organisation
+  // acheteuse — jamais le premier trouvé dans l'avis (qui pouvait être celui
+  // de l'opérateur de publication, ex. FRK24/Isère pour AWS France).
+  const nutsFrom = (scope: unknown) =>
+    firstStr(collect(scope, ["countrysubentitycode", "nuts", "code_nuts"]).filter((v) => {
+      const s = asStr(v); return s && /^FR/i.test(s);
+    }));
+  out.nuts_code =
+    nutsFrom(collect(root, ["realizedlocation", "procurementproject", "lieuexecution", "lieu_execution"])) ??
+    nutsFrom(buyerScope);
 
   // === Critères / conditions / infos complémentaires ===
   out.award_criteria =
